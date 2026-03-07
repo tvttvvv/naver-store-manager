@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block content %}
+<h3 class="mb-4 fw-bold">교보문고 도서 정보 수집</h3>
+<div class="row">
+    <div class="col-md-4">
+        <div class="card shadow-sm border-0 mb-4">
+            <div class="card-body p-4">
+                <form id="fetchForm">
+                    <div class="mb-4">
+                        <label class="form-label fw-bold text-muted">ISBN 입력</label>
+                        <input type="text" id="isbn" name="isbn" class="form-control" placeholder="예: 9788912345678" required>
+                    </div>
+                    
+                    <button type="submit" id="submitBtn" class="btn btn-success w-100 py-2 fw-bold d-flex justify-content-center align-items-center">
+                        <span id="btnText">데이터 가져오기</span>
+                        <div id="loadingSpinner" class="spinner-border spinner-border-sm ms-2 d-none" role="status"></div>
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-8">
+        <div class="card shadow-sm border-0 h-100">
+            <div class="card-header bg-white py-3">
+                <h6 class="mb-0 fw-bold">수집 결과</h6>
+            </div>
+            <div class="card-body">
+                <div id="initialState" class="text-center py-5 text-muted">
+                    <i class="bi bi-book fs-1 mb-2"></i>
+                    <p class="mb-0">ISBN을 입력하고 데이터를 가져오세요.</p>
+                </div>
+                
+                <div id="resultArea" class="d-none">
+                    <div class="row">
+                        <div class="col-md-4 text-center mb-3">
+                            <img id="resImage" src="" alt="도서 이미지" class="img-fluid rounded shadow-sm" style="max-height: 250px;">
+                        </div>
+                        <div class="col-md-8">
+                            <h5 id="resTitle" class="fw-bold mb-3"></h5>
+                            <table class="table table-bordered table-sm">
+                                <tbody>
+                                    <tr><th class="bg-light" style="width: 100px;">출판사</th><td id="resPublisher"></td></tr>
+                                    <tr><th class="bg-light">ISBN</th><td id="resIsbn"></td></tr>
+                                    <tr><th class="bg-light">가격</th><td id="resPrice"></td></tr>
+                                    <tr><th class="bg-light">출판일</th><td id="resPubDate"></td></tr>
+                                    <tr><th class="bg-light">조회일(등록)</th><td id="resRegDate" class="text-primary fw-bold"></td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <hr>
+                    <h6 class="fw-bold">목차</h6>
+                    <div class="bg-light p-3 rounded" style="max-height: 200px; overflow-y: auto; white-space: pre-wrap;" id="resToc"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.getElementById('fetchForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const formData = new FormData(this);
+    const submitBtn = document.getElementById('submitBtn');
+    const btnText = document.getElementById('btnText');
+    const spinner = document.getElementById('loadingSpinner');
+    const initialState = document.getElementById('initialState');
+    const resultArea = document.getElementById('resultArea');
+    
+    // 로딩 시작
+    submitBtn.disabled = true;
+    btnText.textContent = '수집 중...';
+    spinner.classList.remove('d-none');
+    initialState.classList.add('d-none');
+    resultArea.classList.add('d-none');
+    
+    fetch("{{ url_for('kyobo.fetch_book') }}", {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        // 로딩 종료
+        submitBtn.disabled = false;
+        btnText.textContent = '다시 가져오기';
+        spinner.classList.add('d-none');
+        
+        if(data.success) {
+            document.getElementById('resImage').src = data.image || 'https://via.placeholder.com/150?text=No+Image';
+            document.getElementById('resTitle').textContent = data.title;
+            document.getElementById('resPublisher').textContent = data.publisher;
+            document.getElementById('resIsbn').textContent = data.isbn;
+            document.getElementById('resPrice').textContent = data.price;
+            document.getElementById('resPubDate').textContent = data.pub_date;
+            document.getElementById('resRegDate').textContent = data.reg_date;
+            document.getElementById('resToc').textContent = data.toc;
+            
+            resultArea.classList.remove('d-none');
+        } else {
+            alert(data.message);
+            initialState.innerHTML = `<i class="bi bi-x-circle text-danger fs-1 mb-2"></i><p class="mb-0 text-danger">${data.message}</p>`;
+            initialState.classList.remove('d-none');
+        }
+    })
+    .catch(error => {
+        submitBtn.disabled = false;
+        btnText.textContent = '데이터 가져오기';
+        spinner.classList.add('d-none');
+        alert("크롤링 중 서버 오류가 발생했습니다.");
+    });
+});
+</script>
+{% endblock %}
