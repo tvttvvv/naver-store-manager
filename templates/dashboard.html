@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-white"><h4 class="mb-0">상품 일괄 삭제 (ISBN 기준)</h4></div>
+    <div class="card-body">
+        <form method="POST">
+            <div class="mb-4">
+                <label class="form-label fw-bold">작업할 상점 선택</label>
+                <select name="selected_store" class="form-select form-select-lg" required>
+                    <option value="" disabled selected>상점을 선택하세요</option>
+                    {% for key in api_keys %}
+                        <option value="{{ key.id }}">{{ key.store_name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="mb-4">
+                <label class="form-label fw-bold">삭제할 ISBN 입력</label>
+                <textarea name="isbn_list" class="form-control" rows="5" placeholder="여러 개인 경우 줄바꿈으로 구분" required></textarea>
+            </div>
+            <button type="submit" class="btn btn-danger btn-lg w-100">상품 삭제 실행</button>
+        </form>
+    </div>
+</div>
+
+{% if results %}
+<div class="card shadow-sm border-success">
+    <div class="card-header bg-success text-white"><h5 class="mb-0">처리 결과</h5></div>
+    <div class="card-body">
+        <ul class="list-group">
+            {% for res in results %}
+            <li class="list-group-item d-flex justify-content-between align-items-center">
+                ISBN: {{ res.isbn }}
+                <span class="badge {% if '성공' in res.status %}bg-success{% else %}bg-danger{% endif %} rounded-pill">{{ res.status }}</span>
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
