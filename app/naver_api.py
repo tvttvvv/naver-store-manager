@@ -1,13 +1,15 @@
 import time
 import bcrypt
-import pyjwt
+import jwt  # pyjwt에서 jwt로 수정됨
 import requests
 
 def get_naver_token(client_id, client_secret):
     timestamp = str(int((time.time() - 3) * 1000))
     pwd = f"{client_id}_{timestamp}"
     hashed_pwd = bcrypt.hashpw(pwd.encode('utf-8'), client_secret.encode('utf-8'))
-    client_secret_sign = pyjwt.encode({"client_id": client_id, "timestamp": timestamp}, client_secret, algorithm="HS256")
+    
+    # pyjwt.encode 대신 jwt.encode 사용
+    client_secret_sign = jwt.encode({"client_id": client_id, "timestamp": timestamp}, client_secret, algorithm="HS256")
     
     headers = {'Content-Type': 'application/x-www-form-urlencoded'}
     data = {
