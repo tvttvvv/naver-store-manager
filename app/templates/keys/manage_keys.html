@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block content %}
+<h3 class="mb-4 fw-bold">API 키 관리</h3>
+<div class="row">
+    <div class="col-md-5">
+        <div class="card shadow-sm border-0 mb-4">
+            <div class="card-header bg-white py-3"><h6 class="mb-0 fw-bold">새 상점 연결</h6></div>
+            <div class="card-body p-4">
+                <form method="POST">
+                    <div class="mb-3"><label class="form-label text-muted small">상점 별칭 (예: 메인스토어)</label><input type="text" name="store_name" class="form-control" required></div>
+                    <div class="mb-3"><label class="form-label text-muted small">Client ID</label><input type="text" name="client_id" class="form-control" required></div>
+                    <div class="mb-4"><label class="form-label text-muted small">Client Secret</label><input type="password" name="client_secret" class="form-control" required></div>
+                    <button type="submit" class="btn btn-primary w-100 py-2">저장하기</button>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-7">
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-white py-3"><h6 class="mb-0 fw-bold">연결된 상점 목록</h6></div>
+            <div class="card-body p-0">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light"><tr><th class="ps-4">상점 이름</th><th>Client ID</th><th class="text-end pe-4">관리</th></tr></thead>
+                    <tbody>
+                        {% for key in api_keys %}
+                        <tr>
+                            <td class="ps-4 fw-bold">{{ key.store_name }}</td>
+                            <td class="text-muted font-monospace">{{ key.client_id[:8] }}********</td>
+                            <td class="text-end pe-4"><a href="{{ url_for('keys.delete_key', key_id=key.id) }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('이 상점을 삭제하시겠습니까?');">연결 해제</a></td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="3" class="text-center text-muted py-4">등록된 상점이 없습니다.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
