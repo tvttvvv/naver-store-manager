@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-5">
+        <div class="card shadow-sm">
+            <div class="card-header bg-white"><h4 class="mb-0 text-center">관리자 로그인</h4></div>
+            <div class="card-body">
+                <form method="POST">
+                    <div class="mb-3">
+                        <label class="form-label">아이디</label>
+                        <input type="text" name="username" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">비밀번호</label>
+                        <input type="password" name="password" class="form-control" required>
+                    </div>
+                    <button type="submit" class="btn btn-dark w-100">로그인</button>
+                </form>
+                <div class="text-center mt-3"><a href="{{ url_for('register') }}">계정이 없으신가요? 회원가입</a></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
