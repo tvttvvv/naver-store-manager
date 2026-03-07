@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block no_sidebar_content %}
+<div class="row justify-content-center mt-5">
+    <div class="col-md-4">
+        <div class="card shadow border-0">
+            <div class="card-body p-4">
+                <h4 class="text-center mb-4 fw-bold">관리자 계정 생성</h4>
+                <form method="POST">
+                    <div class="mb-3"><label class="form-label text-muted">아이디</label><input type="text" name="username" class="form-control" required></div>
+                    <div class="mb-4"><label class="form-label text-muted">비밀번호</label><input type="password" name="password" class="form-control" required></div>
+                    <button type="submit" class="btn btn-primary w-100 py-2">가입 완료</button>
+                </form>
+                <div class="text-center mt-3"><a href="{{ url_for('auth.login') }}" class="text-decoration-none">돌아가기</a></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
