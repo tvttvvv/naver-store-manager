@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block content %}
+<h3 class="mb-4 fw-bold">상품 일괄 삭제 (ISBN)</h3>
+<div class="row">
+    <div class="col-md-6">
+        <div class="card shadow-sm border-0 mb-4">
+            <div class="card-body p-4">
+                <form method="POST">
+                    <div class="mb-4">
+                        <label class="form-label fw-bold text-muted">대상 상점 선택</label>
+                        <select name="selected_store" class="form-select" required>
+                            <option value="" disabled selected>상점을 선택하세요</option>
+                            {% for key in api_keys %}<option value="{{ key.id }}">{{ key.store_name }}</option>{% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-4">
+                        <label class="form-label fw-bold text-muted">삭제할 ISBN 리스트</label>
+                        <textarea name="isbn_list" class="form-control" rows="8" placeholder="예: 9788912345678&#10;여러 줄로 입력 가능" required></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-danger w-100 py-2 fw-bold">작업 실행하기</button>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        {% if results %}
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-white py-3"><h6 class="mb-0 fw-bold">실행 결과 로그</h6></div>
+            <div class="card-body p-0">
+                <ul class="list-group list-group-flush">
+                    {% for res in results %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center p-3">
+                        <span class="font-monospace">{{ res.isbn }}</span>
+                        <span class="badge {% if '완료' in res.status %}bg-success{% else %}bg-danger{% endif %}">{{ res.status }}</span>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+        {% else %}
+        <div class="card shadow-sm border-0 h-100 bg-light d-flex justify-content-center align-items-center text-muted">
+            <div class="text-center py-5">
+                <i class="bi bi-clock-history fs-1 mb-2"></i>
+                <p class="mb-0">작업을 실행하면 이곳에 결과가 표시됩니다.</p>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
