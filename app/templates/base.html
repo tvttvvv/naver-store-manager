@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>커머스 멀티툴 프로</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+    <style>
+        body { min-height: 100vh; display: flex; flex-direction: column; background-color: #f8f9fa;}
+        .wrapper { display: flex; flex: 1; overflow: hidden; }
+        .sidebar { width: 250px; background-color: #212529; color: white; padding-top: 20px; min-height: 100vh;}
+        .sidebar a { color: #adb5bd; text-decoration: none; padding: 12px 20px; display: block; font-size: 15px;}
+        .sidebar a:hover, .sidebar a.active { color: #fff; background-color: #343a40; }
+        .sidebar i { margin-right: 10px; }
+        .main-content { flex: 1; padding: 30px; overflow-y: auto; }
+        .navbar-top { background-color: #fff; box-shadow: 0 2px 4px rgba(0,0,0,.05); }
+    </style>
+</head>
+<body>
+    {% if current_user.is_authenticated %}
+    <div class="wrapper">
+        <div class="sidebar">
+            <h5 class="text-center mb-4 fw-bold text-white">⚙️ 커머스 툴킷</h5>
+            <a href="{{ url_for('store.index') }}"><i class="bi bi-house-door"></i> 대시보드 홈</a>
+            
+            <p class="text-secondary small mt-4 mb-2 ms-3 fw-bold">상품 관리</p>
+            <a href="{{ url_for('store.delete_isbn') }}"><i class="bi bi-trash"></i> 상품 일괄 삭제 (ISBN)</a>
+            <p class="text-secondary small mt-4 mb-2 ms-3 fw-bold">환경 설정</p>
+            <a href="{{ url_for('keys.manage_keys') }}"><i class="bi bi-key"></i> 상점 API 키 관리</a>
+            <a href="{{ url_for('auth.logout') }}"><i class="bi bi-box-arrow-right"></i> 로그아웃</a>
+        </div>
+        
+        <div class="main-content">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}{% for category, message in messages %}
+                    <div class="alert alert-{{ category }} alert-dismissible fade show">
+                        {{ message }} <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                {% endfor %}{% endif %}
+            {% endwith %}
+            {% block content %}{% endblock %}
+        </div>
+    </div>
+    {% else %}
+    <div class="container mt-5">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}{% for category, message in messages %}
+                <div class="alert alert-{{ category }} alert-dismissible fade show">
+                    {{ message }} <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            {% endfor %}{% endif %}
+        {% endwith %}
+        {% block no_sidebar_content %}{% endblock %}
+    </div>
+    {% endif %}
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
