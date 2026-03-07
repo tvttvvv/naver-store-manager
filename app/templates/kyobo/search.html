@@ -6,9 +6,20 @@
         <div class="card shadow-sm border-0 mb-4">
             <div class="card-body p-4">
                 <form id="fetchForm">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-muted">수집 방식 선택</label>
+                        <select class="form-select" id="search_type" name="search_type">
+                            <option value="isbn">ISBN으로 검색하기</option>
+                            <option value="url">교보문고 URL 직접 입력 (HTML 파싱)</option>
+                        </select>
+                    </div>
+
                     <div class="mb-4">
-                        <label class="form-label fw-bold text-muted">ISBN 입력</label>
-                        <input type="text" id="isbn" name="isbn" class="form-control" placeholder="예: 9788912345678" required>
+                        <label class="form-label fw-bold text-muted" id="input_label">ISBN 입력</label>
+                        <input type="text" id="input_value" name="input_value" class="form-control" placeholder="예: 9788912345678" required>
+                        <div class="form-text text-secondary mt-2" id="input_help">
+                            검색이 안 될 경우 'URL 직접 입력'으로 변경하여 상품 페이지 주소를 넣으세요.
+                        </div>
                     </div>
                     
                     <button type="submit" id="submitBtn" class="btn btn-success w-100 py-2 fw-bold d-flex justify-content-center align-items-center">
@@ -28,7 +39,7 @@
             <div class="card-body">
                 <div id="initialState" class="text-center py-5 text-muted">
                     <i class="bi bi-book fs-1 mb-2"></i>
-                    <p class="mb-0">ISBN을 입력하고 데이터를 가져오세요.</p>
+                    <p class="mb-0">정보를 입력하고 데이터를 가져오세요.</p>
                 </div>
                 
                 <div id="resultArea" class="d-none">
@@ -47,11 +58,12 @@
                                     <tr><th class="bg-light">조회일(등록)</th><td id="resRegDate" class="text-primary fw-bold"></td></tr>
                                 </tbody>
                             </table>
+                            <a id="resLink" href="#" target="_blank" class="btn btn-sm btn-outline-secondary mt-2">원본 페이지 이동</a>
                         </div>
                     </div>
                     <hr>
                     <h6 class="fw-bold">목차</h6>
-                    <div class="bg-light p-3 rounded" style="max-height: 200px; overflow-y: auto; white-space: pre-wrap;" id="resToc"></div>
+                    <div class="bg-light p-3 rounded" style="max-height: 250px; overflow-y: auto; white-space: pre-wrap;" id="resToc"></div>
                 </div>
             </div>
         </div>
@@ -59,6 +71,25 @@
 </div>
 
 <script>
+// 수집 방식 변경 시 UI 텍스트 변경
+document.getElementById('search_type').addEventListener('change', function() {
+    const inputLabel = document.getElementById('input_label');
+    const inputValue = document.getElementById('input_value');
+    const inputHelp = document.getElementById('input_help');
+    
+    if(this.value === 'url') {
+        inputLabel.textContent = '상품 상세페이지 URL';
+        inputValue.placeholder = '예: https://product.kyobobook.co.kr/detail/S...';
+        inputHelp.textContent = '서버에서 해당 URL의 HTML을 직접 읽어 분석합니다.';
+    } else {
+        inputLabel.textContent = 'ISBN 입력';
+        inputValue.placeholder = '예: 9788912345678';
+        inputHelp.textContent = '검색이 안 될 경우 URL 직접 입력으로 변경하여 시도하세요.';
+    }
+    inputValue.value = '';
+});
+
+// 폼 전송 및 비동기 결과 처리
 document.getElementById('fetchForm').addEventListener('submit', function(e) {
     e.preventDefault();
     
@@ -69,9 +100,8 @@ document.getElementById('fetchForm').addEventListener('submit', function(e) {
     const initialState = document.getElementById('initialState');
     const resultArea = document.getElementById('resultArea');
     
-    // 로딩 시작
     submitBtn.disabled = true;
-    btnText.textContent = '수집 중...';
+    btnText.textContent = '서버 파싱 중...';
     spinner.classList.remove('d-none');
     initialState.classList.add('d-none');
     resultArea.classList.add('d-none');
@@ -82,7 +112,6 @@ document.getElementById('fetchForm').addEventListener('submit', function(e) {
     })
     .then(response => response.json())
     .then(data => {
-        // 로딩 종료
         submitBtn.disabled = false;
         btnText.textContent = '다시 가져오기';
         spinner.classList.add('d-none');
@@ -96,6 +125,7 @@ document.getElementById('fetchForm').addEventListener('submit', function(e) {
             document.getElementById('resPubDate').textContent = data.pub_date;
             document.getElementById('resRegDate').textContent = data.reg_date;
             document.getElementById('resToc').textContent = data.toc;
+            document.getElementById('resLink').href = data.detail_url;
             
             resultArea.classList.remove('d-none');
         } else {
