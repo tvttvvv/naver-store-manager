@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row">
+    <div class="col-md-4">
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-white"><h5>새 API 키 등록</h5></div>
+            <div class="card-body">
+                <form method="POST">
+                    <div class="mb-3">
+                        <label class="form-label">상점 이름</label>
+                        <input type="text" name="store_name" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Client ID</label>
+                        <input type="text" name="client_id" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Client Secret</label>
+                        <input type="password" name="client_secret" class="form-control" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100">등록하기</button>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-8">
+        <div class="card shadow-sm">
+            <div class="card-header bg-white"><h5>등록된 API 키 목록</h5></div>
+            <div class="card-body">
+                <table class="table table-hover align-middle">
+                    <thead class="table-light"><tr><th>상점 이름</th><th>Client ID</th><th>관리</th></tr></thead>
+                    <tbody>
+                        {% for key in api_keys %}
+                        <tr>
+                            <td><strong>{{ key.store_name }}</strong></td>
+                            <td>{{ key.client_id[:8] }}********</td>
+                            <td><a href="{{ url_for('delete_key', key_id=key.id) }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('삭제하시겠습니까?');">삭제</a></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
