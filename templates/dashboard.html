@@ -1,40 +1,141 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="card shadow-sm mb-4">
-    <div class="card-header bg-white"><h4 class="mb-0">상품 일괄 삭제 (ISBN 기준)</h4></div>
-    <div class="card-body">
-        <form method="POST">
-            <div class="mb-4">
-                <label class="form-label fw-bold">작업할 상점 선택</label>
-                <select name="selected_store" class="form-select form-select-lg" required>
-                    <option value="" disabled selected>상점을 선택하세요</option>
-                    {% for key in api_keys %}
-                        <option value="{{ key.id }}">{{ key.store_name }}</option>
+
+<ul class="nav nav-tabs mb-4" id="dashboardTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active fw-bold" id="store-tab" data-bs-toggle="tab" data-bs-target="#store-pane" type="button" role="tab" aria-controls="store-pane" aria-selected="true">
+            상품 일괄 관리 (스토어)
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link fw-bold" id="studybox-tab" data-bs-toggle="tab" data-bs-target="#studybox-pane" type="button" role="tab" aria-controls="studybox-pane" aria-selected="false">
+            스터디박스 모니터링
+        </button>
+    </li>
+</ul>
+
+<div class="tab-content" id="dashboardTabsContent">
+
+    <div class="tab-pane fade show active" id="store-pane" role="tabpanel" aria-labelledby="store-tab" tabindex="0">
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-white"><h4 class="mb-0">상품 일괄 삭제 (ISBN 기준)</h4></div>
+            <div class="card-body">
+                <form method="POST">
+                    <div class="mb-4">
+                        <label class="form-label fw-bold">작업할 상점 선택</label>
+                        <select name="selected_store" class="form-select form-select-lg" required>
+                            <option value="" disabled selected>상점을 선택하세요</option>
+                            {% for key in api_keys %}
+                                <option value="{{ key.id }}">{{ key.store_name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-4">
+                        <label class="form-label fw-bold">삭제할 ISBN 입력</label>
+                        <textarea name="isbn_list" class="form-control" rows="5" placeholder="여러 개인 경우 줄바꿈으로 구분" required></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-danger btn-lg w-100">상품 삭제 실행</button>
+                </form>
+            </div>
+        </div>
+
+        {% if results %}
+        <div class="card shadow-sm border-success">
+            <div class="card-header bg-success text-white"><h5 class="mb-0">처리 결과</h5></div>
+            <div class="card-body">
+                <ul class="list-group">
+                    {% for res in results %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        ISBN: {{ res.isbn }}
+                        <span class="badge {% if '성공' in res.status %}bg-success{% else %}bg-danger{% endif %} rounded-pill">{{ res.status }}</span>
+                    </li>
                     {% endfor %}
-                </select>
+                </ul>
             </div>
-            <div class="mb-4">
-                <label class="form-label fw-bold">삭제할 ISBN 입력</label>
-                <textarea name="isbn_list" class="form-control" rows="5" placeholder="여러 개인 경우 줄바꿈으로 구분" required></textarea>
-            </div>
-            <button type="submit" class="btn btn-danger btn-lg w-100">상품 삭제 실행</button>
-        </form>
+        </div>
+        {% endif %}
     </div>
+
+    <div class="tab-pane fade" id="studybox-pane" role="tabpanel" aria-labelledby="studybox-tab" tabindex="0">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h4 class="mb-0">키워드 및 내 상점 순위 현황</h4>
+            <button class="btn btn-dark" onclick="triggerManualUpdate()">수동 업데이트 및 Pro 연동 테스트</button>
+        </div>
+        
+        <div class="table-responsive">
+            <table class="table table-bordered text-center align-middle" style="font-size: 14px;">
+                <thead style="background-color: #00FFFF;">
+                    <tr>
+                        <th>순번</th>
+                        <th>키워드</th>
+                        <th>네이버카운트</th>
+                        <th>내상점순위</th>
+                        <th>키워드네이버링크</th>
+                        <th>출판사명</th>
+                        <th>공급률</th>
+                        <th>ISBN</th>
+                        <th>가격</th>
+                        <th>택배비</th>
+                        <th>상점 책제목</th>
+                    </tr>
+                </thead>
+                <tbody id="studybox-tbody">
+                    </tbody>
+            </table>
+        </div>
+    </div>
+
 </div>
 
-{% if results %}
-<div class="card shadow-sm border-success">
-    <div class="card-header bg-success text-white"><h5 class="mb-0">처리 결과</h5></div>
-    <div class="card-body">
-        <ul class="list-group">
-            {% for res in results %}
-            <li class="list-group-item d-flex justify-content-between align-items-center">
-                ISBN: {{ res.isbn }}
-                <span class="badge {% if '성공' in res.status %}bg-success{% else %}bg-danger{% endif %} rounded-pill">{{ res.status }}</span>
-            </li>
-            {% endfor %}
-        </ul>
-    </div>
-</div>
-{% endif %}
+<script>
+    // 탭이 열릴 때 또는 페이지 로드 시 데이터 가져오기
+    function loadStudyBoxData() {
+        fetch('/studybox/api/data')
+            .then(response => response.json())
+            .then(data => {
+                const tbody = document.getElementById('studybox-tbody');
+                tbody.innerHTML = ''; 
+                
+                data.books.forEach(book => {
+                    // 요청하신 형광 초록색 스타일
+                    const greenStyle = 'background-color: #00FF00; font-weight: bold;';
+                    
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${book.id}</td>
+                        <td style="${greenStyle}">${book.keyword}</td>
+                        <td style="${greenStyle}">${book.naver_count}</td>
+                        <td style="${greenStyle}">${book.shop_rank}</td>
+                        <td>${book.link}</td>
+                        <td>${book.publisher}</td>
+                        <td>${book.supply_rate}</td>
+                        <td>${book.isbn}</td>
+                        <td>${book.price}</td>
+                        <td>${book.shipping}</td>
+                        <td>${book.shop_title}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            })
+            .catch(error => console.error('Error fetching data:', error));
+    }
+
+    // 수동 업데이트 버튼 기능
+    function triggerManualUpdate() {
+        alert("업데이트 및 데이터를 Book 분석기 Pro로 전송합니다. 잠시만 기다려주세요.");
+        fetch('/studybox/api/manual_update', { method: 'POST' })
+            .then(response => response.json())
+            .then(data => {
+                alert(data.message);
+                loadStudyBoxData(); // 업데이트 완료 후 표 새로고침
+            })
+            .catch(error => console.error('Error:', error));
+    }
+
+    // 페이지 로드 시 스터디박스 데이터 한 번 불러오기
+    document.addEventListener("DOMContentLoaded", function() {
+        loadStudyBoxData();
+    });
+</script>
+
 {% endblock %}
