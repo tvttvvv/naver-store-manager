@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center">
+        <h4 class="mb-0">스터디박스 모니터링</h4>
+        <button class="btn btn-danger" onclick="triggerManualUpdate()">수동 업데이트 및 Pro 연동</button>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-bordered text-center align-middle" style="font-size: 14px;">
+                <thead style="background-color: #00FFFF;">
+                    <tr>
+                        <th>순번</th>
+                        <th>키워드</th>
+                        <th>네이버카운트</th>
+                        <th>내상점순위</th>
+                        <th>키워드네이버링크</th>
+                        <th>출판사명</th>
+                        <th>공급률</th>
+                        <th>ISBN</th>
+                        <th>가격</th>
+                        <th>택배비</th>
+                        <th>상점 책제목</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for book in books %}
+                    <tr>
+                        <td>{{ book.id }}</td>
+                        <td style="background-color: #00FF00; font-weight: bold;">{{ book.keyword }}</td>
+                        <td style="background-color: #00FF00; font-weight: bold;">{{ book.naver_count }}</td>
+                        <td style="background-color: #00FF00; font-weight: bold;">{{ book.shop_rank }}</td>
+                        <td>{{ book.link }}</td>
+                        <td>{{ book.publisher }}</td>
+                        <td>{{ book.supply_rate }}</td>
+                        <td>{{ book.isbn }}</td>
+                        <td>{{ book.price }}</td>
+                        <td>{{ book.shipping }}</td>
+                        <td>{{ book.shop_title }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+    function triggerManualUpdate() {
+        alert("데이터 업데이트 및 Book 분석기 Pro 전송을 시작합니다.");
+        fetch("{{ url_for('studybox.manual_update') }}", { method: 'POST' })
+            .then(response => response.json())
+            .then(data => {
+                alert(data.message);
+                location.reload(); // 성공 시 페이지 새로고침하여 데이터 반영
+            })
+            .catch(error => console.error('Error:', error));
+    }
+</script>
+
+{% endblock %}
