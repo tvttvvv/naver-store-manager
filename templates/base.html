@@ -9,113 +9,101 @@
     <style>
         body {
             background-color: #f8f9fa;
-        }
-        /* 사이드바 스타일 (사진과 동일한 어두운 색상) */
-        .sidebar {
-            background-color: #212529;
+            display: flex;
             min-height: 100vh;
+            margin: 0;
+        }
+        /* 다크 테마 좌측 사이드바 */
+        .sidebar {
+            background-color: #262b32; /* 사진과 유사한 짙은 회색/네이비톤 */
             width: 260px;
-            position: fixed;
-            top: 0;
-            left: 0;
+            color: #fff;
             padding-top: 20px;
+            flex-shrink: 0;
         }
         .sidebar-brand {
             color: #fff;
-            font-size: 1.25rem;
+            font-size: 1.3rem;
             font-weight: bold;
             text-align: center;
-            margin-bottom: 30px;
+            margin-bottom: 40px;
             text-decoration: none;
             display: block;
         }
         .sidebar-category {
-            color: #6c757d;
-            font-size: 0.8rem;
+            color: #8a939d;
+            font-size: 0.85rem;
             font-weight: bold;
-            padding: 15px 20px 5px 20px;
-            text-transform: uppercase;
+            padding: 20px 20px 10px 25px;
         }
         .sidebar .nav-link {
-            color: #adb5bd;
-            padding: 10px 20px;
-            font-size: 0.95rem;
-            transition: all 0.2s;
+            color: #cbd5e1;
+            padding: 12px 20px 12px 25px;
+            font-size: 1rem;
+            text-decoration: none;
+            display: block;
+            transition: 0.2s;
         }
-        .sidebar .nav-link:hover, .sidebar .nav-link.active {
+        .sidebar .nav-link:hover {
             color: #fff;
-            background-color: rgba(255,255,255,0.05);
+            background-color: rgba(255, 255, 255, 0.05);
         }
         .sidebar .nav-link i {
             width: 25px;
             text-align: center;
             margin-right: 10px;
         }
-        /* 메인 콘텐츠 영역 (사이드바 너비만큼 띄움) */
+        /* 메인 콘텐츠 영역 */
         .main-content {
-            margin-left: 260px;
-            padding: 30px;
+            flex-grow: 1;
+            padding: 40px;
+            background-color: #f8f9fa;
         }
     </style>
 </head>
 <body>
 
-    <div class="sidebar d-flex flex-column">
+    <div class="sidebar">
         <a href="{{ url_for('dashboard') }}" class="sidebar-brand">
             <i class="fa-solid fa-gear"></i> 커머스 툴킷
         </a>
 
         {% if current_user.is_authenticated %}
-        <ul class="nav flex-column mb-auto">
-            <li class="nav-item">
-                <a href="{{ url_for('dashboard') }}" class="nav-link">
-                    <i class="fa-solid fa-house"></i> 대시보드 홈
-                </a>
-            </li>
+        <div class="nav flex-column">
+            <a href="{{ url_for('dashboard') }}" class="nav-link">
+                <i class="fa-solid fa-house"></i> 대시보드 홈
+            </a>
 
             <div class="sidebar-category">상품 관리</div>
-            <li class="nav-item">
-                <a href="{{ url_for('dashboard') }}" class="nav-link">
-                    <i class="fa-solid fa-trash-can"></i> 상품 일괄 삭제 (ISBN)
-                </a>
-            </li>
-            <li class="nav-item">
-                <a href="#" class="nav-link">
-                    <i class="fa-solid fa-magnifying-glass"></i> 상품 중복 체크
-                </a>
-            </li>
+            <a href="{{ url_for('dashboard') }}" class="nav-link">
+                <i class="fa-solid fa-trash-can"></i> 상품 일괄 삭제 (ISBN)
+            </a>
+            <a href="#" class="nav-link">
+                <i class="fa-solid fa-magnifying-glass"></i> 상품 중복 체크
+            </a>
 
             <div class="sidebar-category">도서 정보</div>
-            <li class="nav-item">
-                <a href="#" class="nav-link">
-                    <i class="fa-solid fa-book-open"></i> 교보문고 도서 수집
-                </a>
-            </li>
+            <a href="#" class="nav-link">
+                <i class="fa-solid fa-book-open"></i> 교보문고 도서 수집
+            </a>
 
             <div class="sidebar-category">모니터링</div>
-            <li class="nav-item">
-                <a href="{{ url_for('studybox.index') }}" class="nav-link">
-                    <i class="fa-solid fa-chart-line"></i> 스터디박스 모니터링
-                </a>
-            </li>
+            <a href="{{ url_for('studybox.index') }}" class="nav-link">
+                <i class="fa-solid fa-chart-line"></i> 스터디박스 모니터링
+            </a>
 
             <div class="sidebar-category">환경 설정</div>
-            <li class="nav-item">
-                <a href="{{ url_for('manage_keys') }}" class="nav-link">
-                    <i class="fa-solid fa-key"></i> 상점 API 키 관리
-                </a>
-            </li>
-            <li class="nav-item">
-                <a href="#" class="nav-link">
-                    <i class="fa-solid fa-user-gear"></i> 계정 설정
-                </a>
-            </li>
-            <li class="nav-item mt-3">
-                <a href="{{ url_for('logout') }}" class="nav-link text-danger">
-                    <i class="fa-solid fa-right-from-bracket"></i> 로그아웃
-                </a>
-            </li>
-        </ul>
+            <a href="{{ url_for('manage_keys') }}" class="nav-link">
+                <i class="fa-solid fa-key"></i> 상점 API 키 관리
+            </a>
+            <a href="#" class="nav-link">
+                <i class="fa-solid fa-user-gear"></i> 계정 설정
+            </a>
+            
+            <a href="{{ url_for('logout') }}" class="nav-link mt-4" style="color: #cbd5e1;">
+                <i class="fa-solid fa-right-from-bracket"></i> 로그아웃
+            </a>
+        </div>
         {% endif %}
     </div>
 
