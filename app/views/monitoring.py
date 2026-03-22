@@ -7,6 +7,7 @@ from app import db
 from app.models import User, MonitoredKeyword
 import requests
 import urllib.parse
+import re
 
 monitoring_bp = Blueprint('monitoring', __name__)
 
@@ -88,7 +89,6 @@ def delete_keyword():
 def update_keyword():
     kw_id = request.form.get('id')
     kw = MonitoredKeyword.query.filter_by(id=kw_id, user_id=current_user.id).first()
-    
     if kw:
         kw.publisher = request.form.get('publisher', '-')
         kw.supply_rate = request.form.get('supply_rate', '-')
@@ -99,58 +99,53 @@ def update_keyword():
         kw.book_title = request.form.get('book_title', '-')
         kw.product_link = request.form.get('product_link', '-')
         kw.store_rank = request.form.get('store_rank', '-')
-        
         db.session.commit()
         return jsonify({'success': True})
-        
     return jsonify({'success': False, 'message': '데이터를 찾을 수 없습니다.'})
 
 
-def async_refresh_ranks(app, user_id, client_id, client_secret):
+def async_refresh_ranks(app, user_id):
     with app.app_context():
         keywords = MonitoredKeyword.query.filter_by(user_id=user_id).all()
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        
         for kw in keywords:
             kw.prev_store_rank = kw.store_rank
-            rank = "500위 밖"
+            rank = "순위 밖"
             try:
-                headers = {"X-Naver-Client-Id": client_id, "X-Naver-Client-Secret": client_secret}
-                found = False
-                for start_idx in [1, 101, 201, 301, 401]:
-                    url = f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(kw.keyword)}&display=100&start={start_idx}"
-                    res = requests.get(url, headers=headers, timeout=5)
-                    
-                    if res.status_code == 200:
-                        items = res.json().get('items', [])
-                        for idx, item in enumerate(items):
-                            if "스터디박스" in item.get('mallName', ''):
-                                rank = str(start_idx + idx)
+                url = f"https://search.shopping.naver.com/search/all?query={urllib.parse.quote(kw.keyword)}"
+                res = requests.get(url, headers=headers, timeout=5)
+                
+                if "스터디박스" in res.text:
+                    items = res.text.split('class="product_item__')
+                    found = False
+                    if len(items) > 1:
+                        for idx, item in enumerate(items[1:], start=1):
+                            if "스터디박스" in item:
+                                rank = str(idx)
                                 found = True
                                 break
-                    else:
-                        if start_idx == 1: rank = "API에러"
-                        break
-                    if found: break
-                    time.sleep(0.1) 
+                    if not found:
+                        names = re.findall(r'"mallName":"([^"]+)"', res.text)
+                        for idx, name in enumerate(names, start=1):
+                            if "스터디박스" in name:
+                                rank = str(idx)
+                                break
             except:
-                rank = "통신실패"
+                rank = "스크래핑 실패"
                 
             kw.store_rank = rank
+            time.sleep(1) # 차단 방지용 1초 휴식
             db.session.commit() 
 
 
 @monitoring_bp.route('/api/refresh_all_ranks', methods=['POST'])
 @login_required
 def refresh_all_ranks():
-    client_id = os.environ.get("NAVER_CLIENT_ID", "")
-    client_secret = os.environ.get("NAVER_CLIENT_SECRET", "")
-    
-    if not client_id or not client_secret:
-        return jsonify({'success': False, 'message': '네이버 API 환경변수(ID/SECRET)가 서버에 설정되어 있지 않습니다.'})
-    
     app = current_app._get_current_object()
     user_id = current_user.id
     
-    thread = Thread(target=async_refresh_ranks, args=(app, user_id, client_id, client_secret))
+    thread = Thread(target=async_refresh_ranks, args=(app, user_id))
     thread.start()
             
-    return jsonify({'success': True, 'message': '✅ 백그라운드에서 500위까지 심층 탐색을 시작합니다!\n(데이터 개수에 따라 1~3분 정도 소요되며, 화면에 실시간으로 반영됩니다.)'})
+    return jsonify({'success': True, 'message': '✅ 백그라운드 웹 스크래핑이 시작되었습니다!\n(데이터당 1초씩 소요되며, 화면에 실시간으로 반영됩니다.)'})
