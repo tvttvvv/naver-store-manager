@@ -10,14 +10,17 @@ def create_app():
     app = Flask(__name__)
     app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'my-super-secret-key')
     
-    # 설정하신 DATABASE_URL(볼륨 경로)을 최우선으로 가져옵니다.
+    # ✨ [핵심 복구 로직] 환경변수 세팅이 없더라도, '/app/data' 볼륨이 존재하면 무조건 그곳의 과거 DB를 우선 연결합니다!
     db_url = os.environ.get('DATABASE_URL')
-    if db_url:
-        app.config['SQLALCHEMY_DATABASE_URI'] = db_url
-    else:
-        basedir = os.path.abspath(os.path.dirname(__file__))
-        app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'app.db')
-        
+    if not db_url:
+        if os.path.exists('/app/data'):
+            # 회원님의 기존 볼륨 경로를 자동 인식!
+            db_url = 'sqlite:////app/data/app.db'
+        else:
+            basedir = os.path.abspath(os.path.dirname(__file__))
+            db_url = 'sqlite:///' + os.path.join(basedir, 'app.db')
+            
+    app.config['SQLALCHEMY_DATABASE_URI'] = db_url
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
     db.init_app(app)
