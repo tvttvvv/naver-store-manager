@@ -35,7 +35,8 @@ def receive_webhook():
                 rank_info="최상단 노출",
                 link=data.get('link', '#'),
                 shipping_fee='-', 
-                store_rank=data.get('store_rank', '-')
+                store_rank=data.get('store_rank', '-'),
+                prev_store_rank='-'
             )
             db.session.add(new_kw)
             db.session.commit()
@@ -65,7 +66,8 @@ def get_saved_keywords():
             'store_name': k.store_name,
             'book_title': k.book_title,
             'product_link': k.product_link,
-            'store_rank': k.store_rank
+            'store_rank': k.store_rank,
+            'prev_store_rank': k.prev_store_rank # ✨ 화면으로 보내기
         } for k in keywords]
     })
 
@@ -101,7 +103,6 @@ def update_keyword():
         
     return jsonify({'success': False, 'message': '데이터를 찾을 수 없습니다.'})
 
-# ✨ [신규] 버튼 하나로 모든 키워드 순위를 즉시 최신화하는 기능
 @monitoring_bp.route('/api/refresh_all_ranks', methods=['POST'])
 @login_required
 def refresh_all_ranks():
@@ -113,6 +114,8 @@ def refresh_all_ranks():
         
     keywords = MonitoredKeyword.query.filter_by(user_id=current_user.id).all()
     for kw in keywords:
+        # ✨ [핵심] 수동 새로고침 때도 과거 순위 밀어넣기
+        kw.prev_store_rank = kw.store_rank
         try:
             headers = {"X-Naver-Client-Id": client_id, "X-Naver-Client-Secret": client_secret}
             url = f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(kw.keyword)}&display=100"
