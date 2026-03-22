@@ -12,6 +12,7 @@ def create_app():
     app = Flask(__name__)
     app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'super-secret-key-change-in-production')
     
+    # [핵심] Railway 볼륨 경로 유지 (기존 데이터 보존)
     db_dir = os.environ.get('DB_DIR', '/app/data')
     if not os.path.exists(db_dir):
         os.makedirs(db_dir, exist_ok=True)
@@ -28,18 +29,18 @@ def create_app():
     def load_user(user_id):
         return User.query.get(int(user_id))
 
-    # 블루프린트 등록 (여기 들여쓰기가 중요합니다!)
+    # 블루프린트 등록
     from app.views.auth import auth_bp
     from app.views.keys import keys_bp
     from app.views.store import store_bp
     from app.views.kyobo import kyobo_bp
-    from app.views.studybox import studybox_bp
+    from app.views.studybox import studybox_bp  # ✨ 모니터링 추가
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(keys_bp)
     app.register_blueprint(store_bp)
     app.register_blueprint(kyobo_bp)
-    app.register_blueprint(studybox_bp)
+    app.register_blueprint(studybox_bp)         # ✨ 모니터링 추가
 
     with app.app_context():
         db.create_all()
