@@ -56,9 +56,6 @@ def update_ranks_job(app):
                                     rank = str(start_idx + idx)
                                     found = True
                                     break
-                        else:
-                            if start_idx == 1: rank = "API에러"
-                            break
                         if found: break
                         time.sleep(0.1) 
             except: rank = "탐색 실패"
@@ -66,9 +63,11 @@ def update_ranks_job(app):
 
             if commerce_token:
                 try:
-                    search_url = f"https://api.commerce.naver.com/external/v1/products/search?name={urllib.parse.quote(kw.keyword)}"
-                    c_headers = {"Authorization": f"Bearer {commerce_token}"}
-                    c_res = requests.get(search_url, headers=c_headers, timeout=5)
+                    search_url = "https://api.commerce.naver.com/external/v1/products/search"
+                    c_headers = {"Authorization": f"Bearer {commerce_token}", "Content-Type": "application/json"}
+                    payload = {"page": 1, "size": 10, "orderType": "NO", "name": kw.keyword}
+                    
+                    c_res = requests.post(search_url, headers=c_headers, json=payload, timeout=5)
                     if c_res.status_code == 200:
                         content = c_res.json()
                         if content.get('contents'):
