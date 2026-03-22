@@ -3,6 +3,7 @@ from flask import Flask, redirect, url_for
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
 from apscheduler.schedulers.background import BackgroundScheduler
+import time
 
 db = SQLAlchemy()
 login_manager = LoginManager()
@@ -19,22 +20,27 @@ def update_ranks_job(app):
             
         keywords = MonitoredKeyword.query.all()
         for kw in keywords:
-            # ✨ [핵심] 새 순위를 가져오기 전에, 기존 순위를 '과거 순위'로 백업!
             kw.prev_store_rank = kw.store_rank 
             try:
                 headers = {"X-Naver-Client-Id": client_id, "X-Naver-Client-Secret": client_secret}
                 url = f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(kw.keyword)}&display=100"
                 res = requests.get(url, headers=headers, timeout=5)
+                
                 if res.status_code == 200:
                     items = res.json().get('items', [])
-                    rank = "-"
+                    rank = "100위 밖" # ✨ 찾지 못했을 때의 기본값
                     for idx, item in enumerate(items):
                         if "스터디박스" in item.get('mallName', ''):
                             rank = str(idx + 1)
                             break
                     kw.store_rank = rank
+                else:
+                    kw.store_rank = "API에러" # 네이버 API 호출 횟수 초과 등 에러 시
             except:
-                pass
+                kw.store_rank = "통신실패"
+            
+            time.sleep(0.1) # ✨ 네이버 차단 방지용 0.1초 휴식
+            
         db.session.commit()
 
 def create_app():
@@ -85,13 +91,7 @@ def create_app():
             db.session.execute(db.text("ALTER TABLE monitored_keyword ADD COLUMN book_title VARCHAR(200) DEFAULT '-'"))
             db.session.execute(db.text("ALTER TABLE monitored_keyword ADD COLUMN product_link VARCHAR(500) DEFAULT '-'"))
             db.session.execute(db.text("ALTER TABLE monitored_keyword ADD COLUMN store_rank VARCHAR(50) DEFAULT '-'"))
-        except Exception:
-            db.session.rollback()
-
-        # ✨ '과거 순위' 칸 안전 생성
-        try:
             db.session.execute(db.text("ALTER TABLE monitored_keyword ADD COLUMN prev_store_rank VARCHAR(50) DEFAULT '-'"))
-            db.session.commit()
         except Exception:
             db.session.rollback()
 
