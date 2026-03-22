@@ -8,17 +8,22 @@ def get_naver_token(client_id, client_secret):
     url = "https://api.commerce.naver.com/external/v1/oauth2/token"
     timestamp = str(int(time.time() * 1000))
     
+    # 1. 입력된 키값의 앞뒤 공백(띄어쓰기, 줄바꿈) 자동 제거 (휴먼 에러 방지)
+    clean_client_id = client_id.strip()
+    clean_client_secret = client_secret.strip()
+    
     try:
-        password = f"{client_id}_{timestamp}"
-        hashed = bcrypt.hashpw(password.encode('utf-8'), client_secret.encode('utf-8'))
+        # 네이버 커머스 공식 암호화 규격 적용
+        password = f"{clean_client_id}_{timestamp}"
+        hashed = bcrypt.hashpw(password.encode('utf-8'), clean_client_secret.encode('utf-8'))
         signature = base64.b64encode(hashed).decode('utf-8')
     except Exception as e:
-        print("Token Error:", e)
+        print(f"\n[❌ API 토큰 오류] 서명 생성 실패 (Secret 키 형식이 잘못되었습니다): {e}\n")
         return None
 
     headers = {'Content-Type': 'application/x-www-form-urlencoded'}
     data = {
-        'client_id': client_id,
+        'client_id': clean_client_id,
         'timestamp': timestamp,
         'client_secret_sign': signature,
         'grant_type': 'client_credentials',
@@ -26,9 +31,16 @@ def get_naver_token(client_id, client_secret):
     }
     
     res = requests.post(url, headers=headers, data=data)
+    
+    # 2. 결과 처리 및 로그 상세 출력
     if res.status_code == 200:
+        print("\n[✅ API 인증 성공] 네이버 토큰 발급 완료\n")
         return res.json().get('access_token')
-    return None
+    else:
+        print(f"\n[❌ API 인증 실패] 네이버가 토큰 발급을 거부했습니다.")
+        print(f"- HTTP 상태 코드: {res.status_code}")
+        print(f"- 네이버 상세 에러 메시지: {res.text}\n")
+        return None
 
 def find_product_by_isbn(token, isbn):
     """판매자 관리코드 또는 상품명에 ISBN이 포함된 상품의 원본번호와 채널번호 반환"""
