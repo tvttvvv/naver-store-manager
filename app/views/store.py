@@ -45,13 +45,15 @@ def update_task(user_id, store_id, status=None, message=None, current=None, tota
     if s_count is not None: t['success_count'] = s_count
     if f_count is not None: t['fail_count'] = f_count
 
+    # ✨ 로그 버그 해결: 최신 50개만 롤링 저장하여 프론트엔드에 통째로 덮어씌움 (메모리 누수 방지)
     if target_name and result_status:
         log_type = 'success' if '완료' in result_status or '우회' in result_status else 'danger'
         if '안내' in target_name or '에러' in target_name:
             log_type = 'info' if '안내' in target_name else 'danger'
 
         t['logs'].append({'type': log_type, 'target': target_name, 'statusMsg': result_status})
-        if len(t['logs']) > 300: t['logs'].pop(0)
+        if len(t['logs']) > 50: 
+            t['logs'].pop(0)
 
 def background_delete_job(app, store_id, delete_mode, isbn_list, user_id):
     with app.app_context():
@@ -109,7 +111,7 @@ def background_delete_job(app, store_id, delete_mode, isbn_list, user_id):
                     for i in range(0, len(suspend_targets), 500):
                         if not global_tasks[user_id][store_id]['is_running']: break
                         batch = suspend_targets[i:i+500]
-                        update_task(user_id, store_id, status='info', message=f'실패 상품 {len(batch)}개 초고속 중지 처리 중...')
+                        update_task(user_id, store_id, status='info', message=f'실패 상품 {len(batch)}개 묶음 중지 처리 중...')
                         suspend_res = suspend_products_in_bulk(token, batch)
                         
                         for c_no in batch:
@@ -213,83 +215,6 @@ def background_delete_job(app, store_id, delete_mode, isbn_list, user_id):
                     
                 if not global_tasks[user_id][store_id]['is_running']: update_task(user_id, store_id, status='error', message='긴급 정지됨.')
                 else: update_task(user_id, store_id, status='done', message='모든 상품 하이브리드 작업 완료!')
-
-            elif delete_mode == 'suspend_all':
-                # ✨ [신규] 완전삭제 시도 없이 모아서 500개씩 바로 중지시켜버리는 미친 속도의 초고속 모드 ✨
-                update_task(user_id, store_id, status='start', total=0, message='🚀 완전 삭제 생략! 500개 묶음 초고속 중지 모드 가동!')
-                url = "https://api.commerce.naver.com/external/v1/products/search"
-                headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
-                processed_ids = set()
-                page = 1
-                current_count, success_count, fail_count = 0, 0, 0
-                session = requests.Session()
-                suspend_targets = []
-                item_details = {}
-                
-                while True:
-                    if not global_tasks[user_id][store_id]['is_running']: break
-                    
-                    payload = {"page": page, "size": 50, "orderType": "NO"}
-                    try: res = session.post(url, headers=headers, json=payload, timeout=10)
-                    except: time.sleep(2); continue
-
-                    if res.status_code != 200:
-                        update_task(user_id, store_id, status='error', message=f'API 호출 실패 ({res.status_code})')
-                        return
-                        
-                    contents = res.json().get('contents', [])
-                    if not contents:
-                        # 페이지 끝 도달 시 모여있는 남은 찌꺼기 털어내기
-                        if suspend_targets and global_tasks[user_id][store_id]['is_running']:
-                            update_task(user_id, store_id, status='info', message=f'마지막 남은 {len(suspend_targets)}개 일괄 중지 전송 중!')
-                            suspend_res = suspend_products_in_bulk(token, suspend_targets)
-                            for c_no in suspend_targets:
-                                origin_no, name = item_details[c_no]
-                                current_count += 1
-                                if '완료' in suspend_res or '우회' in suspend_res: success_count += 1
-                                else: fail_count += 1
-                                update_task(user_id, store_id, status='progress', current=current_count, target_name=f'[{origin_no}] {name[:15]}...', result_status=suspend_res, s_count=success_count, f_count=fail_count)
-                        break
-                        
-                    new_items = [p for p in contents if p.get('originProductNo') not in processed_ids]
-                    if not new_items:
-                        page += 1
-                        update_task(user_id, store_id, status='info', message=f'상품 탐색 중... ({page}페이지)')
-                        time.sleep(0.1)
-                        continue
-                        
-                    for p in new_items:
-                        origin_no = p.get('originProductNo')
-                        channel_no = p.get('channelProducts', [{}])[0].get('channelProductNo') if p.get('channelProducts') else None
-                        name = p.get('channelProducts', [{}])[0].get('name', '이름 없음') if p.get('channelProducts') else '이름 없음'
-                        processed_ids.add(origin_no)
-                        
-                        if channel_no:
-                            suspend_targets.append(channel_no)
-                            item_details[channel_no] = (origin_no, name)
-                        else:
-                            fail_count += 1
-
-                    # 500개가 모이는 즉시 네이버에 한 방에 던짐! (완전삭제 시도 과정 없음 -> 속도 극대화)
-                    if len(suspend_targets) >= 500 and global_tasks[user_id][store_id]['is_running']:
-                        batch = suspend_targets[:500]
-                        suspend_targets = suspend_targets[500:] # 나머지 킵해두기
-                        
-                        update_task(user_id, store_id, status='info', message='✨ 500개 확보! 초고속 묶음 중지 전송 중 ✨')
-                        suspend_res = suspend_products_in_bulk(token, batch)
-                        
-                        for c_no in batch:
-                            origin_no, name = item_details[c_no]
-                            current_count += 1
-                            if '완료' in suspend_res or '우회' in suspend_res: success_count += 1
-                            else: fail_count += 1
-                            update_task(user_id, store_id, status='progress', current=current_count, target_name=f'[{origin_no}] {name[:15]}...', result_status=suspend_res, s_count=success_count, f_count=fail_count)
-                            
-                    page += 1 
-                    time.sleep(0.2)
-                    
-                if not global_tasks[user_id][store_id]['is_running']: update_task(user_id, store_id, status='error', message='긴급 정지됨.')
-                else: update_task(user_id, store_id, status='done', message='초고속 500개 일괄 묶음 중지 싹쓸이 완료!')
 
         except Exception as e:
             update_task(user_id, store_id, status='error', message=f'서버 내부 오류: {str(e)}')
