@@ -40,8 +40,6 @@ def handle_keys():
         
     return render_template('keys/index.html', api_key=api_key)
 
-
-# ✨ [해결] 화면(base.html)이 어떤 이름으로 찾을지 몰라 예상되는 3개의 문을 모두 열어둡니다!
 @keys_bp.route('/', methods=['GET', 'POST'], endpoint='index')
 @login_required
 def index():
@@ -55,4 +53,10 @@ def api_keys():
 @keys_bp.route('/manage', methods=['GET', 'POST'], endpoint='manage')
 @login_required
 def manage():
+    return handle_keys()
+
+# ✨ [완벽 해결] base.html이 애타게 찾고 있던 바로 그 이름입니다!
+@keys_bp.route('/manage_keys', methods=['GET', 'POST'], endpoint='manage_keys')
+@login_required
+def manage_keys():
     return handle_keys()
