@@ -53,7 +53,6 @@ def get_saved_keywords():
         } for k in keywords]
     })
 
-# 🚨 제가 실수로 빼먹었던 삭제 및 수정 기능 복구 완료!
 @monitoring_bp.route('/api/delete_keyword', methods=['POST'])
 @login_required
 def delete_keyword():
@@ -83,7 +82,6 @@ def update_keyword():
         return jsonify({'success': True})
     return jsonify({'success': False, 'message': '데이터를 찾을 수 없습니다.'})
 
-
 def get_commerce_token(client_id, client_secret):
     try:
         timestamp = str(int(time.time() * 1000))
@@ -106,9 +104,9 @@ def async_refresh_ranks(app, user_id, search_client_id, search_client_secret):
 
         for kw in keywords:
             kw.prev_store_rank = kw.store_rank
+            kw.store_rank = "500위 밖"
             
             # 1. 네이버 쇼핑 일반 API로 순위 검색
-            kw.store_rank = "500위 밖"
             try:
                 if search_client_id and search_client_secret:
                     api_headers = {"X-Naver-Client-Id": search_client_id, "X-Naver-Client-Secret": search_client_secret}
@@ -124,7 +122,7 @@ def async_refresh_ranks(app, user_id, search_client_id, search_client_secret):
                         time.sleep(0.1)
             except: kw.store_rank = "탐색 실패"
 
-            # 2. 커머스 API로 상점 상세 데이터 긁어오기 (이름 매칭 필터링 적용)
+            # ✨ 2. 커머스 API 완벽 추출 모드 (이름 빈칸 오류 해결)
             if commerce_token:
                 try:
                     search_url = "https://api.commerce.naver.com/external/v1/products/search"
@@ -140,42 +138,49 @@ def async_refresh_ranks(app, user_id, search_client_id, search_client_secret):
                             o_no = p.get('originProductNo')
                             if not o_no: continue
                             
-                            detail_url = f"https://api.commerce.naver.com/external/v2/products/origin-products/{o_no}"
-                            d_res = requests.get(detail_url, headers=c_headers, timeout=5)
+                            # ✨ 숨어있던 스마트스토어(채널) 상품명을 직접 빼옵니다!
+                            c_prods = p.get('channelProducts', [])
+                            channel_name = c_prods[0].get('name', '') if c_prods else p.get('name', '')
+                            clean_channel_name = channel_name.replace(" ", "").lower()
                             
-                            if d_res.status_code == 200:
-                                d_data = d_res.json()
-                                real_name = d_data.get('name', '')
-                                clean_real_name = real_name.replace(" ", "").lower()
+                            # 키워드가 실제 상품명에 포함되어 있는지 정확히 검사
+                            if target_kw_clean in clean_channel_name:
+                                # [기본 정보 채우기]
+                                kw.book_title = channel_name
+                                kw.store_name = api_key.store_name if api_key else "스터디박스"
+                                kw.supply_rate = "-" # 요청하신 대로 공급률은 제외(초기화)합니다.
                                 
-                                # ✨ [필터] 키워드가 상품명에 정확히 포함되어 있을 때만 데이터 수집
-                                if target_kw_clean in clean_real_name:
-                                    c_prods = p.get('channelProducts', [])
-                                    if c_prods:
-                                        c_no = c_prods[0].get('channelProductNo')
-                                        kw.product_link = f"https://smartstore.naver.com/main/products/{c_no}"
+                                c_no = c_prods[0].get('channelProductNo') if c_prods else None
+                                if c_no: kw.product_link = f"https://smartstore.naver.com/main/products/{c_no}"
+                                
+                                sale_price = c_prods[0].get('salePrice') if c_prods else p.get('salePrice')
+                                if sale_price is not None: kw.price = f"{sale_price:,}원"
+                                
+                                # [상세 정보 채우기: 택배비, ISBN, 출판사]
+                                detail_url = f"https://api.commerce.naver.com/external/v2/products/origin-products/{o_no}"
+                                d_res = requests.get(detail_url, headers=c_headers, timeout=5)
+                                if d_res.status_code == 200:
+                                    d_data = d_res.json()
                                     
-                                    kw.book_title = real_name
-                                    kw.store_name = api_key.store_name if api_key else "스터디박스"
-                                    sale_price = d_data.get('salePrice')
-                                    if sale_price is not None: kw.price = f"{sale_price:,}원"
-                                    
-                                    delivery = d_data.get('deliveryInfo', {}).get('deliveryFee', {})
-                                    base_fee = delivery.get('baseFee')
+                                    # 택배비
+                                    base_fee = d_data.get('deliveryInfo', {}).get('deliveryFee', {}).get('baseFee')
                                     if base_fee is not None:
                                         kw.shipping_fee = "무료" if base_fee == 0 else f"{base_fee:,}원"
                                     
+                                    # ISBN, 출판사
                                     book_info = d_data.get('detailAttribute', {}).get('bookInfo', {})
                                     if book_info:
                                         kw.isbn = book_info.get('isbn', '-')
                                         kw.publisher = book_info.get('publisher', '-')
-                                    
-                                    break 
-                            time.sleep(0.2) 
-                except: pass
+                                
+                                break # 매칭되는 상품 1개를 완벽하게 찾았으니, 다음 키워드로 넘어갑니다.
+                            
+                except Exception as e:
+                    pass
 
+            # 데이터가 들어올 때마다 즉시 저장하여 화면 갱신 속도를 높입니다.
             db.session.commit()
-            time.sleep(0.3)
+            time.sleep(0.2)
 
 @monitoring_bp.route('/api/refresh_all_ranks', methods=['POST'])
 @login_required
@@ -186,4 +191,4 @@ def refresh_all_ranks():
     user_id = current_user.id
     thread = Thread(target=async_refresh_ranks, args=(app, user_id, search_id, search_pw))
     thread.start()
-    return jsonify({'success': True, 'message': '✅ 전체 순위 및 상품 정보 동기화가 시작되었습니다!'})
+    return jsonify({'success': True, 'message': '✅ 전체 순위 및 상품 정보 동기화가 시작되었습니다!\n잠시 후 화면을 확인해주세요.'})
