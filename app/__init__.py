@@ -10,8 +10,14 @@ def create_app():
     app = Flask(__name__)
     app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'my-super-secret-key')
     
-    basedir = os.path.abspath(os.path.dirname(__file__))
-    app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///' + os.path.join(basedir, 'app.db'))
+    # 설정하신 DATABASE_URL(볼륨 경로)을 최우선으로 가져옵니다.
+    db_url = os.environ.get('DATABASE_URL')
+    if db_url:
+        app.config['SQLALCHEMY_DATABASE_URI'] = db_url
+    else:
+        basedir = os.path.abspath(os.path.dirname(__file__))
+        app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'app.db')
+        
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
     db.init_app(app)
@@ -27,7 +33,14 @@ def create_app():
         return User.query.get(int(user_id))
 
     with app.app_context():
+        # 볼륨 폴더가 아직 생성되지 않았다면 파이썬이 알아서 폴더를 만들어 줍니다.
+        if db_url and db_url.startswith('sqlite:////'):
+            db_path = db_url.replace('sqlite:///', '')
+            os.makedirs(os.path.dirname(db_path), exist_ok=True)
+
         db.create_all()
+        
+        # 기존 데이터 보존 및 새로운 칸(컬럼) 안전 추가 로직
         try:
             db.session.execute(db.text("ALTER TABLE monitored_keyword ADD COLUMN publisher VARCHAR(100) DEFAULT '-'"))
             db.session.execute(db.text("ALTER TABLE monitored_keyword ADD COLUMN supply_rate VARCHAR(50) DEFAULT '-'"))
@@ -39,7 +52,6 @@ def create_app():
         except Exception:
             db.session.rollback()
 
-        # ✨ [신규 추가] 링크 및 순위 칸 안전하게 DB에 밀어넣기
         try:
             db.session.execute(db.text("ALTER TABLE monitored_keyword ADD COLUMN product_link VARCHAR(500) DEFAULT '-'"))
             db.session.execute(db.text("ALTER TABLE monitored_keyword ADD COLUMN store_rank VARCHAR(50) DEFAULT '1'"))
