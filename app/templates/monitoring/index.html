@@ -18,6 +18,32 @@
                         수동 업데이트 및 Pro 연동
                     </button>
                 </div>
+
+                <div class="d-flex align-items-center mb-3 p-2 bg-light rounded border flex-wrap gap-2">
+                    
+                    <div class="d-flex align-items-center">
+                        <i class="bi bi-search text-secondary ms-1 me-2"></i>
+                        <select id="searchCategory" class="form-select form-select-sm w-auto me-2 fw-bold" style="cursor: pointer;">
+                            <option value="all">전체 검색</option>
+                            <option value="keyword">키워드</option>
+                            <option value="publisher">출판사명</option>
+                            <option value="isbn">ISBN</option>
+                        </select>
+                        <input type="text" id="searchInput" class="form-control form-control-sm" style="width: 200px;" placeholder="검색어를 입력하세요...">
+                    </div>
+                    
+                    <div class="vr mx-2 d-none d-md-block"></div>
+                    
+                    <div class="d-flex align-items-center">
+                        <i class="bi bi-sort-down text-secondary me-2"></i>
+                        <select id="sortOption" class="form-select form-select-sm w-auto fw-bold text-primary" style="cursor: pointer; border-color: #0d6efd;">
+                            <option value="recent">최근 등록순</option>
+                            <option value="vol_desc">네이버 검색량 높은순</option>
+                            <option value="vol_asc">네이버 검색량 낮은순</option>
+                        </select>
+                    </div>
+                    
+                </div>
                 
                 <div class="table-responsive border rounded" style="max-height: 600px; overflow-y: auto;">
                     <table class="table table-bordered text-center align-middle mb-0" style="font-size: 0.85rem; white-space: nowrap;">
@@ -39,7 +65,7 @@
                             </tr>
                         </thead>
                         <tbody id="savedKeywordsBody">
-                            <tr><td colspan="13" class="text-center py-5 text-muted">데이터를 기다리는 중입니다...</td></tr>
+                            <tr><td colspan="13" class="text-center py-5 text-muted">데이터를 가져오는 중입니다...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -63,56 +89,117 @@
 
 <script>
     let isEditing = false; 
+    let allKeywordsData = []; 
+    let searchCategory = 'all';
+    let searchQuery = '';
+    let currentSort = 'recent'; // 기본 정렬 상태
+
+    // 검색어 입력 이벤트
+    document.getElementById('searchInput').addEventListener('input', function(e) {
+        searchQuery = e.target.value.toLowerCase();
+        renderTable();
+    });
+
+    // 검색 카테고리 변경 이벤트
+    document.getElementById('searchCategory').addEventListener('change', function(e) {
+        searchCategory = e.target.value;
+        renderTable();
+    });
+
+    // ✨ 정렬 기준 변경 이벤트 ✨
+    document.getElementById('sortOption').addEventListener('change', function(e) {
+        currentSort = e.target.value;
+        renderTable();
+    });
 
     async function loadSavedKeywords() {
         if (isEditing) return; 
 
-        const tbody = document.getElementById('savedKeywordsBody');
         try {
             const res = await fetch("{{ url_for('monitoring.get_saved_keywords') }}");
             const result = await res.json();
             
-            if (result.success && result.data.length > 0) {
-                tbody.innerHTML = result.data.map((k, index) => {
-                    // 사용자가 링크를 입력했으면 클릭 가능한 버튼 생성
-                    let linkBtn = '<span class="text-muted">-</span>';
-                    if (k.product_link !== '-' && k.product_link !== '') {
-                        let finalUrl = k.product_link.startsWith('http') ? k.product_link : 'http://' + k.product_link;
-                        linkBtn = `<a href="${finalUrl}" target="_blank" class="btn btn-sm btn-outline-primary py-0 px-2 text-decoration-none"><i class="bi bi-link-45deg"></i> 상품</a>`;
-                    }
-
-                    return `
-                    <tr>
-                        <td class="align-middle">${index + 1}</td>
-                        <td class="align-middle bg-neon-green">${k.keyword}</td>
-                        <td class="align-middle bg-neon-green">업데이트됨<br><span class="small fw-normal">(${k.search_volume.toLocaleString()})</span></td>
-                        
-                        <td class="align-middle bg-neon-green fw-bold text-dark" id="rank_${k.id}" data-val="${k.store_rank}">${k.store_rank}</td>
-                        
-                        <td class="align-middle"><a href="${k.link}" target="_blank" class="btn btn-sm btn-outline-secondary py-0 px-2 text-decoration-none"><i class="bi bi-search"></i> 키워드</a></td>
-                        
-                        <td class="align-middle" id="plink_${k.id}" data-val="${k.product_link}">${linkBtn}</td>
-                        
-                        <td class="align-middle text-muted" id="pub_${k.id}" data-val="${k.publisher}">${k.publisher}</td>
-                        <td class="align-middle text-muted" id="sup_${k.id}" data-val="${k.supply_rate}">${k.supply_rate}</td>
-                        <td class="align-middle text-muted fw-bold text-dark" id="isbn_${k.id}" data-val="${k.isbn}">${k.isbn}</td>
-                        <td class="align-middle text-muted" id="price_${k.id}" data-val="${k.price}">${k.price}</td>
-                        <td class="align-middle fw-bold text-secondary" id="ship_${k.id}" data-val="${k.shipping_fee}">${k.shipping_fee}</td>
-                        <td class="align-middle text-muted" id="store_${k.id}" data-val="${k.store_name}">${k.store_name}</td>
-                        <td class="align-middle text-muted" id="title_${k.id}" data-val="${k.book_title}">${k.book_title}</td>
-                        
-                        <td class="align-middle" id="action_${k.id}">
-                            <button class="btn btn-sm btn-primary py-0 px-2" onclick="editKeyword(${k.id})" title="수정"><i class="bi bi-pencil-square"></i></button>
-                            <button class="btn btn-sm btn-danger py-0 px-2" onclick="deleteKeyword(${k.id})" title="삭제"><i class="bi bi-trash"></i></button>
-                        </td>
-                    </tr>
-                    `;
-                }).join('');
-            } else {
-                tbody.innerHTML = '<tr><td colspan="13" class="text-center py-5 text-muted">도서 분석기에서 A등급 키워드가 발견되면 여기에 자동으로 추가됩니다.</td></tr>';
+            if (result.success) {
+                allKeywordsData = result.data;
+                renderTable(); 
             }
         } catch (e) {
             console.error(e);
+        }
+    }
+
+    function renderTable() {
+        if (isEditing) return;
+        const tbody = document.getElementById('savedKeywordsBody');
+
+        // 1. 검색어에 맞게 데이터 걸러내기 (필터링)
+        let filteredData = allKeywordsData.filter(k => {
+            if (!searchQuery) return true; 
+            
+            const kw = (k.keyword || '').toLowerCase();
+            const pub = (k.publisher || '').toLowerCase();
+            const isbn = (k.isbn || '').toLowerCase();
+
+            if (searchCategory === 'keyword') return kw.includes(searchQuery);
+            if (searchCategory === 'publisher') return pub.includes(searchQuery);
+            if (searchCategory === 'isbn') return isbn.includes(searchQuery);
+            if (searchCategory === 'all') return kw.includes(searchQuery) || pub.includes(searchQuery) || isbn.includes(searchQuery);
+            
+            return true;
+        });
+
+        // ✨ 2. 선택한 기준에 맞게 데이터 정렬하기 (소팅) ✨
+        if (currentSort === 'vol_desc') {
+            filteredData.sort((a, b) => b.search_volume - a.search_volume);
+        } else if (currentSort === 'vol_asc') {
+            filteredData.sort((a, b) => a.search_volume - b.search_volume);
+        } else {
+            // recent (최근 등록순): ID가 클수록 최근에 들어온 데이터
+            filteredData.sort((a, b) => b.id - a.id);
+        }
+
+        // 3. 걸러지고 정렬된 데이터로 HTML 그리기
+        if (filteredData.length > 0) {
+            tbody.innerHTML = filteredData.map((k, index) => {
+                let linkBtn = '<span class="text-muted">-</span>';
+                if (k.product_link !== '-' && k.product_link !== '') {
+                    let finalUrl = k.product_link.startsWith('http') ? k.product_link : 'http://' + k.product_link;
+                    linkBtn = `<a href="${finalUrl}" target="_blank" class="btn btn-sm btn-outline-primary py-0 px-2 text-decoration-none"><i class="bi bi-link-45deg"></i> 상품</a>`;
+                }
+
+                return `
+                <tr>
+                    <td class="align-middle">${index + 1}</td>
+                    <td class="align-middle bg-neon-green">${k.keyword}</td>
+                    <td class="align-middle bg-neon-green fs-6">${k.search_volume.toLocaleString()}</td>
+                    
+                    <td class="align-middle bg-neon-green fw-bold text-dark" id="rank_${k.id}" data-val="${k.store_rank}">${k.store_rank}</td>
+                    
+                    <td class="align-middle"><a href="${k.link}" target="_blank" class="btn btn-sm btn-outline-secondary py-0 px-2 text-decoration-none"><i class="bi bi-search"></i> 키워드</a></td>
+                    
+                    <td class="align-middle" id="plink_${k.id}" data-val="${k.product_link}">${linkBtn}</td>
+                    
+                    <td class="align-middle text-muted" id="pub_${k.id}" data-val="${k.publisher}">${k.publisher}</td>
+                    <td class="align-middle text-muted" id="sup_${k.id}" data-val="${k.supply_rate}">${k.supply_rate}</td>
+                    <td class="align-middle text-muted fw-bold text-dark" id="isbn_${k.id}" data-val="${k.isbn}">${k.isbn}</td>
+                    <td class="align-middle text-muted" id="price_${k.id}" data-val="${k.price}">${k.price}</td>
+                    <td class="align-middle fw-bold text-secondary" id="ship_${k.id}" data-val="${k.shipping_fee}">${k.shipping_fee}</td>
+                    <td class="align-middle text-muted" id="store_${k.id}" data-val="${k.store_name}">${k.store_name}</td>
+                    <td class="align-middle text-muted" id="title_${k.id}" data-val="${k.book_title}">${k.book_title}</td>
+                    
+                    <td class="align-middle" id="action_${k.id}">
+                        <button class="btn btn-sm btn-primary py-0 px-2" onclick="editKeyword(${k.id})" title="수정"><i class="bi bi-pencil-square"></i></button>
+                        <button class="btn btn-sm btn-danger py-0 px-2" onclick="deleteKeyword(${k.id})" title="삭제"><i class="bi bi-trash"></i></button>
+                    </td>
+                </tr>
+                `;
+            }).join('');
+        } else {
+            if (allKeywordsData.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="13" class="text-center py-5 text-muted">도서 분석기에서 A등급 키워드가 발견되면 여기에 자동으로 추가됩니다.</td></tr>';
+            } else {
+                tbody.innerHTML = '<tr><td colspan="13" class="text-center py-5 text-danger fw-bold">검색 결과가 없습니다.</td></tr>';
+            }
         }
     }
 
@@ -125,7 +212,6 @@
             const val = td.getAttribute('data-val'); 
             
             const cleanVal = (val !== '-') ? val : '';
-            // 상품링크 칸은 주소가 기니까 조금 더 넓게 표시
             const extraClass = (f === 'plink' || f === 'title') ? 'w-100' : 'edit-input';
             td.innerHTML = `<input type="text" id="in_${f}_${id}" class="form-control form-control-sm px-1 py-0 ${extraClass}" value="${cleanVal}" placeholder="${f==='plink'?'주소입력':''}">`;
         });
@@ -139,7 +225,7 @@
 
     function cancelEdit(id) {
         isEditing = false; 
-        loadSavedKeywords(); 
+        renderTable(); 
     }
 
     async function saveKeyword(id) {
@@ -174,7 +260,7 @@
 
     document.addEventListener("DOMContentLoaded", () => {
         loadSavedKeywords();
-        setInterval(loadSavedKeywords, 2000);
+        setInterval(loadSavedKeywords, 2000); // 2초마다 갱신
     });
 </script>
 {% endblock %}
