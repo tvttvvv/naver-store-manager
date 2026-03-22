@@ -28,7 +28,6 @@ def create_app():
 
     with app.app_context():
         db.create_all()
-        # ✨ [핵심] 기존 데이터를 보존하면서 새로운 정보 칸(컬럼)만 안전하게 추가! ✨
         try:
             db.session.execute(db.text("ALTER TABLE monitored_keyword ADD COLUMN publisher VARCHAR(100) DEFAULT '-'"))
             db.session.execute(db.text("ALTER TABLE monitored_keyword ADD COLUMN supply_rate VARCHAR(50) DEFAULT '-'"))
@@ -37,9 +36,16 @@ def create_app():
             db.session.execute(db.text("ALTER TABLE monitored_keyword ADD COLUMN shipping_fee VARCHAR(50) DEFAULT '무료'"))
             db.session.execute(db.text("ALTER TABLE monitored_keyword ADD COLUMN store_name VARCHAR(100) DEFAULT '-'"))
             db.session.execute(db.text("ALTER TABLE monitored_keyword ADD COLUMN book_title VARCHAR(200) DEFAULT '-'"))
+        except Exception:
+            db.session.rollback()
+
+        # ✨ [신규 추가] 링크 및 순위 칸 안전하게 DB에 밀어넣기
+        try:
+            db.session.execute(db.text("ALTER TABLE monitored_keyword ADD COLUMN product_link VARCHAR(500) DEFAULT '-'"))
+            db.session.execute(db.text("ALTER TABLE monitored_keyword ADD COLUMN store_rank VARCHAR(50) DEFAULT '1'"))
             db.session.commit()
         except Exception:
-            db.session.rollback() # 이미 칸이 만들어져 있으면 무시하고 넘어갑니다.
+            db.session.rollback()
 
     from app.views.auth import auth_bp
     from app.views.store import store_bp
