@@ -3,6 +3,8 @@ from flask import Blueprint, render_template, request, jsonify
 from flask_login import login_required, current_user
 from app import db
 from app.models import User, MonitoredKeyword
+import requests
+import urllib.parse
 
 monitoring_bp = Blueprint('monitoring', __name__)
 
@@ -33,7 +35,6 @@ def receive_webhook():
                 rank_info="최상단 노출",
                 link=data.get('link', '#'),
                 shipping_fee='-', 
-                # ✨ [핵심 수정] 1번 서버가 API로 알아낸 순위를 받습니다. (없거나 못 찾으면 '-')
                 store_rank=data.get('store_rank', '-')
             )
             db.session.add(new_kw)
@@ -99,3 +100,33 @@ def update_keyword():
         return jsonify({'success': True})
         
     return jsonify({'success': False, 'message': '데이터를 찾을 수 없습니다.'})
+
+# ✨ [신규] 버튼 하나로 모든 키워드 순위를 즉시 최신화하는 기능
+@monitoring_bp.route('/api/refresh_all_ranks', methods=['POST'])
+@login_required
+def refresh_all_ranks():
+    client_id = os.environ.get("NAVER_CLIENT_ID", "")
+    client_secret = os.environ.get("NAVER_CLIENT_SECRET", "")
+    
+    if not client_id or not client_secret:
+        return jsonify({'success': False, 'message': '네이버 API 환경변수(ID/SECRET)가 서버에 설정되어 있지 않습니다.'})
+        
+    keywords = MonitoredKeyword.query.filter_by(user_id=current_user.id).all()
+    for kw in keywords:
+        try:
+            headers = {"X-Naver-Client-Id": client_id, "X-Naver-Client-Secret": client_secret}
+            url = f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(kw.keyword)}&display=100"
+            res = requests.get(url, headers=headers, timeout=5)
+            if res.status_code == 200:
+                items = res.json().get('items', [])
+                rank = "-"
+                for idx, item in enumerate(items):
+                    if "스터디박스" in item.get('mallName', ''):
+                        rank = str(idx + 1)
+                        break
+                kw.store_rank = rank
+        except:
+            pass
+            
+    db.session.commit()
+    return jsonify({'success': True, 'message': '모든 키워드의 스터디박스 순위가 최신화되었습니다.'})
