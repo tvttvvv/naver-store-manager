@@ -2,28 +2,44 @@
 {% block content %}
 <h3 class="mb-4 fw-bold">상품 삭제 관리</h3>
 <div class="row">
-    <div class="col-md-6">
+    <div class="col-md-5">
         <div class="card shadow-sm border-0 mb-4">
             <div class="card-body p-4">
                 <form id="deleteForm">
+                    
                     <div class="mb-4">
-                        <label class="form-label fw-bold text-muted">대상 상점 선택</label>
-                        <select name="selected_store" class="form-select" required>
-                            <option value="" disabled selected>상점을 선택하세요</option>
-                            {% for key in api_keys %}<option value="{{ key.id }}">{{ key.store_name }}</option>{% endfor %}
-                        </select>
+                        <label class="form-label fw-bold text-muted d-flex justify-content-between align-items-center">
+                            <span>대상 상점 선택 (다중 선택 가능)</span>
+                            <button type="button" class="btn btn-sm btn-outline-secondary py-0" onclick="selectAllStores()">전체선택</button>
+                        </label>
+                        <div class="card p-3 shadow-sm border-0 bg-light" style="max-height: 200px; overflow-y: auto;">
+                            {% for key in api_keys %}
+                            <div class="form-check mb-2">
+                                <input class="form-check-input store-checkbox" type="checkbox" name="selected_stores" value="{{ key.id }}" id="store_{{ key.id }}">
+                                <label class="form-check-label fw-bold" for="store_{{ key.id }}">
+                                    {{ key.store_name }}
+                                </label>
+                            </div>
+                            {% else %}
+                            <div class="text-muted text-center small">등록된 상점이 없습니다.</div>
+                            {% endfor %}
+                        </div>
                     </div>
 
                     <div class="mb-4 border-bottom pb-4">
                         <label class="form-label fw-bold text-muted">삭제 방식 선택</label>
-                        <div class="d-flex gap-4">
+                        <div class="d-flex flex-column gap-3">
                             <div class="form-check">
                                 <input class="form-check-input" type="radio" name="delete_mode" id="mode_isbn" value="isbn" checked onchange="toggleMode()">
                                 <label class="form-check-label" for="mode_isbn">특정 상품 삭제 (ISBN)</label>
                             </div>
                             <div class="form-check">
                                 <input class="form-check-input" type="radio" name="delete_mode" id="mode_all" value="all" onchange="toggleMode()">
-                                <label class="form-check-label text-danger fw-bold" for="mode_all">전체 상품 일괄 삭제</label>
+                                <label class="form-check-label text-warning fw-bold" for="mode_all">전체: 완전 삭제 시도 후 실패 시 중지 (하이브리드, 속도 느림)</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="delete_mode" id="mode_suspend_all" value="suspend_all" onchange="toggleMode()">
+                                <label class="form-check-label text-danger fw-bold" for="mode_suspend_all">전체: 초고속 판매/전시 일괄 중지 (500개 묶음, 속도 매우 빠름)</label>
                             </div>
                         </div>
                     </div>
@@ -36,45 +52,32 @@
                     <div class="alert alert-danger d-none mb-4 shadow-sm" id="warningDiv">
                         <i class="bi bi-exclamation-triangle-fill fs-4 d-block mb-2 text-center"></i>
                         <p class="mb-0 text-center fw-bold">
-                            주의! 선택한 상점의 모든 상품이 삭제되거나 중지 처리됩니다.
+                            주의! 선택한 상점들의 모든 상품이 삭제되거나 중지 처리됩니다.
                         </p>
                     </div>
 
-                    <button type="submit" class="btn btn-danger w-100 py-3 fw-bold fs-5 shadow-sm" id="submitBtn">선택한 상품 삭제하기</button>
+                    <button type="submit" class="btn btn-primary w-100 py-3 fw-bold fs-5 shadow-sm" id="submitBtn">선택한 상점 동시 작업 시작</button>
                 </form>
             </div>
         </div>
     </div>
     
-    <div class="col-md-6">
-        <div class="card shadow-sm border-0 h-100">
-            <div class="card-header bg-white py-3 border-bottom-0 d-flex justify-content-between align-items-center">
-                <h6 class="mb-0 fw-bold">실시간 작업 현황</h6>
-                <span class="badge bg-light text-secondary border"><i class="bi bi-cloud-arrow-up me-1"></i>백그라운드 세이프티 가동 중</span>
+    <div class="col-md-7">
+        <div class="card shadow-sm border-0 h-100 bg-transparent">
+            <div class="card-header bg-white py-3 border-bottom-0 d-flex justify-content-between align-items-center rounded shadow-sm mb-2">
+                <h6 class="mb-0 fw-bold">실시간 멀티 작업 현황</h6>
+                <div>
+                    <button id="btnStopAll" class="btn btn-sm btn-danger d-none shadow-sm fw-bold" onclick="stopTask('all')">
+                        <i class="bi bi-stop-circle-fill me-1"></i>전체 긴급 정지
+                    </button>
+                </div>
             </div>
-            <div class="card-body d-flex flex-column h-100">
-                
-                <div id="progressArea" class="d-none mb-4 p-3 bg-light rounded border">
-                    <h6 id="progressStatusText" class="fw-bold mb-3 text-primary">작업 대기 중...</h6>
-                    <div class="progress mb-2" style="height: 25px;">
-                        <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-success" role="progressbar" style="width: 0%;">0%</div>
-                    </div>
-                    <div class="d-flex justify-content-between text-muted small fw-bold">
-                        <span id="progressCountText">0 / 0</span>
-                        <span id="progressPercentText">0%</span>
-                    </div>
-                </div>
-
-                <div id="initialState" class="text-center py-5 text-muted flex-grow-1 d-flex flex-column justify-content-center">
+            
+            <div class="d-flex flex-column h-100" id="taskContainer" style="overflow-y: auto; overflow-x: hidden;">
+                <div id="initialState" class="card border-0 shadow-sm text-center py-5 text-muted flex-grow-1 d-flex flex-column justify-content-center">
                     <i class="bi bi-activity fs-1 d-block mb-2 text-secondary"></i>
-                    <p class="mb-0">작업을 실행하면 이곳에 실시간 현황이 표시됩니다.</p>
+                    <p class="mb-0">상점을 선택하고 작업을 실행하면<br>상점별 실시간 현황이 나열됩니다.</p>
                 </div>
-
-                <div class="flex-grow-1 position-relative d-none" id="logContainerWrapper" style="min-height: 300px;">
-                    <ul class="list-group list-group-flush position-absolute w-100 h-100 overflow-auto" id="logList" style="top:0; left:0;">
-                    </ul>
-                </div>
-
             </div>
         </div>
     </div>
@@ -82,35 +85,55 @@
 
 <script>
     function toggleMode() {
+        const isIsbn = document.getElementById('mode_isbn').checked;
         const isAll = document.getElementById('mode_all').checked;
-        document.getElementById('isbnInputDiv').classList.toggle('d-none', isAll);
-        document.getElementById('isbn_list').required = !isAll;
-        document.getElementById('warningDiv').classList.toggle('d-none', !isAll);
+        const isSuspendAll = document.getElementById('mode_suspend_all').checked;
+
+        document.getElementById('isbnInputDiv').classList.toggle('d-none', !isIsbn);
+        document.getElementById('isbn_list').required = isIsbn;
+        document.getElementById('warningDiv').classList.toggle('d-none', isIsbn);
         
         const btn = document.getElementById('submitBtn');
         if (!btn.disabled) {
-            btn.innerHTML = isAll ? '<i class="bi bi-exclamation-octagon me-2"></i>모든 상품 일괄 삭제 실행' : '선택한 상품 삭제하기';
+            if (isIsbn) {
+                btn.className = "btn btn-primary w-100 py-3 fw-bold fs-5 shadow-sm";
+                btn.innerHTML = '선택한 상점 동시 작업 시작';
+            } else if (isAll) {
+                btn.className = "btn btn-warning w-100 py-3 fw-bold fs-5 shadow-sm text-dark";
+                btn.innerHTML = '<i class="bi bi-exclamation-octagon me-2"></i>하이브리드 삭제 실행 (느림)';
+            } else if (isSuspendAll) {
+                btn.className = "btn btn-danger w-100 py-3 fw-bold fs-5 shadow-sm";
+                btn.innerHTML = '<i class="bi bi-lightning-charge-fill me-2"></i>초고속 일괄 중지 실행 (빠름)';
+            }
         }
     }
 
-    // --- ✨ 백그라운드 폴링(Polling) 복구 시스템 ✨ ---
+    function selectAllStores() {
+        const checkboxes = document.querySelectorAll('.store-checkbox');
+        const allChecked = Array.from(checkboxes).every(c => c.checked);
+        checkboxes.forEach(c => c.checked = !allChecked);
+    }
+
+    async function stopTask(storeId) {
+        if (!confirm(storeId === 'all' ? '모든 상점의 작업을 강제 정지하시겠습니까?' : '해당 상점의 작업을 강제 정지하시겠습니까?')) return;
+        try {
+            const fd = new FormData();
+            fd.append('store_id', storeId);
+            await fetch("{{ url_for('store.stop_task') }}", { method: 'POST', body: fd });
+            fetchStatus(); 
+        } catch(e) { alert('정지 요청에 실패했습니다.'); }
+    }
+
     let pollingInterval = null;
-    let lastLogCount = 0;
+    window.lastLogCounts = {};
 
     const submitBtn = document.getElementById('submitBtn');
-    const progressArea = document.getElementById('progressArea');
-    const progressBar = document.getElementById('progressBar');
-    const statusText = document.getElementById('progressStatusText');
-    const countText = document.getElementById('progressCountText');
-    const percentText = document.getElementById('progressPercentText');
-    const logList = document.getElementById('logList');
+    const taskContainer = document.getElementById('taskContainer');
     const initialState = document.getElementById('initialState');
-    const logContainerWrapper = document.getElementById('logContainerWrapper');
+    const btnStopAll = document.getElementById('btnStopAll');
 
     function startPolling() {
-        if (!pollingInterval) {
-            pollingInterval = setInterval(fetchStatus, 1000); // 1초마다 서버에 현황 물어보기
-        }
+        if (!pollingInterval) pollingInterval = setInterval(fetchStatus, 1000);
     }
 
     function stopPolling() {
@@ -120,143 +143,149 @@
         }
     }
 
-    // 서버에서 현재 내 작업 상태를 가져와서 UI에 그리는 함수
     async function fetchStatus() {
         try {
             const res = await fetch("{{ url_for('store.get_task_status') }}");
             const data = await res.json();
-
-            if (data.status === 'empty') return; // 돌아가고 있는 작업 없음
-
-            updateUI(data);
-
-            if (!data.is_running) {
-                stopPolling();
-                submitBtn.disabled = false;
-                submitBtn.innerHTML = '작업 다시 실행하기';
-            } else {
-                startPolling(); // 이미 실행중이면 폴링 보장
-            }
-        } catch (e) {
-            console.error(e);
-        }
+            if (data.status === 'empty') return; 
+            updateUI(data.tasks);
+        } catch (e) { console.error(e); }
     }
 
-    function updateUI(data) {
-        initialState.classList.add('d-none');
-        logContainerWrapper.classList.remove('d-none');
-        progressArea.classList.remove('d-none');
-        submitBtn.disabled = data.is_running;
-
-        if (data.is_running) {
-            submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>작업 진행 중 (다른 탭에 다녀와도 유지됩니다)';
-        }
-
-        // 1. 상태 텍스트 렌더링
-        if (data.status === 'error') {
-            statusText.className = 'fw-bold mb-3 text-danger';
-            statusText.innerText = `오류 발생: ${data.message}`;
-            progressBar.classList.add('bg-danger');
-        } else if (data.status === 'done') {
-            statusText.className = 'fw-bold mb-3 text-success';
-            statusText.innerText = `작업 완료! (성공: ${data.success_count}건, 실패: ${data.fail_count}건)`;
-            progressBar.classList.remove('progress-bar-animated');
-        } else {
-            statusText.className = 'fw-bold mb-3 text-primary';
-            if (data.target_name) {
-                statusText.innerText = `[${data.current}${data.total > 0 ? '/' + data.total : '번째'}] ${data.target_name} 처리 중...`;
-            } else {
-                statusText.innerText = data.message;
-            }
-        }
-
-        // 2. 프로그레스 바 렌더링
-        if (data.total > 0) {
-            const percent = Math.round((data.current / data.total) * 100);
-            progressBar.style.width = `${percent}%`;
-            progressBar.innerHTML = `${percent}%`;
-            percentText.innerText = `${percent}%`;
-            countText.innerText = `${data.current} / ${data.total}`;
-            progressBar.classList.add('progress-bar-striped', 'progress-bar-animated');
-        } else {
-            progressBar.style.width = `100%`;
-            progressBar.innerHTML = `무한 싹쓸이 진행 중...`;
-            percentText.innerText = `가동 중`;
-            countText.innerText = `현재 ${data.current}개째 처리됨`;
-            progressBar.classList.add('progress-bar-striped', 'progress-bar-animated');
-        }
-
-        // 3. 로그 렌더링 (새로운 로그만 골라서 추가)
-        if (data.logs && data.logs.length > lastLogCount) {
-            if (data.logs.length < lastLogCount) {
-                logList.innerHTML = '';
-                lastLogCount = 0;
-            }
-
-            const newLogs = data.logs.slice(lastLogCount);
-            newLogs.forEach(log => {
-                const li = document.createElement('li');
-                li.className = 'list-group-item d-flex justify-content-between align-items-center py-2 px-3 border-bottom text-muted small';
-                let badgeClass = 'bg-secondary';
-                if (log.type === 'success') badgeClass = 'bg-success';
-                if (log.type === 'danger') badgeClass = 'bg-danger';
-                if (log.type === 'info') badgeClass = 'bg-info text-dark';
-
-                li.innerHTML = `
-                    <span class="text-truncate me-3 font-monospace" style="max-width: 200px;" title="${log.target}">${log.target}</span>
-                    <span class="badge ${badgeClass} rounded-pill">${log.statusMsg}</span>
+    function updateUI(tasks) {
+        let anyRunning = false;
+        
+        for (const storeId in tasks) {
+            const taskData = tasks[storeId];
+            if (taskData.is_running) anyRunning = true;
+            
+            let card = document.getElementById(`task_card_${storeId}`);
+            if (!card) {
+                initialState.classList.add('d-none');
+                card = document.createElement('div');
+                card.id = `task_card_${storeId}`;
+                card.className = "card mb-3 shadow-sm border-0";
+                card.innerHTML = `
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom">
+                            <h6 class="fw-bold mb-0 text-dark"><i class="bi bi-shop me-2 text-primary"></i>${taskData.store_name}</h6>
+                            <button id="btn_stop_${storeId}" class="btn btn-sm btn-outline-danger fw-bold" onclick="stopTask('${storeId}')">개별 정지</button>
+                        </div>
+                        <h6 id="status_text_${storeId}" class="fw-bold mb-3 text-primary small">작업 준비 중...</h6>
+                        <div id="progress_wrapper_${storeId}"></div>
+                        <div class="position-relative mt-3 rounded border bg-light" style="height: 150px;">
+                            <ul class="list-group list-group-flush position-absolute w-100 h-100 overflow-auto" id="log_list_${storeId}" style="top:0; left:0;"></ul>
+                        </div>
+                    </div>
                 `;
-                logList.appendChild(li);
-            });
-            lastLogCount = data.logs.length;
-            logList.scrollTop = logList.scrollHeight; // 스크롤 맨 아래로
+                taskContainer.appendChild(card);
+            }
+            
+            const statusText = document.getElementById(`status_text_${storeId}`);
+            const progressWrapper = document.getElementById(`progress_wrapper_${storeId}`);
+            const logList = document.getElementById(`log_list_${storeId}`);
+            const btnStop = document.getElementById(`btn_stop_${storeId}`);
+            
+            if (taskData.is_running) {
+                btnStop.disabled = false;
+                btnStop.innerHTML = '개별 정지';
+                btnStop.className = "btn btn-sm btn-outline-danger fw-bold";
+            } else {
+                btnStop.disabled = true;
+                btnStop.innerHTML = '작업 종료됨';
+                btnStop.className = "btn btn-sm btn-secondary fw-bold";
+            }
+
+            if (taskData.status === 'error') {
+                statusText.className = 'fw-bold mb-3 text-danger small';
+                statusText.innerText = `오류/정지: ${taskData.message}`;
+            } else if (taskData.status === 'done') {
+                statusText.className = 'fw-bold mb-3 text-success small';
+                statusText.innerText = `작업 완료! (성공: ${taskData.success_count}건, 실패: ${taskData.fail_count}건)`;
+            } else {
+                statusText.className = 'fw-bold mb-3 text-primary small';
+                statusText.innerText = taskData.target_name ? `[${taskData.current}${taskData.total > 0 ? '/' + taskData.total : '번째'}] ${taskData.target_name} 처리 중...` : taskData.message;
+            }
+
+            const progressColor = taskData.status === 'error' ? 'bg-danger' : 'bg-success';
+            const animatedClass = taskData.is_running ? 'progress-bar-striped progress-bar-animated' : '';
+            
+            if (taskData.total > 0) {
+                const percent = Math.round((taskData.current / taskData.total) * 100);
+                progressWrapper.innerHTML = `
+                    <div class="progress mb-2" style="height: 20px;">
+                        <div class="progress-bar ${progressColor} ${animatedClass}" role="progressbar" style="width: ${percent}%;">${percent}%</div>
+                    </div>
+                    <div class="d-flex justify-content-between text-muted small fw-bold"><span>${taskData.current} / ${taskData.total}</span><span>${percent}%</span></div>
+                `;
+            } else {
+                progressWrapper.innerHTML = `
+                    <div class="progress mb-2" style="height: 20px;">
+                        <div class="progress-bar ${progressColor} ${animatedClass}" role="progressbar" style="width: 100%;">${taskData.is_running ? '초고속 싹쓸이 중' : '정지됨'}</div>
+                    </div>
+                    <div class="d-flex justify-content-between text-muted small fw-bold"><span>현재 ${taskData.current}개째 완료</span><span>${taskData.is_running ? '가동 중' : '완료됨'}</span></div>
+                `;
+            }
+
+            let lastLogCount = window.lastLogCounts[storeId] || 0;
+            if (taskData.logs && taskData.logs.length > lastLogCount) {
+                if (taskData.logs.length < lastLogCount) { logList.innerHTML = ''; lastLogCount = 0; }
+                const newLogs = taskData.logs.slice(lastLogCount);
+                newLogs.forEach(log => {
+                    const li = document.createElement('li');
+                    li.className = 'list-group-item d-flex justify-content-between align-items-center py-2 px-3 border-bottom text-muted small';
+                    let badgeClass = log.type === 'success' ? 'bg-success' : (log.type === 'danger' ? 'bg-danger' : 'bg-info text-dark');
+                    li.innerHTML = `<span class="text-truncate me-3 font-monospace" style="max-width: 200px;" title="${log.target}">${log.target}</span><span class="badge ${badgeClass} rounded-pill">${log.statusMsg}</span>`;
+                    logList.appendChild(li);
+                });
+                window.lastLogCounts[storeId] = taskData.logs.length;
+                logList.scrollTop = logList.scrollHeight;
+            }
+        }
+        
+        btnStopAll.classList.toggle('d-none', !anyRunning);
+        submitBtn.disabled = anyRunning;
+        
+        if (anyRunning) {
+            submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>백그라운드 작업 진행 중...';
+        } else {
+            toggleMode(); // 버튼 텍스트 복구
+            stopPolling();
         }
     }
 
-    // --- 폼 제출 (작업 시작) ---
     document.getElementById('deleteForm').addEventListener('submit', async function(e) {
         e.preventDefault();
 
-        if (document.getElementById('mode_all').checked) {
-            if (!confirm('정말로 해당 상점의 [전체 상품]을 삭제하시겠습니까?\n이 작업은 백그라운드 서버에서 안전하게 실행됩니다.')) return;
+        const checkboxes = document.querySelectorAll('.store-checkbox:checked');
+        if(checkboxes.length === 0) { alert('작업을 진행할 상점을 하나 이상 선택해주세요.'); return; }
+
+        if (document.getElementById('mode_all').checked || document.getElementById('mode_suspend_all').checked) {
+            if (!confirm(`선택하신 ${checkboxes.length}개 상점의 [전체 상품]을 치우시겠습니까?\n이 작업은 멀티 스레드로 안전하게 실행됩니다.`)) return;
         }
 
-        logList.innerHTML = '';
-        lastLogCount = 0;
-        progressBar.classList.remove('bg-danger');
-        
-        // 1. 버튼 상태 먼저 로딩으로 변경
         submitBtn.disabled = true;
-        submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>작업 시작 준비 중...';
+        submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>서버 전송 중...';
 
         try {
-            const res = await fetch("{{ url_for('store.start_task') }}", {
-                method: 'POST',
-                body: new FormData(e.target)
-            });
+            const res = await fetch("{{ url_for('store.start_task') }}", { method: 'POST', body: new FormData(e.target) });
             const result = await res.json();
             
             if (result.success) {
-                // 작업 시작 지시 완료 -> 즉시 폴링 시작
                 startPolling(); 
                 fetchStatus(); 
             } else {
                 alert(result.message);
                 submitBtn.disabled = false;
-                submitBtn.innerHTML = '작업 다시 실행하기';
-                if(result.message.includes("화면을 갱신")) fetchStatus();
+                toggleMode();
             }
         } catch (err) {
-            console.error(err);
             alert("서버 연결에 실패했습니다.");
             submitBtn.disabled = false;
-            submitBtn.innerHTML = '작업 다시 실행하기';
+            toggleMode();
         }
     });
 
-    // ✨ 페이지가 열리자마자 백그라운드에서 돌고있는 내 작업이 있는지 체크하여 화면 복구 ✨
-    document.addEventListener("DOMContentLoaded", () => {
-        fetchStatus();
-    });
+    document.addEventListener("DOMContentLoaded", fetchStatus);
 </script>
 {% endblock %}
