@@ -11,11 +11,11 @@
                         <h6 class="fw-bold mb-1 text-dark">키워드 및 스터디박스 상점 순위 현황</h6>
                         <span class="text-muted small">
                             <i class="bi bi-broadcast text-primary"></i> 
-                            다른 탭(도서 분석기)에서 분석을 돌려놓고 이 창을 켜두시면 A등급이 자동으로 들어옵니다.
+                            다른 탭에서 분석을 돌려놓으면 A등급이 들어옵니다. 매일 밤 9시 순위가 자동 업데이트 됩니다.
                         </span>
                     </div>
-                    <button class="btn btn-primary fw-bold shadow-sm" onclick="alert('Pro 연동 준비 중입니다.')">
-                        수동 업데이트 및 Pro 연동
+                    <button id="refreshRanksBtn" class="btn btn-primary fw-bold shadow-sm" onclick="refreshAllRanks()">
+                        전체 순위 새로고침 <i class="bi bi-arrow-clockwise"></i>
                     </button>
                 </div>
 
@@ -222,13 +222,13 @@
     async function saveKeyword(id) {
         const fd = new FormData();
         fd.append('id', id);
-        fd.append('store_rank', document.getElementById(`in_rank_${id}`).value || '1');
+        fd.append('store_rank', document.getElementById(`in_rank_${id}`).value || '-');
         fd.append('product_link', document.getElementById(`in_plink_${id}`).value || '-');
         fd.append('publisher', document.getElementById(`in_pub_${id}`).value || '-');
         fd.append('supply_rate', document.getElementById(`in_sup_${id}`).value || '-');
         fd.append('isbn', document.getElementById(`in_isbn_${id}`).value || '-');
         fd.append('price', document.getElementById(`in_price_${id}`).value || '-');
-        fd.append('shipping_fee', document.getElementById(`in_ship_${id}`).value || '-'); // ✨ 저장 시 기본값 무조건 '-' 로 변경
+        fd.append('shipping_fee', document.getElementById(`in_ship_${id}`).value || '-');
         fd.append('store_name', document.getElementById(`in_store_${id}`).value || '-');
         fd.append('book_title', document.getElementById(`in_title_${id}`).value || '-');
 
@@ -247,6 +247,32 @@
         fd.append('id', id);
         await fetch("{{ url_for('monitoring.delete_keyword') }}", { method: 'POST', body: fd });
         loadSavedKeywords();
+    }
+
+    // ✨ [신규] 버튼을 누르면 서버에 전체 갱신 명령을 내리는 함수
+    async function refreshAllRanks() {
+        const btn = document.getElementById('refreshRanksBtn');
+        const origText = btn.innerHTML;
+        // 로딩 스피너로 버튼 모양 변경
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> 업데이트 중...';
+        btn.disabled = true;
+
+        try {
+            const res = await fetch("{{ url_for('monitoring.refresh_all_ranks') }}", { method: 'POST' });
+            const result = await res.json();
+            if (result.success) {
+                alert(result.message);
+                loadSavedKeywords(); // 표 새로고침
+            } else {
+                alert(result.message || '업데이트에 실패했습니다.');
+            }
+        } catch(e) {
+            alert('순위 업데이트 중 서버 에러가 발생했습니다.');
+        } finally {
+            // 작업이 끝나면 버튼 원상복구
+            btn.innerHTML = origText;
+            btn.disabled = false;
+        }
     }
 
     document.addEventListener("DOMContentLoaded", () => {
