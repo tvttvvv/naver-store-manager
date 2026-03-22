@@ -1,15 +1,12 @@
-from app import db
-from flask_login import UserMixin
+# 기존 User, ApiKey 등의 모델 아래에 추가해 주세요!
 
-class User(UserMixin, db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(150), unique=True, nullable=False)
-    password_hash = db.Column(db.String(150), nullable=False)
-    api_keys = db.relationship('ApiKey', backref='owner', lazy=True)
+from datetime import datetime
 
-class ApiKey(db.Model):
+class MonitoredKeyword(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    store_name = db.Column(db.String(100), nullable=False)
-    client_id = db.Column(db.String(200), nullable=False)
-    client_secret = db.Column(db.String(200), nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    keyword = db.Column(db.String(100), nullable=False)
+    search_volume = db.Column(db.Integer, default=0)
+    rank_info = db.Column(db.String(50))
+    link = db.Column(db.String(500))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
