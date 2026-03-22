@@ -5,7 +5,7 @@
     <div class="col-md-6">
         <div class="card shadow-sm border-0 mb-4">
             <div class="card-body p-4">
-                <form method="POST" id="deleteForm">
+                <form id="deleteForm">
                     <div class="mb-4">
                         <label class="form-label fw-bold text-muted">대상 상점 선택</label>
                         <select name="selected_store" class="form-select" required>
@@ -36,7 +36,7 @@
                     <div class="alert alert-danger d-none mb-4 shadow-sm" id="warningDiv">
                         <i class="bi bi-exclamation-triangle-fill fs-4 d-block mb-2 text-center"></i>
                         <p class="mb-0 text-center fw-bold">
-                            주의! 선택한 상점의 모든 상품이 삭제되거나 중지 처리됩니다.<br>이 작업은 되돌릴 수 없습니다.
+                            주의! 선택한 상점의 모든 상품이 삭제되거나 중지 처리됩니다.
                         </p>
                     </div>
 
@@ -47,61 +47,170 @@
     </div>
     
     <div class="col-md-6">
-        {% if results %}
-        <div class="card shadow-sm border-0">
-            <div class="card-header bg-white py-3"><h6 class="mb-0 fw-bold">실행 결과 로그</h6></div>
-            <div class="card-body p-0" style="max-height: 550px; overflow-y: auto;">
-                <ul class="list-group list-group-flush">
-                    {% for res in results %}
-                    <li class="list-group-item d-flex justify-content-between align-items-center p-3">
-                        <span class="text-truncate me-3 font-monospace small" style="max-width: 250px;" title="{{ res.target }}">{{ res.target }}</span>
-                        <span class="badge {% if '완료' in res.status %}bg-success{% else %}bg-danger{% endif %}">{{ res.status }}</span>
-                    </li>
-                    {% endfor %}
-                </ul>
+        <div class="card shadow-sm border-0 h-100">
+            <div class="card-header bg-white py-3 border-bottom-0">
+                <h6 class="mb-0 fw-bold">실시간 작업 현황</h6>
+            </div>
+            <div class="card-body d-flex flex-column h-100">
+                
+                <div id="progressArea" class="d-none mb-4 p-3 bg-light rounded border">
+                    <h6 id="progressStatusText" class="fw-bold mb-3 text-primary">작업 대기 중...</h6>
+                    <div class="progress mb-2" style="height: 25px;">
+                        <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-success" role="progressbar" style="width: 0%;">0%</div>
+                    </div>
+                    <div class="d-flex justify-content-between text-muted small fw-bold">
+                        <span id="progressCountText">0 / 0</span>
+                        <span id="progressPercentText">0%</span>
+                    </div>
+                </div>
+
+                <div id="initialState" class="text-center py-5 text-muted flex-grow-1 d-flex flex-column justify-content-center">
+                    <i class="bi bi-activity fs-1 d-block mb-2 text-secondary"></i>
+                    <p class="mb-0">작업을 실행하면 이곳에 실시간 현황이 표시됩니다.</p>
+                </div>
+
+                <div class="flex-grow-1 position-relative d-none" id="logContainerWrapper" style="min-height: 300px;">
+                    <ul class="list-group list-group-flush position-absolute w-100 h-100 overflow-auto" id="logList" style="top:0; left:0;">
+                        </ul>
+                </div>
+
             </div>
         </div>
-        {% else %}
-        <div class="card shadow-sm border-0 h-100 bg-light d-flex justify-content-center align-items-center text-muted">
-            <div class="text-center py-5">
-                <i class="bi bi-card-checklist fs-1 d-block mb-2 text-secondary"></i>
-                <p class="mb-0">작업을 실행하면 이곳에 로그가 표시됩니다.</p>
-            </div>
-        </div>
-        {% endif %}
     </div>
 </div>
 
 <script>
-    // 삭제 방식에 따라 UI를 변경하는 함수
+    // 1. 라디오 버튼 UI 전환 함수
     function toggleMode() {
         const isAll = document.getElementById('mode_all').checked;
-        const isbnInputDiv = document.getElementById('isbnInputDiv');
-        const isbnList = document.getElementById('isbn_list');
-        const warningDiv = document.getElementById('warningDiv');
-        const submitBtn = document.getElementById('submitBtn');
-
-        if (isAll) {
-            // 전체 삭제 모드
-            isbnInputDiv.classList.add('d-none');
-            isbnList.required = false; // 필수 입력 해제
-            warningDiv.classList.remove('d-none');
-            submitBtn.innerHTML = '<i class="bi bi-exclamation-octagon me-2"></i>모든 상품 일괄 삭제 실행';
-        } else {
-            // ISBN 특정 삭제 모드
-            isbnInputDiv.classList.remove('d-none');
-            isbnList.required = true; // 필수 입력 적용
-            warningDiv.classList.add('d-none');
-            submitBtn.innerHTML = '선택한 상품 삭제하기';
-        }
+        document.getElementById('isbnInputDiv').classList.toggle('d-none', isAll);
+        document.getElementById('isbn_list').required = !isAll;
+        document.getElementById('warningDiv').classList.toggle('d-none', !isAll);
+        document.getElementById('submitBtn').innerHTML = isAll ? '<i class="bi bi-exclamation-octagon me-2"></i>모든 상품 일괄 삭제 실행' : '선택한 상품 삭제하기';
     }
 
-    // 폼 전송 시, 전체 삭제일 경우 다시 한번 브라우저 경고창 띄우기
-    document.getElementById('deleteForm').addEventListener('submit', function(e) {
+    // 2. 폼 제출 및 실시간 스트리밍 수신 로직
+    document.getElementById('deleteForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
         if (document.getElementById('mode_all').checked) {
-            if (!confirm('정말로 해당 상점의 [전체 상품]을 삭제하시겠습니까?\n이 작업은 즉시 실행됩니다.')) {
-                e.preventDefault(); // 확인 취소 시 폼 전송 막기
+            if (!confirm('정말로 해당 상점의 [전체 상품]을 삭제하시겠습니까?\n이 작업은 즉시 실행됩니다.')) return;
+        }
+
+        const form = e.target;
+        const submitBtn = document.getElementById('submitBtn');
+        const progressArea = document.getElementById('progressArea');
+        const progressBar = document.getElementById('progressBar');
+        const statusText = document.getElementById('progressStatusText');
+        const countText = document.getElementById('progressCountText');
+        const percentText = document.getElementById('progressPercentText');
+        const logList = document.getElementById('logList');
+        
+        // UI 초기화 세팅
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>작업 진행 중...';
+        document.getElementById('initialState').classList.add('d-none');
+        document.getElementById('logContainerWrapper').classList.remove('d-none');
+        progressArea.classList.remove('d-none');
+        
+        logList.innerHTML = '';
+        progressBar.style.width = '0%';
+        progressBar.innerHTML = '0%';
+        progressBar.classList.add('progress-bar-animated');
+        percentText.innerText = '0%';
+        countText.innerText = '0 / 0';
+        statusText.innerText = '서버에 작업 요청 중...';
+        statusText.className = 'fw-bold mb-3 text-primary';
+
+        try {
+            // 서버에 데이터 요청 (스트리밍 방식)
+            const response = await fetch("{{ url_for('store.stream_delete') }}", {
+                method: 'POST',
+                body: new FormData(form)
+            });
+
+            // 데이터 조각(Chunk)을 읽어들이는 리더기 설정
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder('utf-8');
+            let buffer = '';
+
+            // 서버에서 데이터가 끊길 때까지 계속 읽음
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop(); // 완전하지 않은 마지막 줄은 버퍼에 남김
+
+                for (const line of lines) {
+                    if (!line.trim()) continue;
+                    
+                    try {
+                        const data = JSON.parse(line);
+                        
+                        if (data.status === 'info') {
+                            statusText.innerText = data.message;
+                            addLog('info', '시스템 안내', data.message);
+                        } 
+                        else if (data.status === 'start') {
+                            statusText.innerText = data.message;
+                            countText.innerText = `0 / ${data.total}`;
+                        } 
+                        else if (data.status === 'progress') {
+                            const percent = Math.round((data.current / data.total) * 100);
+                            progressBar.style.width = `${percent}%`;
+                            progressBar.innerHTML = `${percent}%`;
+                            percentText.innerText = `${percent}%`;
+                            countText.innerText = `${data.current} / ${data.total}`;
+                            statusText.innerText = `[${data.current}/${data.total}] ${data.target_name} 처리 중...`;
+                            
+                            const isSuccess = data.result_status.includes('완료');
+                            addLog(isSuccess ? 'success' : 'danger', data.target_name, data.result_status);
+                        } 
+                        else if (data.status === 'error') {
+                            statusText.innerText = `오류 발생: ${data.message}`;
+                            statusText.className = 'fw-bold mb-3 text-danger';
+                            addLog('danger', '시스템 에러', data.message);
+                            progressBar.classList.add('bg-danger');
+                            break;
+                        }
+                        else if (data.status === 'done') {
+                            statusText.innerText = `작업 완료! (성공: ${data.success_count}건, 실패: ${data.fail_count}건)`;
+                            statusText.className = 'fw-bold mb-3 text-success';
+                            progressBar.classList.remove('progress-bar-animated');
+                            addLog('success', '작업 종료', data.message);
+                        }
+                    } catch(err) {
+                        console.error("JSON 파싱 에러:", err);
+                    }
+                }
             }
+        } catch (err) {
+            console.error(err);
+            statusText.innerText = '서버 연결이 끊겼습니다.';
+            statusText.className = 'fw-bold mb-3 text-danger';
+        } finally {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '작업 다시 실행하기';
+        }
+
+        // 로그를 리스트에 추가하고 스크롤을 맨 아래로 내리는 함수
+        function addLog(type, target, statusMsg) {
+            const li = document.createElement('li');
+            li.className = 'list-group-item d-flex justify-content-between align-items-center py-2 px-3 border-bottom text-muted small';
+            
+            let badgeClass = 'bg-secondary';
+            if (type === 'success') badgeClass = 'bg-success';
+            if (type === 'danger') badgeClass = 'bg-danger';
+            if (type === 'info') badgeClass = 'bg-info text-dark';
+
+            li.innerHTML = `
+                <span class="text-truncate me-3 font-monospace" style="max-width: 200px;" title="${target}">${target}</span>
+                <span class="badge ${badgeClass} rounded-pill">${statusMsg}</span>
+            `;
+            logList.appendChild(li);
+            logList.scrollTop = logList.scrollHeight;
         }
     });
 </script>
