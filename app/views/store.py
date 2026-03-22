@@ -8,10 +8,9 @@ from app.naver_api import get_naver_token, find_product_by_isbn, delete_product,
 
 store_bp = Blueprint('store', __name__)
 
-# [핵심] 버퍼링 무력화 패딩 생성 함수
 def send_json(data):
-    """데이터 뒤에 공백 1024바이트를 붙여 프록시가 데이터를 움켜쥐지 못하게 강제 방출시킵니다."""
-    return json.dumps(data) + " " * 1024 + "\n"
+    """버퍼링 무력화 패딩 (강제 전송)"""
+    return json.dumps(data) + " " * 2048 + "\n"
 
 @store_bp.route('/')
 @login_required
@@ -31,7 +30,6 @@ def stream_delete():
     isbn_input = request.form.get('isbn_list', '')
 
     def generate():
-        # 시작 전 파이프라인 강제 개방용 공백 발송
         yield " " * 2048 + "\n"
         
         try:
@@ -46,87 +44,98 @@ def stream_delete():
                 yield send_json({'status': 'error', 'message': 'API 인증에 실패했습니다. 키를 확인하세요.'})
                 return
 
-            targets = []
             if delete_mode == 'isbn':
+                # ISBN 특정 삭제 모드 (기존과 동일)
                 yield send_json({'status': 'info', 'message': '입력한 ISBN 상품 정보 조회 중...'})
                 isbn_list = [isbn.strip() for isbn in isbn_input.replace(',', '\n').split('\n') if isbn.strip()]
-                for isbn in isbn_list:
+                
+                yield send_json({'status': 'start', 'total': len(isbn_list), 'message': '선택 상품 삭제 시작!'})
+                success_count, fail_count = 0, 0
+                
+                for i, isbn in enumerate(isbn_list):
                     origin_no, channel_no = find_product_by_isbn(token, isbn)
-                    targets.append({'display_name': f'ISBN: {isbn}', 'origin_no': origin_no, 'channel_no': channel_no})
+                    if origin_no or channel_no:
+                        res_status = delete_product(token, origin_no, channel_no)
+                        if '완료' in res_status: success_count += 1
+                        else: fail_count += 1
+                    else:
+                        res_status = "조회 불가 (상품 없음)"
+                        fail_count += 1
+                        
+                    yield send_json({'status': 'progress', 'current': i + 1, 'total': len(isbn_list), 'target_name': f'ISBN: {isbn}', 'result_status': res_status})
+                    time.sleep(0.2)
                     
+                yield send_json({'status': 'done', 'message': '모든 작업이 완료되었습니다!', 'success_count': success_count, 'fail_count': fail_count})
+
             elif delete_mode == 'all':
-                yield send_json({'status': 'info', 'message': '전체 상품 목록 수집 시작...'})
+                # ✨ 핵심! 실시간 싹쓸이 삭제 모드 ✨
+                yield send_json({'status': 'start', 'total': 0, 'message': '전체 상품 탐색 및 즉시 삭제를 시작합니다!'})
                 
                 url = "https://api.commerce.naver.com/external/v1/products/search"
                 headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
+                
+                processed_ids = set() # 무한루프 방지용 찌꺼기 기억 장치
                 page = 1
+                current_count = 0
+                success_count, fail_count = 0, 0
                 
                 while True:
                     payload = {"page": page, "size": 50, "orderType": "NO"}
                     try:
-                        res = requests.post(url, headers=headers, json=payload, timeout=15)
+                        res = requests.post(url, headers=headers, json=payload, timeout=10)
                     except Exception as e:
-                        yield send_json({'status': 'error', 'message': f'목록 수집 시간초과 (다시 시도해주세요)'})
-                        return
+                        yield send_json({'status': 'info', 'message': '네이버 서버 응답 지연... 재시도 중입니다.'})
+                        time.sleep(2)
+                        continue
 
                     if res.status_code != 200:
-                        yield send_json({'status': 'error', 'message': f'목록 수집 실패: API 응답코드 {res.status_code}'})
+                        yield send_json({'status': 'error', 'message': f'API 호출 실패 ({res.status_code})'})
                         return
                         
                     contents = res.json().get('contents', [])
                     if not contents:
-                        break
+                        break # 탐색할 상품이 더 이상 없으면 완벽하게 끝!
                         
-                    for p in contents:
+                    # 이미 처리해 본(삭제 불가 등) 상품은 제외하고 '새로운 타겟'만 추려냄
+                    new_items = [p for p in contents if p.get('originProductNo') not in processed_ids]
+                    
+                    if not new_items:
+                        # 이 페이지엔 지울 게 없으니 다음 페이지로 이동
+                        page += 1
+                        continue
+                        
+                    # 찾은 족족 그 자리에서 바로 삭제 (회원님 아이디어)
+                    for p in new_items:
                         origin_no = p.get('originProductNo')
                         channel_products = p.get('channelProducts', [{}])
                         channel_no = channel_products[0].get('channelProductNo') if channel_products else None
                         name = channel_products[0].get('name', '이름 없는 상품') if channel_products else '이름 없는 상품'
-                        targets.append({'display_name': f'[{origin_no}] {name[:15]}...', 'origin_no': origin_no, 'channel_no': channel_no})
                         
-                    yield send_json({'status': 'info', 'message': f'상품 목록 수집 중... (현재 {len(targets)}개 찾음)'})
+                        res_status = delete_product(token, origin_no, channel_no)
+                        
+                        if '완료' in res_status: success_count += 1
+                        else: fail_count += 1
+                            
+                        processed_ids.add(origin_no)
+                        current_count += 1
+                        
+                        yield send_json({
+                            'status': 'progress',
+                            'current': current_count,
+                            'total': 0, # 전체 개수를 모르므로 0으로 보냄
+                            'target_name': f'[{origin_no}] {name[:15]}...',
+                            'result_status': res_status
+                        })
+                        time.sleep(0.2)
+                        
+                    # [가장 중요] 삭제를 했으므로 뒤쪽 페이지 상품들이 앞으로 당겨졌습니다. 
+                    # 놓치는 상품이 없도록 다시 1페이지부터 싹쓸이 탐색!
+                    page = 1
                     
-                    if len(contents) < 50:
-                        break
-                        
-                    page += 1
-                    time.sleep(0.3)
-
-            total = len(targets)
-            if total == 0:
-                yield send_json({'status': 'error', 'message': '삭제할 상품을 찾지 못했습니다.'})
-                return
-
-            # [핵심] 수집이 끝나고 본격적인 삭제 시작을 화면에 즉시 알림!
-            yield send_json({'status': 'start', 'total': total, 'message': f'총 {total}개 상품 삭제 처리를 시작합니다.'})
-            success_count, fail_count = 0, 0
-
-            for i, target in enumerate(targets):
-                if target['origin_no'] or target['channel_no']:
-                    res_status = delete_product(token, target['origin_no'], target['channel_no'])
-                    if '완료' in res_status:
-                        success_count += 1
-                    else:
-                        fail_count += 1
-                else:
-                    res_status = "조회 불가 (상품 없음)"
-                    fail_count += 1
-
-                yield send_json({
-                    'status': 'progress',
-                    'current': i + 1,
-                    'total': total,
-                    'target_name': target['display_name'],
-                    'result_status': res_status
-                })
-                
-                # 네이버 API 차단 방지를 위한 안정적인 휴식 시간 확보
-                time.sleep(0.3)
-
-            yield send_json({'status': 'done', 'message': '모든 작업이 안전하게 완료되었습니다!', 'success_count': success_count, 'fail_count': fail_count})
+                yield send_json({'status': 'done', 'message': '상점 내 모든 상품 싹쓸이 완료!', 'success_count': success_count, 'fail_count': fail_count})
 
         except Exception as e:
-            yield send_json({'status': 'error', 'message': f'서버 내부 오류: {str(e)}'})
+            yield send_json({'status': 'error', 'message': f'서버 오류: {str(e)}'})
 
     response = Response(stream_with_context(generate()), mimetype='application/json')
     response.headers['X-Accel-Buffering'] = 'no'
