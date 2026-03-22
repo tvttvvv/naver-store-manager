@@ -46,3 +46,6 @@ def create_app():
         db.create_all()
 
     return app
+
+from app.views.monitoring import monitoring_bp
+app.register_blueprint(monitoring_bp, url_prefix='/monitoring')
