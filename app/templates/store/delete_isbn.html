@@ -155,15 +155,30 @@
                         } 
                         else if (data.status === 'start') {
                             statusText.innerText = data.message;
-                            countText.innerText = `0 / ${data.total}`;
+                            if (data.total > 0) {
+                                countText.innerText = `0 / ${data.total}`;
+                            } else {
+                                countText.innerText = `개수 계산 중...`;
+                            }
                         } 
                         else if (data.status === 'progress') {
-                            const percent = Math.round((data.current / data.total) * 100);
-                            progressBar.style.width = `${percent}%`;
-                            progressBar.innerHTML = `${percent}%`;
-                            percentText.innerText = `${percent}%`;
-                            countText.innerText = `${data.current} / ${data.total}`;
-                            statusText.innerText = `[${data.current}/${data.total}] ${data.target_name} 처리 중...`;
+                            if (data.total > 0) {
+                                // ISBN 특정 삭제 모드 (총 개수를 알 때)
+                                const percent = Math.round((data.current / data.total) * 100);
+                                progressBar.style.width = `${percent}%`;
+                                progressBar.innerHTML = `${percent}%`;
+                                percentText.innerText = `${percent}%`;
+                                countText.innerText = `${data.current} / ${data.total}`;
+                                statusText.innerText = `[${data.current}/${data.total}] ${data.target_name} 처리 중...`;
+                            } else {
+                                // 전체 싹쓸이 삭제 모드 (찾는 즉시 지울 때)
+                                progressBar.style.width = `100%`;
+                                progressBar.classList.add('progress-bar-striped', 'progress-bar-animated');
+                                progressBar.innerHTML = `무한 싹쓸이 진행 중...`;
+                                percentText.innerText = `가동 중`;
+                                countText.innerText = `현재 ${data.current}개째 처리됨`;
+                                statusText.innerText = `[${data.current}번째] ${data.target_name} 지우는 중...`;
+                            }
                             
                             const isSuccess = data.result_status.includes('완료');
                             addLog(isSuccess ? 'success' : 'danger', data.target_name, data.result_status);
