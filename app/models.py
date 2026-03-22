@@ -29,10 +29,11 @@ class MonitoredKeyword(db.Model):
     supply_rate = db.Column(db.String(50), default="-")
     isbn = db.Column(db.String(50), default="-")
     price = db.Column(db.String(50), default="-")
-    shipping_fee = db.Column(db.String(50), default="무료")
+    shipping_fee = db.Column(db.String(50), default="-")
     store_name = db.Column(db.String(100), default="-")
     book_title = db.Column(db.String(200), default="-")
-    
-    # ✨ [신규 추가] 상품 홈페이지 링크 및 스터디박스 상점 순위
     product_link = db.Column(db.String(500), default="-")
-    store_rank = db.Column(db.String(50), default="1")
+    store_rank = db.Column(db.String(50), default="-")
+    
+    # ✨ [신규] 변동폭을 계산하기 위한 '과거 순위' 저장 공간
+    prev_store_rank = db.Column(db.String(50), default="-")
