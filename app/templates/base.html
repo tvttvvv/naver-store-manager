@@ -3,105 +3,60 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>네이버 스토어 매니저</title>
+    <title>커머스 멀티툴 프로</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
     <style>
-        body { background-color: #f8f9fa; font-family: 'Malgun Gothic', sans-serif; }
-        .sidebar {
-            min-height: 100vh;
-            background-color: #212529;
-            color: white;
-            box-shadow: 2px 0 5px rgba(0,0,0,0.1);
-        }
-        .sidebar a {
-            color: #adb5bd;
-            text-decoration: none;
-            padding: 12px 20px;
-            display: block;
-            font-weight: 500;
-            transition: all 0.3s;
-        }
-        .sidebar a:hover, .sidebar a.active {
-            color: white;
-            background-color: #343a40;
-            border-left: 4px solid #0d6efd;
-        }
-        .content-area {
-            padding: 30px;
-        }
-        .navbar-brand {
-            font-size: 1.2rem;
-            letter-spacing: 1px;
-        }
+        body { min-height: 100vh; display: flex; flex-direction: column; background-color: #f8f9fa;}
+        .wrapper { display: flex; flex: 1; overflow: hidden; }
+        .sidebar { width: 250px; background-color: #212529; color: white; padding-top: 20px; min-height: 100vh;}
+        .sidebar a { color: #adb5bd; text-decoration: none; padding: 12px 20px; display: block; font-size: 15px;}
+        .sidebar a:hover, .sidebar a.active { color: #fff; background-color: #343a40; }
+        .sidebar i { margin-right: 10px; }
+        .main-content { flex: 1; padding: 30px; overflow-y: auto; }
+        .navbar-top { background-color: #fff; box-shadow: 0 2px 4px rgba(0,0,0,.05); }
     </style>
 </head>
 <body>
-    <div class="container-fluid">
-        <div class="row">
-            <nav class="col-md-3 col-lg-2 d-none d-md-block sidebar py-4 p-0">
-                <div class="text-center mb-4 px-3">
-                    <h5 class="text-white fw-bold navbar-brand m-0">
-                        <i class="bi bi-box-seam me-2 text-primary"></i>스토어 매니저
-                    </h5>
-                </div>
-                
-                <div class="nav flex-column mb-auto">
-                    <a href="{{ url_for('store.index') }}" class="nav-link">
-                        <i class="bi bi-shop me-2"></i> 상품 관리 (삭제/중복)
-                    </a>
-                    
-                    <a href="{{ url_for('kyobo.fetch_book') }}" class="nav-link">
-                        <i class="bi bi-book me-2"></i> 교보문고 도서 수집
-                    </a>
-                    
-                    <a href="{{ url_for('monitoring.index') }}" class="nav-link">
-                        <i class="bi bi-bar-chart-line me-2"></i> 스터디박스 모니터링
-                    </a>
-                </div>
-                
-                <hr class="text-secondary mx-3 mt-5">
-                
-                {% if current_user.is_authenticated %}
-                <div class="nav flex-column px-3">
-                    <span class="nav-link text-muted small px-2">
-                        <i class="bi bi-person-circle me-1"></i> {{ current_user.username }}님 접속 중
-                    </span>
-                    <a href="{{ url_for('auth.logout') }}" class="btn btn-sm btn-outline-danger mt-2 fw-bold text-start">
-                        <i class="bi bi-box-arrow-right me-1"></i> 로그아웃
-                    </a>
-                </div>
-                {% else %}
-                <div class="nav flex-column px-3">
-                    <a href="{{ url_for('auth.login') }}" class="btn btn-sm btn-primary fw-bold text-start">
-                        <i class="bi bi-box-arrow-in-right me-1"></i> 로그인
-                    </a>
-                </div>
-                {% endif %}
-            </nav>
-
-            <main class="col-md-9 ms-sm-auto col-lg-10 content-area">
-                {% with messages = get_flashed_messages(with_categories=true) %}
-                    {% if messages %}
-                        {% for category, message in messages %}
-                            <div class="alert alert-{{ 'danger' if category == 'error' else 'success' }} alert-dismissible fade show shadow-sm fw-bold" role="alert">
-                                {% if category == 'error' %}
-                                    <i class="bi bi-exclamation-triangle-fill me-2"></i>
-                                {% else %}
-                                    <i class="bi bi-check-circle-fill me-2"></i>
-                                {% endif %}
-                                {{ message }}
-                                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                            </div>
-                        {% endfor %}
-                    {% endif %}
-                {% endwith %}
-
-                {% block content %}{% endblock %}
-            </main>
+    {% if current_user.is_authenticated %}
+    <div class="wrapper">
+        <div class="sidebar">
+            <h5 class="text-center mb-4 fw-bold text-white">⚙️ 커머스 툴킷</h5>
+            <a href="{{ url_for('store.index') }}"><i class="bi bi-house-door"></i> 대시보드 홈</a>
+            
+            <p class="text-secondary small mt-4 mb-2 ms-3 fw-bold">상품 관리</p>
+            <a href="{{ url_for('store.delete_isbn') }}"><i class="bi bi-trash"></i> 상품 일괄 삭제 (ISBN)</a>
+            <a href="{{ url_for('store.check_duplicates') }}"><i class="bi bi-search"></i> 상품 중복 체크</a>
+            
+            <p class="text-secondary small mt-4 mb-2 ms-3 fw-bold">도서 정보</p>
+            <a href="{{ url_for('kyobo.fetch_book') }}"><i class="bi bi-book"></i> 교보문고 도서 수집</a>
+            
+            <p class="text-secondary small mt-4 mb-2 ms-3 fw-bold">모니터링</p>
+            <a href="{{ url_for('studybox.index') }}"><i class="bi bi-bar-chart-line"></i> 스터디박스 모니터링</a>
+            
+            <p class="text-secondary small mt-4 mb-2 ms-3 fw-bold">환경 설정</p>
+            <a href="{{ url_for('keys.manage_keys') }}"><i class="bi bi-key"></i> 상점 API 키 관리</a>
+            <a href="{{ url_for('auth.profile') }}"><i class="bi bi-person-gear"></i> 계정 설정</a>
+            <a href="{{ url_for('auth.logout') }}"><i class="bi bi-box-arrow-right"></i> 로그아웃</a>
+        </div>
+        
+        <div class="main-content">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}{% for category, message in messages %}
+                    <div class="alert alert-{{ category }} alert-dismissible fade show">
+                        {{ message }} <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                {% endfor %}{% endif %}
+            {% endwith %}
+            {% block content %}{% endblock %}
         </div>
     </div>
-
+    {% else %}
+    <div class="container mt-5">
+        {% block no_sidebar_content %}{% endblock %}
+    </div>
+    {% endif %}
+    
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
