@@ -57,34 +57,47 @@ def find_product_by_isbn(token, isbn):
             
     return None, None
 
-def delete_product(token, origin_no, channel_no):
-    """(최신 V2 API) 채널 상품번호를 통한 완벽한 삭제 요청"""
+def delete_product(token, origin_no, channel_no, retries=3):
+    """(최신 V2 API) 네이버 요청 폭주 시 자동 재시도(Retry) 방어 로직 탑재"""
     headers = {
         'Authorization': f'Bearer {token}', 
         'Accept': 'application/json;charset=UTF-8'
     }
     
-    try:
-        if channel_no:
-            # ✨ V1이 아닌 V2 채널 상품 삭제 전용 API 주소로 변경
-            delete_url = f"https://api.commerce.naver.com/external/v2/products/channel-products/{channel_no}"
-            res = requests.delete(delete_url, headers=headers, timeout=10)
+    # 실패 시 최대 3번까지 다시 시도합니다.
+    for attempt in range(retries):
+        try:
+            if channel_no:
+                delete_url = f"https://api.commerce.naver.com/external/v2/products/channel-products/{channel_no}"
+                res = requests.delete(delete_url, headers=headers, timeout=10)
+                
+                if res.status_code == 200:
+                    return "완전 삭제 완료"
+                
+                # 네이버가 "요청이 너무 많다"며 거절한 경우 -> 1.5초 쉬고 재시도
+                elif res.status_code == 429 or "요청이 많아" in res.text:
+                    time.sleep(1.5)
+                    continue 
+                
+                # 다른 사유로 삭제가 거절된 경우 (재시도 없이 바로 사유 반환)
+                else:
+                    try:
+                        error_msg = res.json().get('message', f'HTTP {res.status_code}')
+                        return f"삭제 불가 ({error_msg})"
+                    except:
+                        return f"API 거절 (HTTP {res.status_code})"
+                        
+            return "식별 번호 누락"
+        
+        except requests.exceptions.Timeout:
+            # 타임아웃 발생 시에도 조금 쉬었다가 재시도
+            time.sleep(1)
+            continue
+        except Exception as e:
+            return "시스템 오류 발생"
             
-            if res.status_code == 200:
-                return "완전 삭제 완료"
-            else:
-                # ✨ 네이버가 거절한 진짜 이유(예: 판매이력 있음)를 한글로 가로채기
-                try:
-                    error_msg = res.json().get('message', f'HTTP {res.status_code}')
-                    return f"삭제 불가 ({error_msg})"
-                except:
-                    return f"API 거절 (HTTP {res.status_code})"
-                    
-        return "식별 번호 누락"
-    except requests.exceptions.Timeout:
-        return "네이버 응답 지연"
-    except Exception as e:
-        return "시스템 오류 발생"
+    # 3번을 재시도했는데도 계속 요청 폭주로 튕겨내면 최종 포기
+    return "삭제 불가 (API 요청량 초과, 스킵됨)"
 
 def fetch_all_products(token):
     url = "https://api.commerce.naver.com/external/v1/products/search"
