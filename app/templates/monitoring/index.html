@@ -8,7 +8,7 @@
             <div class="card-body p-4">
                 <div class="d-flex justify-content-between align-items-center mb-3">
                     <div>
-                        <h6 class="fw-bold mb-1 text-dark">키워드 및 내 상점 순위 현황</h6>
+                        <h6 class="fw-bold mb-1 text-dark">키워드 및 스터디박스 상점 순위 현황</h6>
                         <span class="text-muted small">
                             <i class="bi bi-broadcast text-primary"></i> 
                             다른 탭(도서 분석기)에서 분석을 돌려놓고 이 창을 켜두시면 A등급이 자동으로 들어옵니다.
@@ -26,8 +26,9 @@
                                 <th>순번</th>
                                 <th>키워드</th>
                                 <th>네이버카운트</th>
-                                <th>내상점순위</th>
-                                <th>키워드네이버링크</th>
+                                <th>스터디박스 순위</th>
+                                <th>키워드링크</th>
+                                <th>상품링크</th>
                                 <th>출판사명</th>
                                 <th>공급률</th>
                                 <th>ISBN</th>
@@ -38,7 +39,7 @@
                             </tr>
                         </thead>
                         <tbody id="savedKeywordsBody">
-                            <tr><td colspan="12" class="text-center py-5 text-muted">데이터를 기다리는 중입니다...</td></tr>
+                            <tr><td colspan="13" class="text-center py-5 text-muted">데이터를 기다리는 중입니다...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -53,18 +54,18 @@
         color: #000 !important;
         font-weight: 800;
     }
-    .edit-input { /* 입력칸 디자인 */
-        min-width: 80px; 
+    .edit-input { 
+        min-width: 70px; 
         max-width: 150px; 
         text-align: center;
     }
 </style>
 
 <script>
-    let isEditing = false; // ✨ 수정 중일 때는 표가 마음대로 새로고침 되지 않도록 막는 역할!
+    let isEditing = false; 
 
     async function loadSavedKeywords() {
-        if (isEditing) return; // 수정 중이면 갱신 멈춤
+        if (isEditing) return; 
 
         const tbody = document.getElementById('savedKeywordsBody');
         try {
@@ -72,52 +73,63 @@
             const result = await res.json();
             
             if (result.success && result.data.length > 0) {
-                tbody.innerHTML = result.data.map((k, index) => `
+                tbody.innerHTML = result.data.map((k, index) => {
+                    // 사용자가 링크를 입력했으면 클릭 가능한 버튼 생성
+                    let linkBtn = '<span class="text-muted">-</span>';
+                    if (k.product_link !== '-' && k.product_link !== '') {
+                        let finalUrl = k.product_link.startsWith('http') ? k.product_link : 'http://' + k.product_link;
+                        linkBtn = `<a href="${finalUrl}" target="_blank" class="btn btn-sm btn-outline-primary py-0 px-2 text-decoration-none"><i class="bi bi-link-45deg"></i> 상품</a>`;
+                    }
+
+                    return `
                     <tr>
                         <td class="align-middle">${index + 1}</td>
                         <td class="align-middle bg-neon-green">${k.keyword}</td>
                         <td class="align-middle bg-neon-green">업데이트됨<br><span class="small fw-normal">(${k.search_volume.toLocaleString()})</span></td>
-                        <td class="align-middle bg-neon-green">1</td>
-                        <td class="align-middle"><a href="${k.link}" target="_blank" class="btn btn-sm btn-outline-secondary py-0 px-2 text-decoration-none"><i class="bi bi-box-arrow-up-right"></i> 링크</a></td>
                         
-                        <td class="align-middle text-muted" id="pub_${k.id}">${k.publisher}</td>
-                        <td class="align-middle text-muted" id="sup_${k.id}">${k.supply_rate}</td>
-                        <td class="align-middle text-muted fw-bold text-dark" id="isbn_${k.id}">${k.isbn}</td>
-                        <td class="align-middle text-muted" id="price_${k.id}">${k.price}</td>
-                        <td class="align-middle fw-bold text-secondary" id="ship_${k.id}">${k.shipping_fee}</td>
-                        <td class="align-middle text-muted" id="store_${k.id}">${k.store_name}</td>
-                        <td class="align-middle text-muted" id="title_${k.id}">${k.book_title}</td>
+                        <td class="align-middle bg-neon-green fw-bold text-dark" id="rank_${k.id}" data-val="${k.store_rank}">${k.store_rank}</td>
+                        
+                        <td class="align-middle"><a href="${k.link}" target="_blank" class="btn btn-sm btn-outline-secondary py-0 px-2 text-decoration-none"><i class="bi bi-search"></i> 키워드</a></td>
+                        
+                        <td class="align-middle" id="plink_${k.id}" data-val="${k.product_link}">${linkBtn}</td>
+                        
+                        <td class="align-middle text-muted" id="pub_${k.id}" data-val="${k.publisher}">${k.publisher}</td>
+                        <td class="align-middle text-muted" id="sup_${k.id}" data-val="${k.supply_rate}">${k.supply_rate}</td>
+                        <td class="align-middle text-muted fw-bold text-dark" id="isbn_${k.id}" data-val="${k.isbn}">${k.isbn}</td>
+                        <td class="align-middle text-muted" id="price_${k.id}" data-val="${k.price}">${k.price}</td>
+                        <td class="align-middle fw-bold text-secondary" id="ship_${k.id}" data-val="${k.shipping_fee}">${k.shipping_fee}</td>
+                        <td class="align-middle text-muted" id="store_${k.id}" data-val="${k.store_name}">${k.store_name}</td>
+                        <td class="align-middle text-muted" id="title_${k.id}" data-val="${k.book_title}">${k.book_title}</td>
                         
                         <td class="align-middle" id="action_${k.id}">
                             <button class="btn btn-sm btn-primary py-0 px-2" onclick="editKeyword(${k.id})" title="수정"><i class="bi bi-pencil-square"></i></button>
                             <button class="btn btn-sm btn-danger py-0 px-2" onclick="deleteKeyword(${k.id})" title="삭제"><i class="bi bi-trash"></i></button>
                         </td>
                     </tr>
-                `).join('');
+                    `;
+                }).join('');
             } else {
-                tbody.innerHTML = '<tr><td colspan="12" class="text-center py-5 text-muted">도서 분석기에서 A등급 키워드가 발견되면 여기에 자동으로 추가됩니다.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="13" class="text-center py-5 text-muted">도서 분석기에서 A등급 키워드가 발견되면 여기에 자동으로 추가됩니다.</td></tr>';
             }
         } catch (e) {
             console.error(e);
         }
     }
 
-    // ✨ 연필(수정) 버튼을 눌렀을 때 텍스트를 입력창으로 변신시키는 함수 ✨
     function editKeyword(id) {
         isEditing = true; 
-        const fields = ['pub', 'sup', 'isbn', 'price', 'ship', 'store', 'title'];
+        const fields = ['rank', 'plink', 'pub', 'sup', 'isbn', 'price', 'ship', 'store', 'title'];
         
         fields.forEach(f => {
             const td = document.getElementById(`${f}_${id}`);
-            const val = td.innerText.trim();
-            td.setAttribute('data-orig', val); // 취소를 누를 때를 대비해 원본 저장
+            const val = td.getAttribute('data-val'); 
             
-            // 입력칸으로 교체 ('-' 기호는 지워줌)
             const cleanVal = (val !== '-') ? val : '';
-            td.innerHTML = `<input type="text" id="in_${f}_${id}" class="form-control form-control-sm px-1 py-0 edit-input" value="${cleanVal}">`;
+            // 상품링크 칸은 주소가 기니까 조금 더 넓게 표시
+            const extraClass = (f === 'plink' || f === 'title') ? 'w-100' : 'edit-input';
+            td.innerHTML = `<input type="text" id="in_${f}_${id}" class="form-control form-control-sm px-1 py-0 ${extraClass}" value="${cleanVal}" placeholder="${f==='plink'?'주소입력':''}">`;
         });
         
-        // 버튼을 '저장'과 '취소'로 변경
         const actionTd = document.getElementById(`action_${id}`);
         actionTd.innerHTML = `
             <button class="btn btn-sm btn-success py-0 px-2" onclick="saveKeyword(${id})" title="저장"><i class="bi bi-check-lg"></i></button>
@@ -125,27 +137,16 @@
         `;
     }
 
-    // ✨ 취소(X) 버튼을 눌렀을 때 원래대로 되돌리는 함수 ✨
     function cancelEdit(id) {
-        const fields = ['pub', 'sup', 'isbn', 'price', 'ship', 'store', 'title'];
-        fields.forEach(f => {
-            const td = document.getElementById(`${f}_${id}`);
-            td.innerText = td.getAttribute('data-orig'); // 원래 저장해둔 글씨로 복구
-        });
-        
-        // 버튼을 다시 '수정'과 '삭제'로 변경
-        const actionTd = document.getElementById(`action_${id}`);
-        actionTd.innerHTML = `
-            <button class="btn btn-sm btn-primary py-0 px-2" onclick="editKeyword(${id})" title="수정"><i class="bi bi-pencil-square"></i></button>
-            <button class="btn btn-sm btn-danger py-0 px-2" onclick="deleteKeyword(${id})" title="삭제"><i class="bi bi-trash"></i></button>
-        `;
         isEditing = false; 
+        loadSavedKeywords(); 
     }
 
-    // ✨ 저장(V) 버튼을 눌렀을 때 DB로 전송하는 함수 ✨
     async function saveKeyword(id) {
         const fd = new FormData();
         fd.append('id', id);
+        fd.append('store_rank', document.getElementById(`in_rank_${id}`).value || '1');
+        fd.append('product_link', document.getElementById(`in_plink_${id}`).value || '-');
         fd.append('publisher', document.getElementById(`in_pub_${id}`).value || '-');
         fd.append('supply_rate', document.getElementById(`in_sup_${id}`).value || '-');
         fd.append('isbn', document.getElementById(`in_isbn_${id}`).value || '-');
@@ -157,7 +158,7 @@
         try {
             await fetch("{{ url_for('monitoring.update_keyword') }}", { method: 'POST', body: fd });
             isEditing = false;
-            loadSavedKeywords(); // 저장 완료 후 표 다시 그리기
+            loadSavedKeywords(); 
         } catch(e) {
             alert('저장 중 오류가 발생했습니다.');
         }
@@ -171,7 +172,6 @@
         loadSavedKeywords();
     }
 
-    // 페이지 접속 시 표를 띄우고, 2초마다 1번 서버(분석기)에서 날아온 데이터가 있는지 확인
     document.addEventListener("DOMContentLoaded", () => {
         loadSavedKeywords();
         setInterval(loadSavedKeywords, 2000);
