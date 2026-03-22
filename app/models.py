@@ -25,7 +25,6 @@ class MonitoredKeyword(db.Model):
     link = db.Column(db.String(500))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
-    # ✨ [추가] 사용자가 수동으로 입력/수정할 수 있는 7가지 데이터 공간 ✨
     publisher = db.Column(db.String(100), default="-")
     supply_rate = db.Column(db.String(50), default="-")
     isbn = db.Column(db.String(50), default="-")
@@ -33,3 +32,7 @@ class MonitoredKeyword(db.Model):
     shipping_fee = db.Column(db.String(50), default="무료")
     store_name = db.Column(db.String(100), default="-")
     book_title = db.Column(db.String(200), default="-")
+    
+    # ✨ [신규 추가] 상품 홈페이지 링크 및 스터디박스 상점 순위
+    product_link = db.Column(db.String(500), default="-")
+    store_rank = db.Column(db.String(50), default="1")
