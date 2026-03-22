@@ -10,11 +10,9 @@ def create_app():
     app = Flask(__name__)
     app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'my-super-secret-key')
     
-    # ✨ [핵심 복구 로직] 환경변수 세팅이 없더라도, '/app/data' 볼륨이 존재하면 무조건 그곳의 과거 DB를 우선 연결합니다!
     db_url = os.environ.get('DATABASE_URL')
     if not db_url:
         if os.path.exists('/app/data'):
-            # 회원님의 기존 볼륨 경로를 자동 인식!
             db_url = 'sqlite:////app/data/app.db'
         else:
             basedir = os.path.abspath(os.path.dirname(__file__))
@@ -36,20 +34,19 @@ def create_app():
         return User.query.get(int(user_id))
 
     with app.app_context():
-        # 볼륨 폴더가 아직 생성되지 않았다면 파이썬이 알아서 폴더를 만들어 줍니다.
         if db_url and db_url.startswith('sqlite:////'):
             db_path = db_url.replace('sqlite:///', '')
             os.makedirs(os.path.dirname(db_path), exist_ok=True)
 
         db.create_all()
         
-        # 기존 데이터 보존 및 새로운 칸(컬럼) 안전 추가 로직
         try:
             db.session.execute(db.text("ALTER TABLE monitored_keyword ADD COLUMN publisher VARCHAR(100) DEFAULT '-'"))
             db.session.execute(db.text("ALTER TABLE monitored_keyword ADD COLUMN supply_rate VARCHAR(50) DEFAULT '-'"))
             db.session.execute(db.text("ALTER TABLE monitored_keyword ADD COLUMN isbn VARCHAR(50) DEFAULT '-'"))
             db.session.execute(db.text("ALTER TABLE monitored_keyword ADD COLUMN price VARCHAR(50) DEFAULT '-'"))
-            db.session.execute(db.text("ALTER TABLE monitored_keyword ADD COLUMN shipping_fee VARCHAR(50) DEFAULT '무료'"))
+            # ✨ 배송비 기본값을 '무료'에서 '-'로 수정 ✨
+            db.session.execute(db.text("ALTER TABLE monitored_keyword ADD COLUMN shipping_fee VARCHAR(50) DEFAULT '-'"))
             db.session.execute(db.text("ALTER TABLE monitored_keyword ADD COLUMN store_name VARCHAR(100) DEFAULT '-'"))
             db.session.execute(db.text("ALTER TABLE monitored_keyword ADD COLUMN book_title VARCHAR(200) DEFAULT '-'"))
         except Exception:
