@@ -1,71 +1,66 @@
 {% extends "base.html" %}
 {% block content %}
 
-<h3 class="mb-4 fw-bold">스터디박스 모니터링</h3>
+<h4 class="mb-4 fw-bold">스터디박스 모니터링</h4>
 
 <div class="card shadow-sm border-0 mb-4">
-    <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
-        <h6 class="mb-0 fw-bold">키워드 및 내 상점 순위 현황</h6>
-        <button class="btn btn-dark btn-sm fw-bold px-3" onclick="triggerManualUpdate()" id="updateBtn">
-            <i class="bi bi-arrow-clockwise me-1"></i> 수동 업데이트 및 Pro 연동
-        </button>
-    </div>
-    
-    <div class="card-body p-0">
-        <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0 text-center" style="font-size: 14px;">
-                <thead style="background-color: #00FFFF; border-bottom: 2px solid #dee2e6;">
+    <div class="card-body p-4">
+        
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h6 class="mb-0 fw-bold text-muted">키워드 및 내 상점 순위 현황</h6>
+            <button class="btn btn-primary px-4 py-2" onclick="triggerManualUpdate()" id="updateBtn">
+                수동 업데이트 및 Pro 연동
+            </button>
+        </div>
+        
+        <div class="table-responsive border rounded">
+            <table class="table table-bordered text-center align-middle mb-0" style="font-size: 14px;">
+                <thead style="background-color: #00FFFF;">
                     <tr>
-                        <th class="py-3">순번</th>
-                        <th class="py-3">키워드</th>
-                        <th class="py-3">네이버카운트</th>
-                        <th class="py-3">내상점순위</th>
-                        <th class="py-3">키워드네이버링크</th>
-                        <th class="py-3">출판사명</th>
-                        <th class="py-3">공급률</th>
-                        <th class="py-3">ISBN</th>
-                        <th class="py-3">가격</th>
-                        <th class="py-3">택배비</th>
-                        <th class="py-3">상점 책제목</th>
+                        <th class="py-2">순번</th>
+                        <th class="py-2">키워드</th>
+                        <th class="py-2">네이버카운트</th>
+                        <th class="py-2">내상점순위</th>
+                        <th class="py-2">키워드네이버링크</th>
+                        <th class="py-2">출판사명</th>
+                        <th class="py-2">공급률</th>
+                        <th class="py-2">ISBN</th>
+                        <th class="py-2">가격</th>
+                        <th class="py-2">택배비</th>
+                        <th class="py-2">상점 책제목</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for book in books %}
                     <tr>
                         <td class="text-muted">{{ book.id }}</td>
-                        <td style="background-color: #00FF00; font-weight: bold;" class="text-dark">{{ book.keyword }}</td>
-                        <td style="background-color: #00FF00; font-weight: bold;" class="text-dark">{{ book.naver_count }}</td>
-                        <td style="background-color: #00FF00; font-weight: bold;" class="text-dark">{{ book.shop_rank }}</td>
-                        
+                        <td style="background-color: #00FF00; font-weight: bold;">{{ book.keyword }}</td>
+                        <td style="background-color: #00FF00; font-weight: bold;">{{ book.naver_count }}</td>
+                        <td style="background-color: #00FF00; font-weight: bold;">{{ book.shop_rank }}</td>
                         <td>
                             {% if book.link %}
-                            <a href="{{ book.link }}" target="_blank" class="text-decoration-none"><i class="bi bi-link-45deg fs-5"></i></a>
+                            <a href="{{ book.link }}" target="_blank" class="text-decoration-none"><i class="bi bi-box-arrow-up-right"></i></a>
                             {% endif %}
                         </td>
                         <td class="text-muted">{{ book.publisher }}</td>
                         <td class="text-muted">{{ book.supply_rate }}</td>
-                        <td class="font-monospace text-muted">{{ book.isbn }}</td>
-                        <td class="fw-bold">{{ book.price }}</td>
-                        <td>
-                            {% if book.shipping == '무료' %}
-                                <span class="badge bg-success rounded-pill px-2">무료</span>
-                            {% elif book.shipping %}
-                                <span class="badge bg-secondary rounded-pill px-2">{{ book.shipping }}</span>
-                            {% endif %}
-                        </td>
-                        <td class="text-muted text-truncate" style="max-width: 150px;" title="{{ book.shop_title }}">{{ book.shop_title }}</td>
+                        <td class="font-monospace">{{ book.isbn }}</td>
+                        <td>{{ book.price }}</td>
+                        <td>{{ book.shipping }}</td>
+                        <td class="text-truncate text-muted" style="max-width: 150px;" title="{{ book.shop_title }}">{{ book.shop_title }}</td>
                     </tr>
                     {% else %}
                     <tr>
                         <td colspan="11" class="text-center py-5 text-muted">
-                            <i class="bi bi-inbox fs-1 d-block mb-2 text-light"></i>
-                            모니터링할 데이터가 없습니다.
+                            <i class="bi bi-inbox fs-1 d-block mb-2"></i>
+                            데이터가 없습니다.
                         </td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
+
     </div>
 </div>
 
@@ -74,7 +69,6 @@
         const btn = document.getElementById('updateBtn');
         const originalText = btn.innerHTML;
         
-        // 로딩 상태 UI 처리
         btn.disabled = true;
         btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>업데이트 중...';
         
@@ -82,7 +76,7 @@
             .then(response => response.json())
             .then(data => {
                 alert(data.message);
-                location.reload(); // 업데이트 성공 시 화면 새로고침
+                location.reload(); 
             })
             .catch(error => {
                 console.error('Error:', error);
