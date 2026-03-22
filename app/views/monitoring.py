@@ -53,6 +53,37 @@ def get_saved_keywords():
         } for k in keywords]
     })
 
+# 🚨 제가 실수로 빼먹었던 삭제 및 수정 기능 복구 완료!
+@monitoring_bp.route('/api/delete_keyword', methods=['POST'])
+@login_required
+def delete_keyword():
+    kw_id = request.form.get('id')
+    kw = MonitoredKeyword.query.filter_by(id=kw_id, user_id=current_user.id).first()
+    if kw:
+        db.session.delete(kw)
+        db.session.commit()
+    return jsonify({'success': True})
+
+@monitoring_bp.route('/api/update_keyword', methods=['POST'])
+@login_required
+def update_keyword():
+    kw_id = request.form.get('id')
+    kw = MonitoredKeyword.query.filter_by(id=kw_id, user_id=current_user.id).first()
+    if kw:
+        kw.publisher = request.form.get('publisher', '-')
+        kw.supply_rate = request.form.get('supply_rate', '-')
+        kw.isbn = request.form.get('isbn', '-')
+        kw.price = request.form.get('price', '-')
+        kw.shipping_fee = request.form.get('shipping_fee', '-') 
+        kw.store_name = request.form.get('store_name', '-')
+        kw.book_title = request.form.get('book_title', '-')
+        kw.product_link = request.form.get('product_link', '-')
+        kw.store_rank = request.form.get('store_rank', '-')
+        db.session.commit()
+        return jsonify({'success': True})
+    return jsonify({'success': False, 'message': '데이터를 찾을 수 없습니다.'})
+
+
 def get_commerce_token(client_id, client_secret):
     try:
         timestamp = str(int(time.time() * 1000))
@@ -98,7 +129,6 @@ def async_refresh_ranks(app, user_id, search_client_id, search_client_secret):
                 try:
                     search_url = "https://api.commerce.naver.com/external/v1/products/search"
                     c_headers = {"Authorization": f"Bearer {commerce_token}", "Content-Type": "application/json"}
-                    # 키워드가 포함된 내 상품 리스트를 먼저 가져옴
                     payload = {"page": 1, "size": 30, "name": kw.keyword}
                     c_res = requests.post(search_url, headers=c_headers, json=payload, timeout=5)
                     
@@ -107,10 +137,9 @@ def async_refresh_ranks(app, user_id, search_client_id, search_client_secret):
                         target_kw_clean = kw.keyword.replace(" ", "").lower()
                         
                         for p in contents:
-                            o_no = p.get('originProductNo') # 원본 상품 번호
+                            o_no = p.get('originProductNo')
                             if not o_no: continue
                             
-                            # 상세 조회 API를 호출하여 진짜 데이터(배송비, ISBN 등)를 가져옴
                             detail_url = f"https://api.commerce.naver.com/external/v2/products/origin-products/{o_no}"
                             d_res = requests.get(detail_url, headers=c_headers, timeout=5)
                             
@@ -121,35 +150,30 @@ def async_refresh_ranks(app, user_id, search_client_id, search_client_secret):
                                 
                                 # ✨ [필터] 키워드가 상품명에 정확히 포함되어 있을 때만 데이터 수집
                                 if target_kw_clean in clean_real_name:
-                                    # 상품링크 (채널 상품번호 기반)
                                     c_prods = p.get('channelProducts', [])
                                     if c_prods:
                                         c_no = c_prods[0].get('channelProductNo')
                                         kw.product_link = f"https://smartstore.naver.com/main/products/{c_no}"
                                     
-                                    # 상점 책제목 / 상점명 / 가격
                                     kw.book_title = real_name
                                     kw.store_name = api_key.store_name if api_key else "스터디박스"
                                     sale_price = d_data.get('salePrice')
                                     if sale_price is not None: kw.price = f"{sale_price:,}원"
                                     
-                                    # 택배비 (기본 배송비 기준)
                                     delivery = d_data.get('deliveryInfo', {}).get('deliveryFee', {})
                                     base_fee = delivery.get('baseFee')
                                     if base_fee is not None:
                                         kw.shipping_fee = "무료" if base_fee == 0 else f"{base_fee:,}원"
                                     
-                                    # ISBN / 출판사 (도서 정보 탭 데이터)
                                     book_info = d_data.get('detailAttribute', {}).get('bookInfo', {})
                                     if book_info:
                                         kw.isbn = book_info.get('isbn', '-')
                                         kw.publisher = book_info.get('publisher', '-')
                                     
-                                    break # 정확한 매칭 상품을 찾았으므로 다음 키워드로 이동
-                            time.sleep(0.2) # 네이버 API 호출 과부하 방지용 미세 지연
+                                    break 
+                            time.sleep(0.2) 
                 except: pass
 
-            # 매 키워드마다 즉시 저장해서 화면에 실시간 반영
             db.session.commit()
             time.sleep(0.3)
 
