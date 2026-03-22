@@ -3,125 +3,117 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>커머스 툴킷</title>
+    <title>커머스 멀티툴 프로</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
     <style>
-        body {
-            background-color: #f8f9fa;
-            display: flex;
-            min-height: 100vh;
-            margin: 0;
+        body { 
+            min-height: 100vh; 
+            display: flex; 
+            flex-direction: column; 
+            background-color: #f8f9fa; /* 메인 배경색 */
+            font-family: 'Malgun Gothic', sans-serif;
         }
-        /* 다크 테마 좌측 사이드바 */
-        .sidebar {
-            background-color: #262b32; /* 사진과 유사한 짙은 회색/네이비톤 */
-            width: 260px;
-            color: #fff;
-            padding-top: 20px;
-            flex-shrink: 0;
+        .wrapper { display: flex; flex: 1; overflow: hidden; }
+        
+        /* 사진과 똑같은 다크 사이드바 */
+        .sidebar { 
+            width: 250px; 
+            background-color: #212529; 
+            color: white; 
+            padding-top: 20px; 
+            min-height: 100vh;
         }
         .sidebar-brand {
-            color: #fff;
-            font-size: 1.3rem;
-            font-weight: bold;
             text-align: center;
-            margin-bottom: 40px;
-            text-decoration: none;
-            display: block;
-        }
-        .sidebar-category {
-            color: #8a939d;
-            font-size: 0.85rem;
+            margin-bottom: 2rem;
             font-weight: bold;
-            padding: 20px 20px 10px 25px;
+            font-size: 1.2rem;
         }
-        .sidebar .nav-link {
-            color: #cbd5e1;
-            padding: 12px 20px 12px 25px;
-            font-size: 1rem;
-            text-decoration: none;
-            display: block;
-            transition: 0.2s;
+        .sidebar-brand i { margin-right: 8px; }
+        
+        /* 사이드바 카테고리 텍스트 */
+        .sidebar .category-title {
+            color: #6c757d; 
+            font-size: 0.8rem; 
+            margin-top: 25px; 
+            margin-bottom: 5px; 
+            margin-left: 20px; 
+            font-weight: bold;
         }
-        .sidebar .nav-link:hover {
-            color: #fff;
-            background-color: rgba(255, 255, 255, 0.05);
+        
+        /* 메뉴 링크 스타일 */
+        .sidebar a { 
+            color: #adb5bd; 
+            text-decoration: none; 
+            padding: 10px 20px; 
+            display: block; 
+            font-size: 0.95rem;
+            transition: all 0.2s;
         }
-        .sidebar .nav-link i {
-            width: 25px;
-            text-align: center;
-            margin-right: 10px;
+        .sidebar a:hover, .sidebar a.active { 
+            color: #fff; 
+            background-color: rgba(255,255,255,0.05); 
         }
-        /* 메인 콘텐츠 영역 */
-        .main-content {
-            flex-grow: 1;
-            padding: 40px;
-            background-color: #f8f9fa;
+        .sidebar i.menu-icon { margin-right: 12px; width: 20px; text-align: center; }
+        
+        /* 우측 메인 콘텐츠 영역 */
+        .main-content { 
+            flex: 1; 
+            padding: 40px; 
+            overflow-y: auto; 
         }
+        
+        /* 카드 공통 스타일 (사진 참조) */
+        .card { border-radius: 8px; border: 1px solid #e9ecef; box-shadow: 0 0.125rem 0.25rem rgba(0,0,0,0.075); }
+        .card-header { background-color: transparent; border-bottom: 1px solid #e9ecef; }
     </style>
 </head>
 <body>
-
-    <div class="sidebar">
-        <a href="{{ url_for('dashboard') }}" class="sidebar-brand">
-            <i class="fa-solid fa-gear"></i> 커머스 툴킷
-        </a>
-
-        {% if current_user.is_authenticated %}
-        <div class="nav flex-column">
-            <a href="{{ url_for('dashboard') }}" class="nav-link">
-                <i class="fa-solid fa-house"></i> 대시보드 홈
-            </a>
-
-            <div class="sidebar-category">상품 관리</div>
-            <a href="{{ url_for('dashboard') }}" class="nav-link">
-                <i class="fa-solid fa-trash-can"></i> 상품 일괄 삭제 (ISBN)
-            </a>
-            <a href="#" class="nav-link">
-                <i class="fa-solid fa-magnifying-glass"></i> 상품 중복 체크
-            </a>
-
-            <div class="sidebar-category">도서 정보</div>
-            <a href="#" class="nav-link">
-                <i class="fa-solid fa-book-open"></i> 교보문고 도서 수집
-            </a>
-
-            <div class="sidebar-category">모니터링</div>
-            <a href="{{ url_for('studybox.index') }}" class="nav-link">
-                <i class="fa-solid fa-chart-line"></i> 스터디박스 모니터링
-            </a>
-
-            <div class="sidebar-category">환경 설정</div>
-            <a href="{{ url_for('manage_keys') }}" class="nav-link">
-                <i class="fa-solid fa-key"></i> 상점 API 키 관리
-            </a>
-            <a href="#" class="nav-link">
-                <i class="fa-solid fa-user-gear"></i> 계정 설정
-            </a>
+    {% if current_user.is_authenticated %}
+    <div class="wrapper">
+        <div class="sidebar">
+            <div class="sidebar-brand">
+                <i class="bi bi-gear-fill"></i> 커머스 툴킷
+            </div>
             
-            <a href="{{ url_for('logout') }}" class="nav-link mt-4" style="color: #cbd5e1;">
-                <i class="fa-solid fa-right-from-bracket"></i> 로그아웃
-            </a>
+            <a href="{{ url_for('store.index') }}"><i class="bi bi-house-door menu-icon"></i> 대시보드 홈</a>
+            
+            <div class="category-title">상품 관리</div>
+            <a href="{{ url_for('store.delete_isbn') }}"><i class="bi bi-trash menu-icon"></i> 상품 일괄 삭제 (ISBN)</a>
+            <a href="{{ url_for('store.check_duplicates') }}"><i class="bi bi-search menu-icon"></i> 상품 중복 체크</a>
+            
+            <div class="category-title">도서 정보</div>
+            <a href="{{ url_for('kyobo.fetch_book') }}"><i class="bi bi-book menu-icon"></i> 교보문고 도서 수집</a>
+            
+            <div class="category-title">모니터링</div>
+            <a href="{{ url_for('studybox.index') }}"><i class="bi bi-bar-chart-line menu-icon"></i> 스터디박스 모니터링</a>
+            
+            <div class="category-title">환경 설정</div>
+            <a href="{{ url_for('keys.manage_keys') }}"><i class="bi bi-key menu-icon"></i> 상점 API 키 관리</a>
+            <a href="{{ url_for('auth.profile') }}"><i class="bi bi-person-gear menu-icon"></i> 계정 설정</a>
+            
+            <a href="{{ url_for('auth.logout') }}" class="mt-4 text-muted"><i class="bi bi-box-arrow-right menu-icon"></i> 로그아웃</a>
         </div>
-        {% endif %}
-    </div>
-
-    <div class="main-content">
-        {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-                {% for category, message in messages %}
-                    <div class="alert alert-{{ category }} alert-dismissible fade show shadow-sm" role="alert">
-                        {{ message }}
-                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        
+        <div class="main-content">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}{% for category, message in messages %}
+                    <div class="alert alert-{{ category }} alert-dismissible fade show">
+                        {{ message }} <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
                     </div>
-                {% endfor %}
-            {% endif %}
-        {% endwith %}
-
-        {% block content %}{% endblock %}
+                {% endfor %}{% endif %}
+            {% endwith %}
+            
+            {% block content %}{% endblock %}
+        </div>
     </div>
-
+    {% else %}
+    <div class="container mt-5">
+        {% block no_sidebar_content %}{% endblock %}
+    </div>
+    {% endif %}
+    
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
