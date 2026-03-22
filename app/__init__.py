@@ -37,16 +37,20 @@ def create_app():
     with app.app_context():
         db.create_all()
 
-    # 블루프린트(라우터) 등록
+    # =========================================================
+    # ✨ 블루프린트(라우터) 모두 등록 (빠진 것 없이 전부 추가 완료!)
+    # =========================================================
     from app.views.auth import auth_bp
     from app.views.store import store_bp
     from app.views.monitoring import monitoring_bp
-    from app.views.kyobo import kyobo_bp  # ✨ 빼먹었던 교보문고 모듈 다시 불러오기!
+    from app.views.kyobo import kyobo_bp
+    from app.views.keys import keys_bp  # ✨ [추가] API 키 관리 모듈 연결!
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(store_bp, url_prefix='/store')
     app.register_blueprint(monitoring_bp, url_prefix='/monitoring')
-    app.register_blueprint(kyobo_bp, url_prefix='/kyobo')  # ✨ 교보문고 방 다시 연결!
+    app.register_blueprint(kyobo_bp, url_prefix='/kyobo')
+    app.register_blueprint(keys_bp, url_prefix='/keys')  # ✨ [추가] API 키 관리 방 연결!
 
     # 아무것도 안 붙은 대문(/)으로 접속하면 알아서 /store 로 보내버리기
     @app.route('/')
