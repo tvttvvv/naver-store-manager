@@ -1,6 +1,7 @@
 import os
 import time
-from flask import Blueprint, render_template, request, jsonify
+from threading import Thread
+from flask import Blueprint, render_template, request, jsonify, current_app
 from flask_login import login_required, current_user
 from app import db
 from app.models import User, MonitoredKeyword
@@ -104,6 +105,37 @@ def update_keyword():
         
     return jsonify({'success': False, 'message': '데이터를 찾을 수 없습니다.'})
 
+
+# ✨ [신규 추가] 백그라운드에서 순위를 업데이트하는 실제 일꾼 함수
+def async_refresh_ranks(app, user_id, client_id, client_secret):
+    with app.app_context():
+        keywords = MonitoredKeyword.query.filter_by(user_id=user_id).all()
+        for kw in keywords:
+            kw.prev_store_rank = kw.store_rank
+            try:
+                headers = {"X-Naver-Client-Id": client_id, "X-Naver-Client-Secret": client_secret}
+                url = f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(kw.keyword)}&display=100"
+                res = requests.get(url, headers=headers, timeout=5)
+                
+                if res.status_code == 200:
+                    items = res.json().get('items', [])
+                    rank = "100위 밖" 
+                    for idx, item in enumerate(items):
+                        if "스터디박스" in item.get('mallName', ''):
+                            rank = str(idx + 1)
+                            break
+                    kw.store_rank = rank
+                else:
+                    kw.store_rank = "API에러"
+            except:
+                kw.store_rank = "통신실패"
+                
+            # ✨ 네이버 차단도 막고, 화면에 하나씩 갱신되는 걸 보여주기 위해 즉시 저장!
+            time.sleep(0.1) 
+            db.session.commit() 
+
+
+# ✨ 버튼을 누르면 스레드(일꾼)만 출발시키고 1초만에 응답을 주는 API
 @monitoring_bp.route('/api/refresh_all_ranks', methods=['POST'])
 @login_required
 def refresh_all_ranks():
@@ -112,29 +144,13 @@ def refresh_all_ranks():
     
     if not client_id or not client_secret:
         return jsonify({'success': False, 'message': '네이버 API 환경변수(ID/SECRET)가 서버에 설정되어 있지 않습니다.'})
-        
-    keywords = MonitoredKeyword.query.filter_by(user_id=current_user.id).all()
-    for kw in keywords:
-        kw.prev_store_rank = kw.store_rank
-        try:
-            headers = {"X-Naver-Client-Id": client_id, "X-Naver-Client-Secret": client_secret}
-            url = f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(kw.keyword)}&display=100"
-            res = requests.get(url, headers=headers, timeout=5)
+    
+    # 플라스크 앱과 사용자 정보를 스레드에 넘겨주기 위해 준비
+    app = current_app._get_current_object()
+    user_id = current_user.id
+    
+    # 백그라운드에서 작업 시작! (브라우저는 여기서 기다리지 않음)
+    thread = Thread(target=async_refresh_ranks, args=(app, user_id, client_id, client_secret))
+    thread.start()
             
-            if res.status_code == 200:
-                items = res.json().get('items', [])
-                rank = "100위 밖" # ✨ 찾지 못했을 때의 기본값
-                for idx, item in enumerate(items):
-                    if "스터디박스" in item.get('mallName', ''):
-                        rank = str(idx + 1)
-                        break
-                kw.store_rank = rank
-            else:
-                kw.store_rank = "API에러"
-        except:
-            kw.store_rank = "통신실패"
-            
-        time.sleep(0.1) # ✨ 0.1초 쉬어주기
-            
-    db.session.commit()
-    return jsonify({'success': True, 'message': '모든 키워드의 스터디박스 순위가 최신화되었습니다.'})
+    return jsonify({'success': True, 'message': '✅ 백그라운드 순위 갱신이 시작되었습니다!\n(데이터 개수에 따라 1~2분 정도 소요되며, 화면에 실시간으로 반영됩니다.)'})
