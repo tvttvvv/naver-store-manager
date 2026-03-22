@@ -6,47 +6,9 @@ from apscheduler.schedulers.background import BackgroundScheduler
 import time
 import requests
 import urllib.parse
-import re
-import random
 
 db = SQLAlchemy()
 login_manager = LoginManager()
-
-# ✨ [신규 하이브리드 엔진]
-def get_real_store_rank_hybrid(keyword, target_store="스터디박스", client_id="", client_secret=""):
-    fake_ip = f"211.{random.randint(10, 250)}.{random.randint(10, 250)}.{random.randint(10, 250)}"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
-        "X-Forwarded-For": fake_ip,
-        "Accept-Language": "ko-KR,ko;q=0.9"
-    }
-    
-    try:
-        url = f"https://msearch.shopping.naver.com/search/all?query={urllib.parse.quote(keyword)}"
-        res = requests.get(url, headers=headers, timeout=5)
-        if "captcha" not in res.text.lower() and "비정상적인" not in res.text:
-            if target_store in res.text:
-                names = re.findall(r'"mallName":"([^"]+)"', res.text)
-                for idx, name in enumerate(names, start=1):
-                    if target_store in name: return str(idx)
-                return "순위 밖"
-    except:
-        pass
-
-    try:
-        if client_id and client_secret:
-            api_headers = {"X-Naver-Client-Id": client_id, "X-Naver-Client-Secret": client_secret}
-            for start_idx in [1, 101]:
-                api_url = f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(keyword)}&display=100&start={start_idx}"
-                api_res = requests.get(api_url, headers=api_headers, timeout=5)
-                if api_res.status_code == 200:
-                    for idx, item in enumerate(api_res.json().get('items', [])):
-                        if target_store in item.get('mallName', ''): return str(start_idx + idx)
-                time.sleep(0.1)
-    except:
-        return "탐색 실패"
-
-    return "순위 밖"
 
 def update_ranks_job(app):
     with app.app_context():
@@ -57,8 +19,31 @@ def update_ranks_job(app):
         keywords = MonitoredKeyword.query.all()
         for kw in keywords:
             kw.prev_store_rank = kw.store_rank 
-            kw.store_rank = get_real_store_rank_hybrid(kw.keyword, "스터디박스", client_id, client_secret)
-            time.sleep(1) 
+            rank = "500위 밖"
+            
+            try:
+                if client_id and client_secret:
+                    api_headers = {"X-Naver-Client-Id": client_id, "X-Naver-Client-Secret": client_secret}
+                    found = False
+                    for start_idx in [1, 101, 201, 301, 401]:
+                        api_url = f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(kw.keyword)}&display=100&start={start_idx}"
+                        api_res = requests.get(api_url, headers=api_headers, timeout=5)
+                        if api_res.status_code == 200:
+                            for idx, item in enumerate(api_res.json().get('items', [])):
+                                if "스터디박스" in item.get('mallName', ''):
+                                    rank = str(start_idx + idx)
+                                    found = True
+                                    break
+                        else:
+                            if start_idx == 1: rank = "API에러"
+                            break
+                        if found: break
+                        time.sleep(0.1) # API 호출 제한 방지
+            except:
+                rank = "탐색 실패"
+                
+            kw.store_rank = rank
+            time.sleep(0.5) # 키워드 간 딜레이
         db.session.commit()
 
 def create_app():
