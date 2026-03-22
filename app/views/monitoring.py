@@ -21,14 +21,11 @@ def index():
 def receive_webhook():
     data = request.get_json()
     if not data: return jsonify({'success': False, 'message': 'No data'})
-
     grade = data.get('grade', '')
     keyword = data.get('keyword', '')
-    
     if 'A' in grade and keyword:
         user = User.query.first()
         if not user: return jsonify({'success': False, 'message': 'No user found'})
-            
         existing = MonitoredKeyword.query.filter_by(user_id=user.id, keyword=keyword).first()
         if not existing:
             new_kw = MonitoredKeyword(
@@ -92,36 +89,24 @@ def get_commerce_token(client_id, client_secret):
         pwd = f"{client_id}_{timestamp}"
         hashed_pw = bcrypt.hashpw(pwd.encode('utf-8'), client_secret.encode('utf-8'))
         client_secret_sign = base64.urlsafe_b64encode(hashed_pw).decode('utf-8')
-        
         url = "https://api.commerce.naver.com/external/v1/oauth2/token"
-        data = {
-            "client_id": client_id,
-            "timestamp": timestamp,
-            "client_secret_sign": client_secret_sign,
-            "grant_type": "client_credentials",
-            "type": "SELF"
-        }
+        data = {"client_id": client_id, "timestamp": timestamp, "client_secret_sign": client_secret_sign, "grant_type": "client_credentials", "type": "SELF"}
         res = requests.post(url, data=data, timeout=5)
-        if res.status_code == 200:
-            return res.json().get("access_token")
-    except Exception as e:
-        print(f"🚨 [디버그] 커머스 토큰 발급 에러: {e}")
+        if res.status_code == 200: return res.json().get("access_token")
+    except: pass
     return None
 
 def async_refresh_ranks(app, user_id, search_client_id, search_client_secret):
     with app.app_context():
         keywords = MonitoredKeyword.query.filter_by(user_id=user_id).all()
-        
         api_key = ApiKey.query.filter_by(user_id=user_id).first()
         commerce_token = None
-        if api_key:
-            commerce_token = get_commerce_token(api_key.client_id, api_key.client_secret)
+        if api_key: commerce_token = get_commerce_token(api_key.client_id, api_key.client_secret)
 
         for kw in keywords:
             kw.prev_store_rank = kw.store_rank
             rank = "500위 밖"
-            
-            # 1. 쇼핑 순위 탐색
+            # 1. 순위 탐색 API
             try:
                 if search_client_id and search_client_secret:
                     api_headers = {"X-Naver-Client-Id": search_client_id, "X-Naver-Client-Secret": search_client_secret}
@@ -132,97 +117,70 @@ def async_refresh_ranks(app, user_id, search_client_id, search_client_secret):
                         if api_res.status_code == 200:
                             for idx, item in enumerate(api_res.json().get('items', [])):
                                 if "스터디박스" in item.get('mallName', ''):
-                                    rank = str(start_idx + idx)
-                                    found = True
-                                    break
-                        else:
-                            if start_idx == 1: 
-                                rank = "API에러"
-                            break
+                                    rank = str(start_idx + idx); found = True; break
                         if found: break
                         time.sleep(0.1)
-            except Exception as e:
-                rank = "탐색 실패"
+            except: rank = "탐색 실패"
             kw.store_rank = rank
 
-            # ✨ 2. 커머스 API 상세 추적 모드
+            # ✨ 2. [완벽 수정] 커머스 상세 매칭 엔진 (상세 조회 추가)
             if commerce_token:
-                print(f"\n=========================================")
-                print(f"🔍 [{kw.keyword}] 커머스 내 상품 검색 시작...")
                 try:
                     search_url = "https://api.commerce.naver.com/external/v1/products/search"
-                    c_headers = {
-                        "Authorization": f"Bearer {commerce_token}",
-                        "Content-Type": "application/json"
-                    }
-                    payload = {"page": 1, "size": 50, "orderType": "NO", "name": kw.keyword}
+                    c_headers = {"Authorization": f"Bearer {commerce_token}", "Content-Type": "application/json"}
+                    payload = {"page": 1, "size": 30, "name": kw.keyword}
                     c_res = requests.post(search_url, headers=c_headers, json=payload, timeout=5)
                     
                     if c_res.status_code == 200:
-                        content = c_res.json()
-                        products = content.get('contents', [])
-                        print(f"📦 검색된 상품 총 개수: {len(products)}개")
+                        contents = c_res.json().get('contents', [])
+                        target_kw_clean = kw.keyword.replace(" ", "").lower()
                         
-                        target_kw = kw.keyword.replace(" ", "").lower()
-                        matched_product = None
-                        
-                        for p in products:
-                            prod_name = p.get('name', '')
-                            clean_prod_name = prod_name.replace(" ", "").lower()
-                            print(f"   👉 발견된 스토어 상품명: '{prod_name}'")
+                        for p in contents:
+                            o_no = p.get('originProductNo')
+                            if not o_no: continue
                             
-                            if target_kw in clean_prod_name:
-                                matched_product = p
-                                print(f"   ✅ [매칭 성공!] 표에 반영합니다.")
-                                break
-                        
-                        if not matched_product:
-                            print(f"   ❌ [매칭 실패] '{kw.keyword}' 글자가 포함된 상품이 스토어에 없습니다.")
-                            
-                        if matched_product:
-                            c_no = matched_product.get('channelProducts', [{}])[0].get('channelProductNo')
-                            o_no = matched_product.get('originProductNo')
-                            
-                            if c_no: kw.product_link = f"https://smartstore.naver.com/main/products/{c_no}"
-                            sale_price = matched_product.get('salePrice')
-                            if sale_price is not None: kw.price = f"{sale_price:,}원"
-                            
-                            kw.store_name = api_key.store_name if api_key else "스터디박스"
-                            kw.book_title = matched_product.get('name', kw.keyword)
-
-                            if o_no:
-                                detail_url = f"https://api.commerce.naver.com/external/v2/products/origin-products/{o_no}"
-                                detail_res = requests.get(detail_url, headers=c_headers, timeout=5)
-                                if detail_res.status_code == 200:
-                                    origin_data = detail_res.json()
-                                    delivery_fee = origin_data.get('deliveryInfo', {}).get('deliveryFee', {}).get('baseFee')
+                            # 🚨 [중요] 이름이 비어있으면 상세 조회를 통해 진짜 이름을 가져옵니다.
+                            detail_url = f"https://api.commerce.naver.com/external/v2/products/origin-products/{o_no}"
+                            d_res = requests.get(detail_url, headers=c_headers, timeout=5)
+                            if d_res.status_code == 200:
+                                d_data = d_res.json()
+                                real_name = d_data.get('name', '')
+                                clean_real_name = real_name.replace(" ", "").lower()
+                                
+                                # 매칭 확인
+                                if target_kw_clean in clean_real_name:
+                                    # 매칭 성공 시 데이터 채우기
+                                    c_no = p.get('channelProducts', [{}])[0].get('channelProductNo')
+                                    if c_no: kw.product_link = f"https://smartstore.naver.com/main/products/{c_no}"
+                                    
+                                    sale_price = d_data.get('salePrice')
+                                    if sale_price is not None: kw.price = f"{sale_price:,}원"
+                                    
+                                    kw.store_name = api_key.store_name if api_key else "스터디박스"
+                                    kw.book_title = real_name
+                                    
+                                    # 택배비, ISBN, 출판사
+                                    delivery_fee = d_data.get('deliveryInfo', {}).get('deliveryFee', {}).get('baseFee')
                                     if delivery_fee is not None:
                                         kw.shipping_fee = "무료" if delivery_fee == 0 else f"{delivery_fee:,}원"
-                                        
-                                    book_info = origin_data.get('detailAttribute', {}).get('bookInfo', {})
+                                    
+                                    book_info = d_data.get('detailAttribute', {}).get('bookInfo', {})
                                     if book_info:
                                         if book_info.get('isbn'): kw.isbn = book_info.get('isbn')
                                         if book_info.get('publisher'): kw.publisher = book_info.get('publisher')
-                                    print(f"   🎉 세부 정보(가격, ISBN 등) 업데이트 완료!")
-                    else:
-                        print(f"🚨 [{kw.keyword}] 검색 실패 (에러코드): {c_res.text}")
-                except Exception as e:
-                    print(f"🚨 [{kw.keyword}] 통신 중 파이썬 에러: {e}")
-                print(f"=========================================\n")
+                                    break # 매칭된 첫 번째 상품에서 중단
+                except: pass
 
             time.sleep(0.5)
-            db.session.commit() 
+            db.session.commit()
 
 @monitoring_bp.route('/api/refresh_all_ranks', methods=['POST'])
 @login_required
 def refresh_all_ranks():
     search_client_id = os.environ.get("NAVER_CLIENT_ID", "")
     search_client_secret = os.environ.get("NAVER_CLIENT_SECRET", "")
-    
     app = current_app._get_current_object()
     user_id = current_user.id
-    
     thread = Thread(target=async_refresh_ranks, args=(app, user_id, search_client_id, search_client_secret))
     thread.start()
-            
-    return jsonify({'success': True, 'message': '✅ 백그라운드 탐색이 시작되었습니다!\n(화면에 실시간 반영됩니다.)'})
+    return jsonify({'success': True, 'message': '✅ 백그라운드 탐색 및 상품 정보 조회가 시작되었습니다!'})
