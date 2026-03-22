@@ -1,56 +1,125 @@
 import time
-import bcrypt
-import jwt
+import base64
 import requests
+import bcrypt
 
 def get_naver_token(client_id, client_secret):
-    timestamp = str(int((time.time() - 3) * 1000))
-    pwd = f"{client_id}_{timestamp}"
-    hashed_pwd = bcrypt.hashpw(pwd.encode('utf-8'), client_secret.encode('utf-8'))
+    """네이버 커머스 API 인증 토큰 발급"""
+    url = "https://api.commerce.naver.com/external/v1/oauth2/token"
+    timestamp = str(int(time.time() * 1000))
     
-    client_secret_sign = jwt.encode({"client_id": client_id, "timestamp": timestamp}, client_secret, algorithm="HS256")
-    
+    try:
+        password = f"{client_id}_{timestamp}"
+        hashed = bcrypt.hashpw(password.encode('utf-8'), client_secret.encode('utf-8'))
+        signature = base64.b64encode(hashed).decode('utf-8')
+    except Exception as e:
+        print("Token Error:", e)
+        return None
+
     headers = {'Content-Type': 'application/x-www-form-urlencoded'}
     data = {
         'client_id': client_id,
         'timestamp': timestamp,
-        'client_secret_sign': client_secret_sign,
+        'client_secret_sign': signature,
         'grant_type': 'client_credentials',
         'type': 'SELF'
     }
     
-    response = requests.post('https://api.commerce.naver.com/external/v1/oauth2/token', headers=headers, data=data)
-    if response.status_code == 200:
-        return response.json().get('access_token')
+    res = requests.post(url, headers=headers, data=data)
+    if res.status_code == 200:
+        return res.json().get('access_token')
     return None
 
-def find_product_by_isbn(access_token, isbn):
-    headers = {'Authorization': f'Bearer {access_token}'}
-    search_url = f'https://api.commerce.naver.com/external/v1/products/search?keyword={isbn}'
-    response = requests.get(search_url, headers=headers)
+def find_product_by_isbn(token, isbn):
+    """판매자 관리코드 또는 상품명에 ISBN이 포함된 상품의 원본번호와 채널번호 반환"""
+    url = "https://api.commerce.naver.com/external/v1/products/search"
+    headers = {
+        'Authorization': f'Bearer {token}',
+        'Content-Type': 'application/json'
+    }
     
-    if response.status_code == 200:
-        data = response.json()
-        if data.get('content'):
-            return data['content'][0].get('channelProducts', [{}])[0].get('channelProductNo')
-    return None
+    # 1차 시도: 판매자 관리코드(sellerManagementCode) 기준 검색
+    payload = {"page": 1, "size": 50, "sellerManagementCode": isbn}
+    res = requests.post(url, headers=headers, json=payload)
+    
+    if res.status_code == 200:
+        contents = res.json().get('contents', [])
+        if contents:
+            p = contents[0]
+            origin_no = p.get('originProductNo')
+            channel_no = p.get('channelProducts', [{}])[0].get('channelProductNo')
+            return origin_no, channel_no
 
-def delete_product(access_token, product_id):
-    headers = {'Authorization': f'Bearer {access_token}', 'Content-Type': 'application/json'}
-    delete_url = 'https://api.commerce.naver.com/external/v1/products'
-    data = {"channelProductNos": [product_id], "statusType": "DELETED"}
-    
-    response = requests.put(delete_url, headers=headers, json=data)
-    return response.status_code == 200
+    # 2차 시도: 상품명(productName) 기준 검색 (1차 실패 시)
+    payload_name = {"page": 1, "size": 50, "productName": isbn}
+    res_name = requests.post(url, headers=headers, json=payload_name)
+    if res_name.status_code == 200:
+        contents = res_name.json().get('contents', [])
+        if contents:
+            p = contents[0]
+            origin_no = p.get('originProductNo')
+            channel_no = p.get('channelProducts', [{}])[0].get('channelProductNo')
+            return origin_no, channel_no
+            
+    return None, None
 
-def fetch_all_products(access_token):
-    """상점의 전체 상품 목록을 가져오는 함수 (중복 체크용)"""
-    headers = {'Authorization': f'Bearer {access_token}'}
-    # 실제 환경에서는 page/size 파라미터를 이용해 반복문으로 전체 데이터를 가져와야 합니다.
-    search_url = 'https://api.commerce.naver.com/external/v1/products/search?pageSize=100'
-    response = requests.get(search_url, headers=headers)
+def delete_product(token, origin_no, channel_no):
+    """상품 삭제 시도, 판매이력 등의 이유로 실패 시 상태 변경으로 우회 처리"""
+    headers = {
+        'Authorization': f'Bearer {token}',
+        'Content-Type': 'application/json'
+    }
     
-    if response.status_code == 200:
-        data = response.json()
-        return data.get('content', [])
-    return []
+    # 1. 완전 삭제 시도 (DELETE)
+    if origin_no:
+        delete_url = f"https://api.commerce.naver.com/external/v1/products/{origin_no}"
+        del_res = requests.delete(delete_url, headers=headers)
+        if del_res.status_code == 200:
+            return "완전 삭제 완료"
+
+    # 2. 삭제 실패 시, 판매/전시 중지 처리 (PUT)
+    if channel_no:
+        status_url = "https://api.commerce.naver.com/external/v2/products/channel-products/status"
+        payload = {
+            "channelProducts": [
+                {
+                    "channelProductNo": channel_no,
+                    "saleStateType": "SUSPEND",
+                    "displayStateType": "SUSPEND"
+                }
+            ]
+        }
+        status_res = requests.put(status_url, headers=headers, json=payload)
+        if status_res.status_code == 200:
+            return "판매/전시 중지 처리 완료 (삭제 불가 상품)"
+            
+    return "삭제 및 중지 처리 실패 (API 오류)"
+
+def fetch_all_products(token):
+    """중복 체크를 위한 전체 상품 수집"""
+    url = "https://api.commerce.naver.com/external/v1/products/search"
+    headers = {
+        'Authorization': f'Bearer {token}',
+        'Content-Type': 'application/json'
+    }
+    all_products = []
+    page = 1
+    
+    while True:
+        payload = {"page": page, "size": 50, "orderType": "NO"}
+        res = requests.post(url, headers=headers, json=payload)
+        if res.status_code != 200:
+            break
+            
+        contents = res.json().get('contents', [])
+        if not contents:
+            break
+            
+        all_products.extend(contents)
+        if len(contents) < 50:
+            break
+            
+        page += 1
+        time.sleep(0.3) # API 호출 속도 조절
+        
+    return all_products
