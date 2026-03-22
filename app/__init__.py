@@ -1,5 +1,5 @@
 import os
-from flask import Flask
+from flask import Flask, redirect, url_for
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
 
@@ -37,9 +37,7 @@ def create_app():
     with app.app_context():
         db.create_all()
 
-    # =========================================================
-    # ✨ 블루프린트(라우터) 등록 (반드시 return app 바로 위에 위치!)
-    # =========================================================
+    # 블루프린트(라우터) 등록
     from app.views.auth import auth_bp
     from app.views.store import store_bp
     from app.views.monitoring import monitoring_bp
@@ -47,5 +45,10 @@ def create_app():
     app.register_blueprint(auth_bp)
     app.register_blueprint(store_bp, url_prefix='/store')
     app.register_blueprint(monitoring_bp, url_prefix='/monitoring')
+
+    # ✨ [신규 추가] 아무것도 안 붙은 대문(/)으로 접속하면 알아서 /store 로 보내버리기!
+    @app.route('/')
+    def index():
+        return redirect(url_for('store.index'))
 
     return app
