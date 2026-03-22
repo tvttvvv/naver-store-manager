@@ -65,24 +65,41 @@ def update_ranks_job(app):
                 try:
                     search_url = "https://api.commerce.naver.com/external/v1/products/search"
                     c_headers = {"Authorization": f"Bearer {commerce_token}", "Content-Type": "application/json"}
-                    payload = {"page": 1, "size": 10, "orderType": "NO", "name": kw.keyword}
-                    
+                    payload = {"page": 1, "size": 50, "orderType": "NO", "name": kw.keyword}
                     c_res = requests.post(search_url, headers=c_headers, json=payload, timeout=5)
+                    
                     if c_res.status_code == 200:
                         content = c_res.json()
-                        if content.get('contents'):
-                            product = content['contents'][0]
-                            c_no = product.get('channelProducts', [{}])[0].get('channelProductNo')
-                            o_no = product.get('originProductNo')
+                        target_kw = kw.keyword.replace(" ", "").lower()
+                        matched_product = None
+                        
+                        for product in content.get('contents', []):
+                            prod_name = product.get('name', '').replace(" ", "").lower()
+                            if target_kw in prod_name:
+                                matched_product = product
+                                break
+                                
+                        if matched_product:
+                            c_no = matched_product.get('channelProducts', [{}])[0].get('channelProductNo')
+                            o_no = matched_product.get('originProductNo')
+                            
                             if c_no: kw.product_link = f"https://smartstore.naver.com/main/products/{c_no}"
-                            if product.get('salePrice'): kw.price = f"{product.get('salePrice'):,}원"
-                            kw.store_name = "스터디박스"
-                            kw.book_title = product.get('name', kw.keyword)
+                            sale_price = matched_product.get('salePrice')
+                            if sale_price is not None: kw.price = f"{sale_price:,}원"
+                            
+                            kw.store_name = api_key.store_name if api_key else "스터디박스"
+                            kw.book_title = matched_product.get('name', kw.keyword)
+                            
                             if o_no:
                                 detail_url = f"https://api.commerce.naver.com/external/v2/products/origin-products/{o_no}"
                                 detail_res = requests.get(detail_url, headers=c_headers, timeout=5)
                                 if detail_res.status_code == 200:
-                                    book_info = detail_res.json().get('detailAttribute', {}).get('bookInfo', {})
+                                    origin_data = detail_res.json()
+                                    delivery_fee = origin_data.get('deliveryInfo', {}).get('deliveryFee', {}).get('baseFee')
+                                    if delivery_fee is not None:
+                                        kw.shipping_fee = "무료" if delivery_fee == 0 else f"{delivery_fee:,}원"
+                                        
+                                    book_info = origin_data.get('detailAttribute', {}).get('bookInfo', {})
                                     if book_info:
                                         if book_info.get('isbn'): kw.isbn = book_info.get('isbn')
                                         if book_info.get('publisher'): kw.publisher = book_info.get('publisher')
