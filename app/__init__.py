@@ -41,12 +41,14 @@ def create_app():
     from app.views.auth import auth_bp
     from app.views.store import store_bp
     from app.views.monitoring import monitoring_bp
+    from app.views.kyobo import kyobo_bp  # ✨ 빼먹었던 교보문고 모듈 다시 불러오기!
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(store_bp, url_prefix='/store')
     app.register_blueprint(monitoring_bp, url_prefix='/monitoring')
+    app.register_blueprint(kyobo_bp, url_prefix='/kyobo')  # ✨ 교보문고 방 다시 연결!
 
-    # ✨ [신규 추가] 아무것도 안 붙은 대문(/)으로 접속하면 알아서 /store 로 보내버리기!
+    # 아무것도 안 붙은 대문(/)으로 접속하면 알아서 /store 로 보내버리기
     @app.route('/')
     def index():
         return redirect(url_for('store.index'))
