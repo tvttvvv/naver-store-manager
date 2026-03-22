@@ -126,6 +126,12 @@
         }
     }
 
+    // ✨ [핵심 수정] 500위 밖, 에러 등 글자를 완벽하게 무시하는 계산기 함수
+    function getRankNum(rankStr) {
+        if (!rankStr || rankStr === '-' || rankStr.includes('밖') || rankStr.includes('에러') || rankStr.includes('실패')) return 9999;
+        return parseInt(rankStr.replace(/[^0-9]/g, '')) || 9999;
+    }
+
     function renderTable() {
         if (isEditing) return;
         const tbody = document.getElementById('savedKeywordsBody');
@@ -161,17 +167,23 @@
                     linkBtn = `<a href="${finalUrl}" target="_blank" class="btn btn-sm btn-outline-primary py-0 px-2 text-decoration-none"><i class="bi bi-link-45deg"></i> 상품</a>`;
                 }
 
+                // ✨ [핵심 시각화] 진짜 똑똑해진 변동폭 화살표 로직
                 let rankDisplay = `<span class="fs-6 fw-bold">${k.store_rank}</span>`;
                 if (k.prev_store_rank && k.prev_store_rank !== '-') {
                     if (k.store_rank !== k.prev_store_rank) {
-                        let prevNum = parseInt(k.prev_store_rank.replace(/[^0-9]/g, '')) || 101;
-                        let currNum = parseInt(k.store_rank.replace(/[^0-9]/g, '')) || 101;
+                        let prevNum = getRankNum(k.prev_store_rank);
+                        let currNum = getRankNum(k.store_rank);
                         
-                        if (currNum < prevNum) { 
+                        if (prevNum === 9999 && currNum !== 9999) {
+                            rankDisplay += `<br><span class="rank-up">▲ 순위권 진입!</span>`;
+                        } else if (prevNum !== 9999 && currNum === 9999) {
+                            rankDisplay += `<br><span class="rank-down">▼ 밀려남</span>`;
+                        } else if (currNum < prevNum) { 
                             rankDisplay += `<br><span class="rank-up">▲ ${prevNum - currNum}</span>`;
                         } else if (currNum > prevNum) { 
                             rankDisplay += `<br><span class="rank-down">▼ ${currNum - prevNum}</span>`;
                         } else {
+                            // 완전히 문자로만 되어있어서 구분이 안될 때
                             rankDisplay += `<br><span class="text-muted small" style="font-size:0.75rem;">(이전: ${k.prev_store_rank})</span>`;
                         }
                     } else {
@@ -272,7 +284,6 @@
         loadSavedKeywords();
     }
 
-    // ✨ 백그라운드 갱신 요청을 보내고 바로 버튼을 활성화 시킵니다.
     async function refreshAllRanks() {
         const btn = document.getElementById('refreshRanksBtn');
         const origText = btn.innerHTML;
@@ -284,8 +295,6 @@
             const result = await res.json();
             if (result.success) {
                 alert(result.message);
-                // 브라우저는 이제 아무것도 안하고 기존 2초 타이머에 의해 
-                // DB가 변하는 대로 표만 다시 그리게 됩니다!
             } else {
                 alert(result.message || '업데이트에 실패했습니다.');
             }
@@ -299,7 +308,6 @@
 
     document.addEventListener("DOMContentLoaded", () => {
         loadSavedKeywords();
-        // 2초마다 표 갱신 타이머 작동 중!
         setInterval(loadSavedKeywords, 2000); 
     });
 </script>
