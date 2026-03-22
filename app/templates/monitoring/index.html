@@ -83,6 +83,9 @@
         max-width: 150px; 
         text-align: center;
     }
+    .rank-up { color: #dc3545; font-weight: bold; font-size: 0.8rem; }
+    .rank-down { color: #0d6efd; font-weight: bold; font-size: 0.8rem; }
+    .rank-same { color: #adb5bd; font-weight: bold; font-size: 0.8rem; }
 </style>
 
 <script>
@@ -158,13 +161,37 @@
                     linkBtn = `<a href="${finalUrl}" target="_blank" class="btn btn-sm btn-outline-primary py-0 px-2 text-decoration-none"><i class="bi bi-link-45deg"></i> 상품</a>`;
                 }
 
+                // ✨ [핵심 시각화] 이전 순위와 비교해서 상승/하락 화살표 달아주기
+                let rankDisplay = `<span class="fs-6">${k.store_rank}</span>`;
+                if (k.prev_store_rank && k.prev_store_rank !== '-') {
+                    if (k.store_rank !== '-') {
+                        let prev = parseInt(k.prev_store_rank);
+                        let curr = parseInt(k.store_rank);
+                        if (!isNaN(prev) && !isNaN(curr)) {
+                            // 네이버 쇼핑은 숫자가 '작아질수록' 상단 노출(상승)입니다.
+                            if (curr < prev) {
+                                rankDisplay += `<br><span class="rank-up">▲ ${prev - curr}</span>`;
+                            } else if (curr > prev) {
+                                rankDisplay += `<br><span class="rank-down">▼ ${curr - prev}</span>`;
+                            } else {
+                                rankDisplay += `<br><span class="rank-same">-</span>`;
+                            }
+                        }
+                    } else {
+                        // 순위권에서 밖으로 밀려났을 때
+                        rankDisplay += `<br><span class="text-muted small" style="font-size:0.75rem;">(이전: ${k.prev_store_rank})</span>`;
+                    }
+                }
+
                 return `
                 <tr>
                     <td class="align-middle">${index + 1}</td>
                     <td class="align-middle bg-neon-green">${k.keyword}</td>
                     <td class="align-middle bg-neon-green fs-6">${k.search_volume.toLocaleString()}</td>
                     
-                    <td class="align-middle bg-neon-green fw-bold text-dark" id="rank_${k.id}" data-val="${k.store_rank}">${k.store_rank}</td>
+                    <td class="align-middle bg-neon-green fw-bold text-dark" id="rank_${k.id}" data-val="${k.store_rank}">
+                        ${rankDisplay}
+                    </td>
                     
                     <td class="align-middle"><a href="${k.link}" target="_blank" class="btn btn-sm btn-outline-secondary py-0 px-2 text-decoration-none"><i class="bi bi-search"></i> 키워드</a></td>
                     
@@ -249,11 +276,9 @@
         loadSavedKeywords();
     }
 
-    // ✨ [신규] 버튼을 누르면 서버에 전체 갱신 명령을 내리는 함수
     async function refreshAllRanks() {
         const btn = document.getElementById('refreshRanksBtn');
         const origText = btn.innerHTML;
-        // 로딩 스피너로 버튼 모양 변경
         btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> 업데이트 중...';
         btn.disabled = true;
 
@@ -262,14 +287,13 @@
             const result = await res.json();
             if (result.success) {
                 alert(result.message);
-                loadSavedKeywords(); // 표 새로고침
+                loadSavedKeywords(); 
             } else {
                 alert(result.message || '업데이트에 실패했습니다.');
             }
         } catch(e) {
             alert('순위 업데이트 중 서버 에러가 발생했습니다.');
         } finally {
-            // 작업이 끝나면 버튼 원상복구
             btn.innerHTML = origText;
             btn.disabled = false;
         }
