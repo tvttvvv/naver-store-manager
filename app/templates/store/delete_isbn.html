@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 {% block content %}
-<h3 class="mb-4 fw-bold">상품 일괄 삭제 (ISBN)</h3>
+<h3 class="mb-4 fw-bold">상품 삭제 관리</h3>
 <div class="row">
     <div class="col-md-6">
         <div class="card shadow-sm border-0 mb-4">
             <div class="card-body p-4">
-                <form method="POST">
+                <form method="POST" id="deleteForm">
                     <div class="mb-4">
                         <label class="form-label fw-bold text-muted">대상 상점 선택</label>
                         <select name="selected_store" class="form-select" required>
@@ -13,24 +13,48 @@
                             {% for key in api_keys %}<option value="{{ key.id }}">{{ key.store_name }}</option>{% endfor %}
                         </select>
                     </div>
-                    <div class="mb-4">
-                        <label class="form-label fw-bold text-muted">삭제할 ISBN 리스트</label>
-                        <textarea name="isbn_list" class="form-control" rows="8" placeholder="예: 9788912345678&#10;여러 줄로 입력 가능" required></textarea>
+
+                    <div class="mb-4 border-bottom pb-4">
+                        <label class="form-label fw-bold text-muted">삭제 방식 선택</label>
+                        <div class="d-flex gap-4">
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="delete_mode" id="mode_isbn" value="isbn" checked onchange="toggleMode()">
+                                <label class="form-check-label" for="mode_isbn">특정 상품 삭제 (ISBN)</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="delete_mode" id="mode_all" value="all" onchange="toggleMode()">
+                                <label class="form-check-label text-danger fw-bold" for="mode_all">전체 상품 일괄 삭제</label>
+                            </div>
+                        </div>
                     </div>
-                    <button type="submit" class="btn btn-danger w-100 py-2 fw-bold">작업 실행하기</button>
+
+                    <div class="mb-4" id="isbnInputDiv">
+                        <label class="form-label fw-bold text-muted">삭제할 ISBN 리스트</label>
+                        <textarea name="isbn_list" id="isbn_list" class="form-control" rows="6" placeholder="예: 9788912345678&#10;여러 줄로 입력 가능" required></textarea>
+                    </div>
+
+                    <div class="alert alert-danger d-none mb-4 shadow-sm" id="warningDiv">
+                        <i class="bi bi-exclamation-triangle-fill fs-4 d-block mb-2 text-center"></i>
+                        <p class="mb-0 text-center fw-bold">
+                            주의! 선택한 상점의 모든 상품이 삭제되거나 중지 처리됩니다.<br>이 작업은 되돌릴 수 없습니다.
+                        </p>
+                    </div>
+
+                    <button type="submit" class="btn btn-danger w-100 py-3 fw-bold fs-5 shadow-sm" id="submitBtn">선택한 상품 삭제하기</button>
                 </form>
             </div>
         </div>
     </div>
+    
     <div class="col-md-6">
         {% if results %}
         <div class="card shadow-sm border-0">
             <div class="card-header bg-white py-3"><h6 class="mb-0 fw-bold">실행 결과 로그</h6></div>
-            <div class="card-body p-0">
+            <div class="card-body p-0" style="max-height: 550px; overflow-y: auto;">
                 <ul class="list-group list-group-flush">
                     {% for res in results %}
                     <li class="list-group-item d-flex justify-content-between align-items-center p-3">
-                        <span class="font-monospace">{{ res.isbn }}</span>
+                        <span class="text-truncate me-3 font-monospace small" style="max-width: 250px;" title="{{ res.target }}">{{ res.target }}</span>
                         <span class="badge {% if '완료' in res.status %}bg-success{% else %}bg-danger{% endif %}">{{ res.status }}</span>
                     </li>
                     {% endfor %}
@@ -40,11 +64,45 @@
         {% else %}
         <div class="card shadow-sm border-0 h-100 bg-light d-flex justify-content-center align-items-center text-muted">
             <div class="text-center py-5">
-                <i class="bi bi-clock-history fs-1 mb-2"></i>
-                <p class="mb-0">작업을 실행하면 이곳에 결과가 표시됩니다.</p>
+                <i class="bi bi-card-checklist fs-1 d-block mb-2 text-secondary"></i>
+                <p class="mb-0">작업을 실행하면 이곳에 로그가 표시됩니다.</p>
             </div>
         </div>
         {% endif %}
     </div>
 </div>
+
+<script>
+    // 삭제 방식에 따라 UI를 변경하는 함수
+    function toggleMode() {
+        const isAll = document.getElementById('mode_all').checked;
+        const isbnInputDiv = document.getElementById('isbnInputDiv');
+        const isbnList = document.getElementById('isbn_list');
+        const warningDiv = document.getElementById('warningDiv');
+        const submitBtn = document.getElementById('submitBtn');
+
+        if (isAll) {
+            // 전체 삭제 모드
+            isbnInputDiv.classList.add('d-none');
+            isbnList.required = false; // 필수 입력 해제
+            warningDiv.classList.remove('d-none');
+            submitBtn.innerHTML = '<i class="bi bi-exclamation-octagon me-2"></i>모든 상품 일괄 삭제 실행';
+        } else {
+            // ISBN 특정 삭제 모드
+            isbnInputDiv.classList.remove('d-none');
+            isbnList.required = true; // 필수 입력 적용
+            warningDiv.classList.add('d-none');
+            submitBtn.innerHTML = '선택한 상품 삭제하기';
+        }
+    }
+
+    // 폼 전송 시, 전체 삭제일 경우 다시 한번 브라우저 경고창 띄우기
+    document.getElementById('deleteForm').addEventListener('submit', function(e) {
+        if (document.getElementById('mode_all').checked) {
+            if (!confirm('정말로 해당 상점의 [전체 상품]을 삭제하시겠습니까?\n이 작업은 즉시 실행됩니다.')) {
+                e.preventDefault(); // 확인 취소 시 폼 전송 막기
+            }
+        }
+    });
+</script>
 {% endblock %}
