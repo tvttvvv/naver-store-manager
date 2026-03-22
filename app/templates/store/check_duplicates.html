@@ -37,7 +37,10 @@
         <div class="card shadow-sm border-0 h-100 bg-transparent">
             <div class="card-header bg-white py-3 border-bottom-0 d-flex justify-content-between align-items-center rounded shadow-sm mb-2">
                 <h6 class="mb-0 fw-bold">상점별 중복 검사 현황</h6>
-                <div>
+                <div class="d-flex align-items-center">
+                    <button id="btnRefresh" class="btn btn-sm btn-outline-primary d-none shadow-sm fw-bold me-2" onclick="fetchStatus(true)">
+                        <i class="bi bi-arrow-clockwise me-1"></i>새로고침
+                    </button>
                     <button id="btnStopAll" class="btn btn-sm btn-danger d-none shadow-sm fw-bold" onclick="stopTask('all')">
                         <i class="bi bi-stop-circle-fill me-1"></i>전체 정지
                     </button>
@@ -112,37 +115,73 @@
         renderDynamicCards();
     }
 
+    // ✨ 중복 ISBN 일괄 복사 기능 ✨
+    function copyIsbns(storeId) {
+        const textArea = document.getElementById(`hidden_isbns_${storeId}`);
+        if (!textArea || !textArea.value.trim()) {
+            alert('복사할 유효한 ISBN이 없습니다.');
+            return;
+        }
+        navigator.clipboard.writeText(textArea.value).then(() => {
+            alert('중복된 ISBN이 클립보드에 복사되었습니다!\n삭제 탭에 가서 그대로 붙여넣기 하세요.');
+        }).catch(err => {
+            alert('복사에 실패했습니다. 권한을 확인해주세요.');
+        });
+    }
+
     async function stopTask(storeId) {
         if (!confirm('검사를 강제 중단하시겠습니까?')) return;
         try {
             const fd = new FormData();
             fd.append('store_id', storeId);
             await fetch("{{ url_for('store.stop_dup_task') }}", { method: 'POST', body: fd });
-            fetchStatus(); 
+            fetchStatus(true); 
         } catch(e) { alert('정지 요청 실패'); }
     }
 
-    let pollingInterval = null;
+    let pollingTimer = null;
+    let isFetching = false;
     const submitBtn = document.getElementById('submitBtn');
     const btnStopAll = document.getElementById('btnStopAll');
+    const btnRefresh = document.getElementById('btnRefresh');
 
-    function startPolling() { if (!pollingInterval) pollingInterval = setInterval(fetchStatus, 1000); }
-    function stopPolling() { if (pollingInterval) { clearInterval(pollingInterval); pollingInterval = null; } }
+    function startPolling() {
+        if (!pollingTimer) {
+            pollingTimer = setInterval(() => fetchStatus(false), 1500); // ✨ 브라우저 멈춤 방지를 위해 1.5초 간격으로 완화
+        }
+    }
+    
+    function stopPolling() { 
+        if (pollingTimer) { 
+            clearInterval(pollingTimer); 
+            pollingTimer = null; 
+        } 
+    }
 
-    async function fetchStatus() {
+    // isManual 플래그를 통해 사용자가 새로고침 버튼을 누른 건지 판별
+    async function fetchStatus(isManual = false) {
+        if (isFetching && !isManual) return; // 통신 중첩 방지 (프리즈 해결)
+        isFetching = true;
+        
         try {
             const res = await fetch("{{ url_for('store.get_dup_task_status') }}");
             const data = await res.json();
             if (data.status === 'empty') return; 
             updateUI(data.tasks);
-        } catch (e) { console.error(e); }
+        } catch (e) { 
+            console.error(e); 
+        } finally {
+            isFetching = false;
+        }
     }
 
     function updateUI(tasks) {
         let anyRunning = false;
+        let anyTaskExists = false;
         initialState.classList.add('d-none');
         
         for (const storeId in tasks) {
+            anyTaskExists = true;
             const taskData = tasks[storeId];
             if (taskData.is_running) anyRunning = true;
             
@@ -177,7 +216,7 @@
                 btnStop.className = "btn btn-sm btn-outline-danger fw-bold";
             } else {
                 btnStop.disabled = true;
-                btnStop.innerHTML = '완료됨';
+                btnStop.innerHTML = '검사 완료됨';
                 btnStop.className = "btn btn-sm btn-secondary fw-bold";
             }
 
@@ -186,60 +225,73 @@
                 statusText.innerText = `오류/정지: ${taskData.message}`;
             } else if (taskData.status === 'done') {
                 statusText.className = 'fw-bold mb-3 text-success small';
-                statusText.innerText = `총 ${taskData.total}개 상품 스캔 완료!`;
+                statusText.innerText = `✨ 총 ${taskData.total}개 판매중 상품 스캔 완료!`;
             } else {
                 statusText.className = 'fw-bold mb-3 text-primary small';
                 statusText.innerText = taskData.message;
             }
 
-            // 검사 완료 후 중복 리스트 렌더링
+            // 검사 완료 후 중복 리스트 렌더링 (ISBN 추가)
             if (taskData.status === 'done' && taskData.duplicates) {
-                if (taskData.duplicates.length > 0) {
-                    let rows = taskData.duplicates.map(dup => `
-                        <tr>
-                            <td class="fw-bold text-truncate" style="max-width: 150px;" title="${dup.name}">${dup.name}</td>
-                            <td class="text-muted font-monospace">${dup.original_id}</td>
-                            <td class="text-danger font-monospace fw-bold">${dup.duplicate_id}</td>
-                        </tr>
-                    `).join('');
-                    
-                    resultArea.innerHTML = `
-                        <div class="alert alert-warning py-2 small mb-2 fw-bold text-dark">
-                            <i class="bi bi-exclamation-triangle-fill text-danger me-1"></i>
-                            ${taskData.duplicates.length}개의 중복 상품이 발견되었습니다.
-                        </div>
-                        <div class="table-responsive border rounded" style="max-height: 250px;">
-                            <table class="table table-sm table-hover mb-0" style="font-size: 0.8rem;">
-                                <thead class="table-light" style="position: sticky; top: 0; z-index: 1;">
-                                    <tr><th>중복 상품명</th><th>원본 채널번호</th><th>중복 채널번호</th></tr>
-                                </thead>
-                                <tbody>${rows}</tbody>
-                            </table>
-                        </div>
-                    `;
-                } else {
-                    resultArea.innerHTML = `
-                        <div class="alert alert-success py-3 text-center mb-0 border-0 fw-bold">
-                            <i class="bi bi-check-circle-fill me-1"></i> 이 상점은 중복된 상품이 없이 깨끗합니다!
-                        </div>
-                    `;
+                // 이미 렌더링된 테이블이 있는지 체크하여 껌뻑거림 방지
+                if (!resultArea.innerHTML.includes('table-responsive')) {
+                    if (taskData.duplicates.length > 0) {
+                        // 유효한 ISBN만 추출하여 숨겨진 textarea에 저장 ('ISBN없음'은 제외)
+                        const validIsbns = taskData.duplicates.map(d => d.isbn).filter(isbn => isbn !== 'ISBN없음');
+                        
+                        let rows = taskData.duplicates.map(dup => `
+                            <tr>
+                                <td class="fw-bold text-truncate" style="max-width: 150px;" title="${dup.name}">${dup.name}</td>
+                                <td class="text-primary font-monospace fw-bold">${dup.isbn}</td>
+                                <td class="text-danger font-monospace">${dup.duplicate_id}</td>
+                            </tr>
+                        `).join('');
+                        
+                        resultArea.innerHTML = `
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <div class="alert alert-warning py-2 small mb-0 fw-bold text-dark w-100 me-2 border-0">
+                                    <i class="bi bi-exclamation-triangle-fill text-danger me-1"></i>
+                                    ${taskData.duplicates.length}개의 중복 상품 발견
+                                </div>
+                                <button class="btn btn-sm btn-dark fw-bold text-nowrap py-2" onclick="copyIsbns('${storeId}')">
+                                    <i class="bi bi-clipboard me-1"></i>ISBN 복사
+                                </button>
+                                <textarea id="hidden_isbns_${storeId}" class="d-none">${validIsbns.join('\n')}</textarea>
+                            </div>
+                            <div class="table-responsive border rounded" style="max-height: 250px;">
+                                <table class="table table-sm table-hover mb-0" style="font-size: 0.8rem;">
+                                    <thead class="table-light" style="position: sticky; top: 0; z-index: 1;">
+                                        <tr><th>중복 상품명</th><th>ISBN (관리코드)</th><th>중복 채널번호</th></tr>
+                                    </thead>
+                                    <tbody>${rows}</tbody>
+                                </table>
+                            </div>
+                        `;
+                    } else {
+                        resultArea.innerHTML = `
+                            <div class="alert alert-success py-3 text-center mb-0 border-0 fw-bold">
+                                <i class="bi bi-check-circle-fill me-1"></i> 이 상점은 중복된 판매 상품이 없이 깨끗합니다!
+                            </div>
+                        `;
+                    }
                 }
             } else if (taskData.is_running) {
-                // 실행 중일 때는 반짝이는 스피너 효과
                 resultArea.innerHTML = `
-                    <div class="text-center py-4 text-muted">
+                    <div class="text-center py-4 text-muted border rounded bg-light">
                         <div class="spinner-border text-primary mb-2" role="status" style="width: 2rem; height: 2rem;"></div>
-                        <p class="small mb-0">네이버 서버에서 데이터를 가져오는 중입니다...</p>
+                        <p class="small mb-0 fw-bold">네이버 스토어에서 판매중인 데이터를 분석하고 있습니다...</p>
                     </div>
                 `;
             }
         }
         
         btnStopAll.classList.toggle('d-none', !anyRunning);
+        btnRefresh.classList.toggle('d-none', !anyTaskExists); // 작업이 하나라도 있으면 새로고침 표시
         submitBtn.disabled = anyRunning;
         submitBtn.innerHTML = anyRunning ? '<span class="spinner-border spinner-border-sm me-2"></span>백그라운드에서 검사 진행 중...' : '선택 상점 동시 중복 체크 시작';
         
         if (!anyRunning) stopPolling();
+        else startPolling();
     }
 
     document.getElementById('checkForm').addEventListener('submit', async function(e) {
@@ -255,7 +307,7 @@
             const result = await res.json();
             if (result.success) {
                 startPolling(); 
-                fetchStatus(); 
+                fetchStatus(true); // 요청 직후 즉시 1회 강제 갱신
             } else {
                 alert(result.message);
                 submitBtn.disabled = false;
@@ -267,6 +319,8 @@
         }
     });
 
-    document.addEventListener("DOMContentLoaded", fetchStatus);
+    document.addEventListener("DOMContentLoaded", () => {
+        fetchStatus(true);
+    });
 </script>
 {% endblock %}
