@@ -86,14 +86,10 @@ def update_keyword():
         return jsonify({'success': True})
     return jsonify({'success': False, 'message': '데이터를 찾을 수 없습니다.'})
 
-
-# ✨ [에러 추적 강화] 왜 토큰 발급이 실패했는지 낱낱이 파헤칩니다!
 def get_commerce_token(client_id, client_secret):
     try:
         timestamp = str(int(time.time() * 1000))
         pwd = f"{client_id}_{timestamp}"
-        
-        # 여기서 에러가 나면 100% 시크릿 키 규격(salt) 오류입니다.
         hashed_pw = bcrypt.hashpw(pwd.encode('utf-8'), client_secret.encode('utf-8'))
         client_secret_sign = base64.urlsafe_b64encode(hashed_pw).decode('utf-8')
         
@@ -106,15 +102,10 @@ def get_commerce_token(client_id, client_secret):
             "type": "SELF"
         }
         res = requests.post(url, data=data, timeout=5)
-        
         if res.status_code == 200:
             return res.json().get("access_token")
-        else:
-            print(f"🚨 [디버그] 커머스 통신 거절 (IP차단 또는 키오류): {res.text}")
-    except ValueError as ve:
-        print(f"🚨 [디버그] 파이썬 암호화 에러 (잘못된 Secret 키 형식): {ve}")
     except Exception as e:
-        print(f"🚨 [디버그] 커머스 토큰 발급 알 수 없는 에러: {e}")
+        print(f"[디버그] 커머스 토큰 발급 에러: {e}")
     return None
 
 def async_refresh_ranks(app, user_id, search_client_id, search_client_secret):
@@ -124,17 +115,13 @@ def async_refresh_ranks(app, user_id, search_client_id, search_client_secret):
         api_key = ApiKey.query.filter_by(user_id=user_id).first()
         commerce_token = None
         if api_key:
-            print(f"🔍 [디버그] 저장된 커머스 키 발견 - ID: {api_key.client_id[:5]}... Secret: {api_key.client_secret[:5]}...")
             commerce_token = get_commerce_token(api_key.client_id, api_key.client_secret)
-            print(f"🔍 [디버그] 커머스 토큰 발급 여부: {'성공 ✅' if commerce_token else '실패 ❌'}")
-        else:
-            print("🚨 [디버그] 등록된 커머스 API 키가 없습니다.")
 
         for kw in keywords:
             kw.prev_store_rank = kw.store_rank
             rank = "500위 밖"
             
-            # 1. 쇼핑 순위 탐색 (일반 API)
+            # 1. 쇼핑 순위 탐색 (일반 네이버 쇼핑 API)
             try:
                 if search_client_id and search_client_secret:
                     api_headers = {"X-Naver-Client-Id": search_client_id, "X-Naver-Client-Secret": search_client_secret}
@@ -149,16 +136,17 @@ def async_refresh_ranks(app, user_id, search_client_id, search_client_secret):
                                     found = True
                                     break
                         else:
-                            if start_idx == 1: rank = "API에러"
+                            if start_idx == 1: 
+                                rank = "API에러"
+                                print(f"🚨 [디버그] 순위 탐색 API 거절됨: {api_res.text}")
                             break
                         if found: break
                         time.sleep(0.1)
             except Exception as e:
-                print(f"🚨 [디버그] 검색 API 탐색 에러: {e}")
                 rank = "탐색 실패"
             kw.store_rank = rank
 
-            # 2. 커머스 API로 내 상품 정보 검색
+            # ✨ 2. [핵심] 커머스 API로 내 상품 완벽 매칭 및 택배비/정보 추출
             if commerce_token:
                 try:
                     search_url = "https://api.commerce.naver.com/external/v1/products/search"
@@ -166,36 +154,52 @@ def async_refresh_ranks(app, user_id, search_client_id, search_client_secret):
                         "Authorization": f"Bearer {commerce_token}",
                         "Content-Type": "application/json"
                     }
-                    payload = {
-                        "page": 1,
-                        "size": 10,
-                        "orderType": "NO",
-                        "name": kw.keyword
-                    }
+                    # 많이 불러와서 정확한 걸 찾습니다.
+                    payload = {"page": 1, "size": 50, "orderType": "NO", "name": kw.keyword}
                     c_res = requests.post(search_url, headers=c_headers, json=payload, timeout=5)
                     
                     if c_res.status_code == 200:
                         content = c_res.json()
-                        if content.get('contents'): 
-                            product = content['contents'][0]
-                            c_no = product.get('channelProducts', [{}])[0].get('channelProductNo')
-                            o_no = product.get('originProductNo')
+                        
+                        # ✨ 깐깐한 일치 검사 (띄어쓰기 무시하고 키워드가 상품명에 있는지 확인)
+                        target_kw = kw.keyword.replace(" ", "").lower()
+                        matched_product = None
+                        
+                        for product in content.get('contents', []):
+                            prod_name = product.get('name', '').replace(" ", "").lower()
+                            if target_kw in prod_name: # 키워드가 상품명에 확실히 포함되어 있을 때만 통과!
+                                matched_product = product
+                                break
+                        
+                        if matched_product:
+                            c_no = matched_product.get('channelProducts', [{}])[0].get('channelProductNo')
+                            o_no = matched_product.get('originProductNo')
                             
                             if c_no: kw.product_link = f"https://smartstore.naver.com/main/products/{c_no}"
-                            if product.get('salePrice'): kw.price = f"{product.get('salePrice'):,}원"
-                            kw.store_name = "스터디박스"
-                            kw.book_title = product.get('name', kw.keyword)
+                            
+                            sale_price = matched_product.get('salePrice')
+                            if sale_price is not None: kw.price = f"{sale_price:,}원"
+                            
+                            kw.store_name = api_key.store_name if api_key else "스터디박스"
+                            kw.book_title = matched_product.get('name', kw.keyword)
 
+                            # ✨ 상세 정보 API 호출 (택배비, ISBN, 출판사)
                             if o_no:
                                 detail_url = f"https://api.commerce.naver.com/external/v2/products/origin-products/{o_no}"
                                 detail_res = requests.get(detail_url, headers=c_headers, timeout=5)
                                 if detail_res.status_code == 200:
-                                    book_info = detail_res.json().get('detailAttribute', {}).get('bookInfo', {})
+                                    origin_data = detail_res.json()
+                                    
+                                    # 택배비(배송비) 완벽 추출
+                                    delivery_fee = origin_data.get('deliveryInfo', {}).get('deliveryFee', {}).get('baseFee')
+                                    if delivery_fee is not None:
+                                        kw.shipping_fee = "무료" if delivery_fee == 0 else f"{delivery_fee:,}원"
+                                        
+                                    # ISBN, 출판사 추출
+                                    book_info = origin_data.get('detailAttribute', {}).get('bookInfo', {})
                                     if book_info:
                                         if book_info.get('isbn'): kw.isbn = book_info.get('isbn')
                                         if book_info.get('publisher'): kw.publisher = book_info.get('publisher')
-                    else:
-                        print(f"🚨 [디버그] 커머스 상품 검색 거절: {c_res.text}")
                 except Exception as e:
                     print(f"🚨 [디버그] 커머스 통신 파이썬 에러: {e}")
 
