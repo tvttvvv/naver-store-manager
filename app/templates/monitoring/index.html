@@ -1,6 +1,14 @@
 {% extends "base.html" %}
 {% block content %}
-<h3 class="mb-4 fw-bold">스터디박스 모니터링 (A등급 황금 키워드 추출기)</h3>
+<h3 class="mb-4 fw-bold">스터디박스 모니터링 (원격 서버 연동)</h3>
+
+{% if not api_url_configured %}
+<div class="alert alert-danger mb-4 shadow-sm fw-bold">
+    <i class="bi bi-exclamation-triangle-fill fs-5 me-2"></i>
+    현재 환경변수 <code>ANALYZER_API_URL</code> 이 설정되지 않았습니다! (도서 분석기 서버와 통신 불가)
+</div>
+{% endif %}
+
 <div class="row">
     <div class="col-md-4">
         <div class="card shadow-sm border-0 mb-4">
@@ -9,12 +17,12 @@
                     <div class="mb-4">
                         <label class="form-label fw-bold text-muted d-flex justify-content-between align-items-center">
                             <span>분석할 도서 키워드 입력</span>
-                            <span class="badge bg-warning text-dark"><i class="bi bi-trophy-fill"></i> A등급 전용</span>
+                            <span class="badge bg-warning text-dark"><i class="bi bi-broadcast"></i> 원격 분석</span>
                         </label>
-                        <textarea name="keywords" id="keywords" class="form-control" rows="12" placeholder="한 줄에 하나씩 키워드를 입력하세요.&#10;수백 개를 입력해도 황금 키워드만 쏙쏙 뽑아냅니다." required></textarea>
+                        <textarea name="keywords" id="keywords" class="form-control" rows="12" placeholder="한 줄에 하나씩 키워드를 입력하세요.&#10;다른 서버(분석기)로 데이터를 전송하여 황금 키워드만 가져옵니다." required {% if not api_url_configured %}disabled{% endif %}></textarea>
                     </div>
-                    <button type="submit" id="submitBtn" class="btn btn-warning w-100 py-3 fw-bold fs-5 shadow-sm text-dark">
-                        <i class="bi bi-search me-1"></i> 황금 키워드 탐색 시작
+                    <button type="submit" id="submitBtn" class="btn btn-warning w-100 py-3 fw-bold fs-5 shadow-sm text-dark" {% if not api_url_configured %}disabled{% endif %}>
+                        <i class="bi bi-search me-1"></i> 원격 황금 키워드 탐색 시작
                     </button>
                 </form>
             </div>
@@ -22,38 +30,78 @@
     </div>
     
     <div class="col-md-8">
-        <div class="card shadow-sm border-0 h-100 bg-transparent">
-            <div class="card-header bg-white py-3 border-bottom-0 d-flex justify-content-between align-items-center rounded shadow-sm mb-2">
-                <h6 class="mb-0 fw-bold">실시간 A등급 추출 현황</h6>
-                <div>
-                    <button id="btnStop" class="btn btn-sm btn-danger d-none shadow-sm fw-bold" onclick="stopTask()">
-                        <i class="bi bi-stop-circle-fill me-1"></i>강제 중지
-                    </button>
+        <ul class="nav nav-tabs mb-3" id="monitoringTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active fw-bold text-dark" id="realtime-tab" data-bs-toggle="tab" data-bs-target="#realtime" type="button" role="tab">
+                    <i class="bi bi-radar me-1 text-primary"></i>실시간 원격 통신 현황
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link fw-bold text-dark" id="storage-tab" data-bs-toggle="tab" data-bs-target="#storage" type="button" role="tab" onclick="loadSavedKeywords()">
+                    <i class="bi bi-box2-heart-fill me-1 text-success"></i>내 스터디박스 보관함
+                </button>
+            </li>
+        </ul>
+
+        <div class="tab-content" id="monitoringTabsContent">
+            <div class="tab-pane fade show active" id="realtime" role="tabpanel">
+                <div class="card shadow-sm border-0 bg-transparent">
+                    <div class="card-header bg-white py-3 border-bottom-0 d-flex justify-content-between align-items-center rounded shadow-sm mb-2">
+                        <h6 class="mb-0 fw-bold">실시간 서버 간 통신 모니터</strong></h6>
+                        <div>
+                            <button id="btnStop" class="btn btn-sm btn-danger d-none shadow-sm fw-bold" onclick="stopTask()">
+                                <i class="bi bi-stop-circle-fill me-1"></i>강제 중지
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="card shadow-sm border-0">
+                        <div class="card-body">
+                            <h6 id="status_text" class="fw-bold mb-3 text-secondary">대기 중... (좌측에 키워드를 입력하고 시작하세요)</h6>
+                            <div id="progress_wrapper">
+                                <div class="progress mb-2" style="height: 18px;">
+                                    <div id="progressBar" class="progress-bar bg-light" role="progressbar" style="width: 100%;"></div>
+                                </div>
+                            </div>
+                            <div class="position-relative mt-2 mb-3 rounded border bg-light" style="height: 100px;">
+                                <ul class="list-group list-group-flush position-absolute w-100 h-100 overflow-auto" id="log_list" style="top:0; left:0;"></ul>
+                            </div>
+                            <div id="result_area">
+                                <div class="alert alert-light border text-center py-5 text-muted">
+                                    <i class="bi bi-server fs-1 text-info mb-2 d-block"></i>
+                                    분석이 시작되면 설정된 <b>분석기 서버</b>로 데이터를 보내고<br>오직 <b>A등급(황금)</b> 결과만 받아와 DB에 보관합니다.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
-            
-            <div class="d-flex flex-column h-100" id="taskContainer">
-                <div class="card shadow-sm border-0 h-100">
-                    <div class="card-body">
-                        <h6 id="status_text" class="fw-bold mb-3 text-secondary">대기 중... (좌측에 키워드를 입력하고 시작하세요)</h6>
-                        
-                        <div id="progress_wrapper">
-                            <div class="progress mb-2" style="height: 18px;">
-                                <div id="progressBar" class="progress-bar bg-light" role="progressbar" style="width: 100%;"></div>
-                            </div>
-                        </div>
 
-                        <div class="position-relative mt-2 mb-3 rounded border bg-light" style="height: 100px;">
-                            <ul class="list-group list-group-flush position-absolute w-100 h-100 overflow-auto" id="log_list" style="top:0; left:0;"></ul>
+            <div class="tab-pane fade" id="storage" role="tabpanel">
+                <div class="card shadow-sm border-0">
+                    <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0 fw-bold"><i class="bi bi-server text-success me-2"></i>저장된 황금 키워드 목록</h6>
+                        <button class="btn btn-sm btn-outline-success fw-bold" onclick="loadSavedKeywords()">
+                            <i class="bi bi-arrow-clockwise"></i> 새로고침
+                        </button>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive" style="max-height: 500px;">
+                            <table class="table table-hover table-sm mb-0 text-center align-middle" style="font-size: 0.9rem;">
+                                <thead class="table-light" style="position: sticky; top: 0; z-index: 1;">
+                                    <tr>
+                                        <th>등록일</th>
+                                        <th>키워드명</th>
+                                        <th>검색량</th>
+                                        <th>순위</th>
+                                        <th>관리</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="savedKeywordsBody">
+                                    <tr><td colspan="5" class="text-center py-5 text-muted">저장된 키워드를 불러오는 중...</td></tr>
+                                </tbody>
+                            </table>
                         </div>
-
-                        <div id="result_area">
-                            <div class="alert alert-light border text-center py-5 text-muted">
-                                <i class="bi bi-stars fs-1 text-warning mb-2 d-block"></i>
-                                분석이 시작되면 오직 <b>A등급(황금)</b>으로 판별된 키워드만<br>이곳에 리스트업 됩니다.
-                            </div>
-                        </div>
-
                     </div>
                 </div>
             </div>
@@ -67,7 +115,6 @@
     const submitBtn = document.getElementById('submitBtn');
     const btnStop = document.getElementById('btnStop');
     const statusText = document.getElementById('status_text');
-    const progressBar = document.getElementById('progressBar');
     const progressWrapper = document.getElementById('progress_wrapper');
     const logList = document.getElementById('log_list');
     const resultArea = document.getElementById('result_area');
@@ -100,91 +147,105 @@
         if (taskData.is_running) {
             btnStop.classList.remove('d-none');
             submitBtn.disabled = true;
-            submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>분석 진행 중...';
+            submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>원격 분석 진행 중...';
         } else {
             btnStop.classList.add('d-none');
             submitBtn.disabled = false;
-            submitBtn.innerHTML = '<i class="bi bi-search me-1"></i> 황금 키워드 탐색 시작';
+            submitBtn.innerHTML = '<i class="bi bi-search me-1"></i> 원격 황금 키워드 탐색 시작';
             stopPolling();
         }
 
-        // 상태 텍스트
         if (taskData.status === 'error') {
             statusText.className = 'fw-bold mb-3 text-danger';
-            statusText.innerText = `중단됨: ${taskData.message}`;
+            statusText.innerText = `중단/오류: ${taskData.message}`;
         } else if (taskData.status === 'done') {
             statusText.className = 'fw-bold mb-3 text-success';
-            statusText.innerText = `✨ 분석 완료! (총 ${taskData.total}개 중 황금 키워드 ${taskData.a_grade_results.length}개 발견)`;
+            statusText.innerText = `✨ 통신 완료! (총 ${taskData.total}개 중 황금 키워드 ${taskData.a_grade_results.length}개 수신)`;
         } else {
             statusText.className = 'fw-bold mb-3 text-primary';
             statusText.innerText = `[${taskData.current}/${taskData.total}] ${taskData.message}`;
         }
 
-        // 게이지 바
         if (taskData.total > 0) {
             const percent = Math.round((taskData.current / taskData.total) * 100);
             let pColor = taskData.status === 'error' ? 'bg-danger' : (taskData.status === 'done' ? 'bg-success' : 'bg-warning text-dark fw-bold');
             let aClass = taskData.is_running ? 'progress-bar-striped progress-bar-animated' : '';
-            
-            progressWrapper.innerHTML = `
-                <div class="progress mb-2" style="height: 18px;">
-                    <div class="progress-bar ${pColor} ${aClass}" style="width: ${percent}%;">${percent}%</div>
-                </div>
-            `;
+            progressWrapper.innerHTML = `<div class="progress mb-2" style="height: 18px;"><div class="progress-bar ${pColor} ${aClass}" style="width: ${percent}%;">${percent}%</div></div>`;
         }
 
-        // 로그 (최신순 롤링)
         if (taskData.logs && taskData.logs.length > 0) {
             logList.innerHTML = taskData.logs.map(log => {
-                let badgeClass = log.type === 'success' ? 'bg-warning text-dark fw-bold' : 'bg-secondary';
-                return `
-                    <li class="list-group-item d-flex justify-content-between align-items-center py-1 px-2 border-bottom text-muted" style="font-size: 0.8rem;">
-                        <span class="text-truncate me-2 fw-bold" style="max-width: 250px;">${log.target}</span>
-                        <span class="badge ${badgeClass} rounded-pill">${log.statusMsg}</span>
-                    </li>
-                `;
+                let badgeClass = log.type === 'success' ? 'bg-success' : (log.type === 'warning' ? 'bg-warning text-dark' : 'bg-secondary');
+                return `<li class="list-group-item d-flex justify-content-between align-items-center py-1 px-2 border-bottom text-muted" style="font-size: 0.8rem;">
+                            <span class="text-truncate me-2 fw-bold" style="max-width: 250px;">${log.target}</span>
+                            <span class="badge ${badgeClass} rounded-pill">${log.statusMsg}</span>
+                        </li>`;
             }).join('');
             logList.scrollTop = logList.scrollHeight; 
         }
 
-        // ✨ 황금 키워드(A등급) 결과 테이블 렌더링 ✨
         if (taskData.a_grade_results && taskData.a_grade_results.length > 0) {
             let rows = taskData.a_grade_results.map(res => `
                 <tr>
                     <td class="fw-bold text-dark">${res.keyword}</td>
                     <td class="text-primary fw-bold">${res.search_volume > 0 ? res.search_volume.toLocaleString() : '0'}</td>
-                    <td><span class="badge bg-primary rounded-pill">${res.rank}</span></td>
-                    <td class="text-muted small">${res.reason}</td>
-                    <td><a href="${res.link}" target="_blank" class="btn btn-sm btn-outline-dark py-0" style="font-size: 0.75rem;">네이버 확인</a></td>
+                    <td><span class="badge bg-primary rounded-pill">${res.rank || '최상단 노출'}</span></td>
+                    <td class="text-muted small">${res.reason || '단독 노출'}</td>
+                    <td><a href="${res.link}" target="_blank" class="btn btn-sm btn-outline-dark py-0" style="font-size: 0.75rem;">확인</a></td>
                 </tr>
             `).join('');
             
             resultArea.innerHTML = `
-                <div class="alert alert-warning py-2 small mb-2 fw-bold text-dark border-0 shadow-sm d-flex justify-content-between align-items-center">
-                    <div><i class="bi bi-trophy-fill text-danger me-1"></i>현재 <b>${taskData.a_grade_results.length}개</b>의 황금 키워드를 찾았습니다!</div>
+                <div class="alert alert-success py-2 small mb-2 fw-bold text-dark border-0 shadow-sm d-flex justify-content-between align-items-center">
+                    <div><i class="bi bi-database-check text-success me-1"></i>현재 <b>${taskData.a_grade_results.length}개</b>의 황금 키워드가 원격 서버로부터 수신되어 DB에 자동 등록되었습니다.</div>
                 </div>
-                <div class="table-responsive border rounded shadow-sm" style="max-height: 350px;">
+                <div class="table-responsive border rounded shadow-sm" style="max-height: 250px;">
                     <table class="table table-hover table-sm mb-0 text-center align-middle" style="font-size: 0.85rem;">
                         <thead class="table-light" style="position: sticky; top: 0; z-index: 1;">
-                            <tr>
-                                <th>키워드명</th>
-                                <th>네이버 검색량 (PC+모바일)</th>
-                                <th>노출 순위</th>
-                                <th>선정 사유</th>
-                                <th>링크</th>
-                            </tr>
+                            <tr><th>키워드명</th><th>검색량</th><th>노출 순위</th><th>선정 사유</th><th>링크</th></tr>
                         </thead>
                         <tbody>${rows}</tbody>
                     </table>
                 </div>
             `;
-        } else if (taskData.status === 'done') {
-            resultArea.innerHTML = `
-                <div class="alert alert-secondary py-4 text-center mb-0 border-0 fw-bold">
-                    <i class="bi bi-emoji-frown fs-3 d-block mb-2"></i> 아쉽게도 A등급 황금 키워드가 발견되지 않았습니다.
-                </div>
-            `;
         }
+    }
+
+    async function loadSavedKeywords() {
+        const tbody = document.getElementById('savedKeywordsBody');
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center py-5"><div class="spinner-border text-success" role="status"></div></td></tr>';
+        
+        try {
+            const res = await fetch("{{ url_for('monitoring.get_saved_keywords') }}");
+            const result = await res.json();
+            
+            if (result.success && result.data.length > 0) {
+                tbody.innerHTML = result.data.map(k => `
+                    <tr>
+                        <td class="text-muted small">${k.created_at}</td>
+                        <td class="fw-bold text-dark">${k.keyword}</td>
+                        <td class="text-primary fw-bold">${k.search_volume.toLocaleString()}</td>
+                        <td><span class="badge bg-primary rounded-pill">${k.rank}</span></td>
+                        <td>
+                            <a href="${k.link}" target="_blank" class="btn btn-sm btn-outline-dark py-0 px-2" title="네이버 확인"><i class="bi bi-search"></i></a>
+                            <button class="btn btn-sm btn-outline-danger py-0 px-2" onclick="deleteKeyword(${k.id})" title="보관함에서 삭제"><i class="bi bi-trash"></i></button>
+                        </td>
+                    </tr>
+                `).join('');
+            } else {
+                tbody.innerHTML = '<tr><td colspan="5" class="text-center py-5 text-muted">보관함에 저장된 키워드가 없습니다.</td></tr>';
+            }
+        } catch (e) {
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center py-5 text-danger">데이터를 불러오는데 실패했습니다.</td></tr>';
+        }
+    }
+
+    async function deleteKeyword(id) {
+        if (!confirm('보관함에서 이 키워드를 삭제하시겠습니까?')) return;
+        const fd = new FormData();
+        fd.append('id', id);
+        await fetch("{{ url_for('monitoring.delete_keyword') }}", { method: 'POST', body: fd });
+        loadSavedKeywords(); 
     }
 
     document.getElementById('monitorForm').addEventListener('submit', async function(e) {
