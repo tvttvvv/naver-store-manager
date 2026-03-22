@@ -30,12 +30,15 @@ def delete_isbn():
             flash('API 인증 실패. Client ID와 Secret을 확인하세요.', 'danger')
         else:
             for isbn in isbn_list:
-                product_id = find_product_by_isbn(token, isbn)
-                if product_id:
-                    success = delete_product(token, product_id)
-                    status = "삭제 완료" if success else "삭제 실패"
+                # ISBN으로 상품 번호 추출
+                origin_no, channel_no = find_product_by_isbn(token, isbn)
+                
+                if origin_no or channel_no:
+                    # 삭제 로직 실행 (완전 삭제 또는 판매중지 우회)
+                    status = delete_product(token, origin_no, channel_no)
                 else:
-                    status = "상품 조회 불가"
+                    status = "조회 불가 (상품 없음)"
+                    
                 results.append({'isbn': isbn, 'status': status})
             
     return render_template('store/delete_isbn.html', api_keys=current_user.api_keys, results=results)
@@ -54,16 +57,17 @@ def check_duplicates():
         if not token:
             return jsonify({'success': False, 'message': 'API 인증에 실패했습니다. API 키를 확인해주세요.'})
         
-        # 상품 목록 가져오기
         products = fetch_all_products(token)
         
-        # 상품명 기준으로 중복 검사 로직
         seen_names = {}
         duplicates = []
         
         for p in products:
-            # 네이버 API 구조(예상)에 맞춘 파싱
-            channel_product = p.get('channelProducts', [{}])[0]
+            channel_products = p.get('channelProducts', [{}])
+            if not channel_products:
+                continue
+                
+            channel_product = channel_products[0]
             name = channel_product.get('name', '이름 없는 상품')
             prod_id = channel_product.get('channelProductNo', 'ID 없음')
             
