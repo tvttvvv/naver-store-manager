@@ -7,20 +7,26 @@
             <div class="card-body p-4">
                 <form id="checkForm">
                     <div class="mb-4">
-                        <label class="form-label fw-bold text-muted">대상 상점 선택</label>
-                        <select id="selected_store" name="selected_store" class="form-select" required>
-                            <option value="" disabled selected>검사할 상점을 선택하세요</option>
+                        <label class="form-label fw-bold text-muted d-flex justify-content-between align-items-center">
+                            <span>검사 대상 상점 (다중 선택 가능)</span>
+                            <button type="button" class="btn btn-sm btn-outline-secondary py-0" onclick="selectAllStores()">전체선택</button>
+                        </label>
+                        <div class="card p-3 shadow-sm border-0 bg-light" style="max-height: 250px; overflow-y: auto;">
                             {% for key in api_keys %}
-                                <option value="{{ key.id }}">{{ key.store_name }}</option>
+                            <div class="form-check mb-2">
+                                <input class="form-check-input store-checkbox" type="checkbox" name="selected_stores" value="{{ key.id }}" id="store_{{ key.id }}">
+                                <label class="form-check-label fw-bold" for="store_{{ key.id }}">
+                                    {{ key.store_name }}
+                                </label>
+                            </div>
+                            {% else %}
+                            <div class="text-muted text-center small">등록된 상점이 없습니다.</div>
                             {% endfor %}
-                        </select>
+                        </div>
                     </div>
                     
-                    <button type="submit" id="submitBtn" class="btn btn-primary w-100 py-2 fw-bold d-flex justify-content-center align-items-center">
-                        <span id="btnText">중복 체크 시작</span>
-                        <div id="loadingSpinner" class="spinner-border spinner-border-sm ms-2 d-none" role="status">
-                            <span class="visually-hidden">Loading...</span>
-                        </div>
+                    <button type="submit" id="submitBtn" class="btn btn-primary w-100 py-3 fw-bold fs-5 shadow-sm">
+                        선택 상점 동시 중복 체크 시작
                     </button>
                 </form>
             </div>
@@ -28,103 +34,239 @@
     </div>
     
     <div class="col-md-7">
-        <div class="card shadow-sm border-0 h-100">
-            <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
-                <h6 class="mb-0 fw-bold">검사 결과</h6>
-                <span id="summaryBadge" class="badge bg-secondary d-none">대기 중</span>
-            </div>
-            <div class="card-body p-0" style="max-height: 500px; overflow-y: auto;">
-                <div id="initialState" class="text-center py-5 text-muted">
-                    <i class="bi bi-search fs-1 mb-2"></i>
-                    <p class="mb-0">좌측에서 상점을 선택하고 검사를 시작해주세요.</p>
+        <div class="card shadow-sm border-0 h-100 bg-transparent">
+            <div class="card-header bg-white py-3 border-bottom-0 d-flex justify-content-between align-items-center rounded shadow-sm mb-2">
+                <h6 class="mb-0 fw-bold">상점별 중복 검사 현황</h6>
+                <div>
+                    <button id="btnStopAll" class="btn btn-sm btn-danger d-none shadow-sm fw-bold" onclick="stopTask('all')">
+                        <i class="bi bi-stop-circle-fill me-1"></i>전체 정지
+                    </button>
                 </div>
-                
-                <table id="resultTable" class="table table-hover align-middle mb-0 d-none">
-                    <thead class="table-light">
-                        <tr>
-                            <th class="ps-4">상품명</th>
-                            <th>중복 감지된 상품 ID</th>
-                        </tr>
-                    </thead>
-                    <tbody id="resultBody">
-                        </tbody>
-                </table>
+            </div>
+            
+            <div class="d-flex flex-column h-100" id="taskContainer" style="overflow-y: auto; overflow-x: hidden;">
+                <div id="initialState" class="card border-0 shadow-sm text-center py-5 text-muted flex-grow-1 d-flex flex-column justify-content-center">
+                    <i class="bi bi-search fs-1 d-block mb-2 text-secondary"></i>
+                    <p class="mb-0">상점을 체크하고 검사를 시작하시면<br>여기에 실시간 수집 현황과 중복 결과가 나타납니다.</p>
+                </div>
+                <div class="row g-3 px-1 pb-2" id="cardsGrid"></div>
             </div>
         </div>
     </div>
 </div>
 
 <script>
-document.getElementById('checkForm').addEventListener('submit', function(e) {
-    e.preventDefault();
-    
-    // UI 요소 가져오기
-    const form = e.target;
-    const formData = new FormData(form);
-    const submitBtn = document.getElementById('submitBtn');
-    const btnText = document.getElementById('btnText');
-    const spinner = document.getElementById('loadingSpinner');
+    const cardsGrid = document.getElementById('cardsGrid');
     const initialState = document.getElementById('initialState');
-    const resultTable = document.getElementById('resultTable');
-    const resultBody = document.getElementById('resultBody');
-    const summaryBadge = document.getElementById('summaryBadge');
-    
-    // 로딩 상태 시작 (버튼 비활성화 및 스피너 표시)
-    submitBtn.disabled = true;
-    btnText.textContent = 'API 검사 중...';
-    spinner.classList.remove('d-none');
-    initialState.classList.add('d-none');
-    resultTable.classList.add('d-none');
-    summaryBadge.classList.add('d-none');
-    
-    // 비동기 통신 요청
-    fetch("{{ url_for('store.check_duplicates') }}", {
-        method: 'POST',
-        body: formData
-    })
-    .then(response => response.json())
-    .then(data => {
-        // 로딩 상태 종료
-        submitBtn.disabled = false;
-        btnText.textContent = '중복 체크 다시하기';
-        spinner.classList.add('d-none');
-        summaryBadge.classList.remove('d-none');
-        
-        if(data.success) {
-            resultBody.innerHTML = ''; // 기존 결과 초기화
-            
-            summaryBadge.textContent = `총 ${data.total_checked}개 중 ${data.duplicate_count}개 중복`;
-            summaryBadge.className = data.duplicate_count > 0 ? 'badge bg-danger' : 'badge bg-success';
-            
-            if(data.duplicate_count > 0) {
-                data.duplicates.forEach(dup => {
-                    const tr = document.createElement('tr');
-                    tr.innerHTML = `
-                        <td class="ps-4 fw-bold text-truncate" style="max-width: 200px;" title="${dup.name}">${dup.name}</td>
-                        <td class="text-muted font-monospace small">
-                            원본: ${dup.original_id}<br>
-                            중복: <span class="text-danger">${dup.duplicate_id}</span>
-                        </td>
-                    `;
-                    resultBody.appendChild(tr);
-                });
-                resultTable.classList.remove('d-none');
-            } else {
-                initialState.innerHTML = `<i class="bi bi-check-circle text-success fs-1 mb-2"></i><p class="mb-0 text-success">중복된 상품이 없습니다.</p>`;
-                initialState.classList.remove('d-none');
-            }
-        } else {
-            alert(data.message);
-            initialState.innerHTML = `<i class="bi bi-exclamation-triangle text-danger fs-1 mb-2"></i><p class="mb-0 text-danger">${data.message}</p>`;
+
+    function renderDynamicCards() {
+        const checkedBoxes = Array.from(document.querySelectorAll('.store-checkbox:checked'));
+        if (checkedBoxes.length === 0) {
             initialState.classList.remove('d-none');
+            Array.from(cardsGrid.children).forEach(card => {
+                if(card.dataset.status === 'ready') card.remove();
+            });
+            return;
         }
-    })
-    .catch(error => {
-        submitBtn.disabled = false;
-        btnText.textContent = '중복 체크 시작';
-        spinner.classList.add('d-none');
-        alert("서버 통신 중 오류가 발생했습니다.");
+        initialState.classList.add('d-none');
+
+        checkedBoxes.forEach(cb => {
+            const storeId = cb.value;
+            const storeName = cb.nextElementSibling.innerText.trim();
+            let card = document.getElementById(`task_card_${storeId}`);
+            if (!card) {
+                card = document.createElement('div');
+                card.className = "col-12";
+                card.id = `task_card_${storeId}`;
+                card.dataset.status = 'ready';
+                card.innerHTML = `
+                    <div class="card shadow-sm border-0 h-100">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom">
+                                <h6 class="fw-bold mb-0 text-dark"><i class="bi bi-shop me-2 text-primary"></i>${storeName}</h6>
+                                <button id="btn_stop_${storeId}" class="btn btn-sm btn-outline-secondary fw-bold" disabled>대기 중</button>
+                            </div>
+                            <h6 id="status_text_${storeId}" class="fw-bold mb-3 text-secondary small">버튼을 눌러 중복 검사를 시작하세요.</h6>
+                            <div id="dup_result_area_${storeId}"></div>
+                        </div>
+                    </div>
+                `;
+                cardsGrid.appendChild(card);
+            }
+        });
+
+        Array.from(cardsGrid.children).forEach(card => {
+            const sid = card.id.replace('task_card_', '');
+            if (!document.getElementById(`store_${sid}`).checked && card.dataset.status === 'ready') {
+                card.remove();
+            }
+        });
+    }
+
+    document.querySelectorAll('.store-checkbox').forEach(cb => { cb.addEventListener('change', renderDynamicCards); });
+
+    function selectAllStores() {
+        const checkboxes = document.querySelectorAll('.store-checkbox');
+        const allChecked = Array.from(checkboxes).every(c => c.checked);
+        checkboxes.forEach(c => c.checked = !allChecked);
+        renderDynamicCards();
+    }
+
+    async function stopTask(storeId) {
+        if (!confirm('검사를 강제 중단하시겠습니까?')) return;
+        try {
+            const fd = new FormData();
+            fd.append('store_id', storeId);
+            await fetch("{{ url_for('store.stop_dup_task') }}", { method: 'POST', body: fd });
+            fetchStatus(); 
+        } catch(e) { alert('정지 요청 실패'); }
+    }
+
+    let pollingInterval = null;
+    const submitBtn = document.getElementById('submitBtn');
+    const btnStopAll = document.getElementById('btnStopAll');
+
+    function startPolling() { if (!pollingInterval) pollingInterval = setInterval(fetchStatus, 1000); }
+    function stopPolling() { if (pollingInterval) { clearInterval(pollingInterval); pollingInterval = null; } }
+
+    async function fetchStatus() {
+        try {
+            const res = await fetch("{{ url_for('store.get_dup_task_status') }}");
+            const data = await res.json();
+            if (data.status === 'empty') return; 
+            updateUI(data.tasks);
+        } catch (e) { console.error(e); }
+    }
+
+    function updateUI(tasks) {
+        let anyRunning = false;
+        initialState.classList.add('d-none');
+        
+        for (const storeId in tasks) {
+            const taskData = tasks[storeId];
+            if (taskData.is_running) anyRunning = true;
+            
+            let card = document.getElementById(`task_card_${storeId}`);
+            if (!card) {
+                card = document.createElement('div');
+                card.className = "col-12";
+                card.id = `task_card_${storeId}`;
+                card.innerHTML = `
+                    <div class="card shadow-sm border-0 h-100">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom">
+                                <h6 class="fw-bold mb-0 text-dark"><i class="bi bi-shop me-2 text-primary"></i>${taskData.store_name}</h6>
+                                <button id="btn_stop_${storeId}" class="btn btn-sm btn-outline-danger fw-bold" onclick="stopTask('${storeId}')">개별 정지</button>
+                            </div>
+                            <h6 id="status_text_${storeId}" class="fw-bold mb-3 text-primary small">로딩 중...</h6>
+                            <div id="dup_result_area_${storeId}"></div>
+                        </div>
+                    </div>
+                `;
+                cardsGrid.appendChild(card);
+            }
+            card.dataset.status = 'running';
+
+            const statusText = document.getElementById(`status_text_${storeId}`);
+            const resultArea = document.getElementById(`dup_result_area_${storeId}`);
+            const btnStop = document.getElementById(`btn_stop_${storeId}`);
+            
+            if (taskData.is_running) {
+                btnStop.disabled = false;
+                btnStop.innerHTML = '검사 중지';
+                btnStop.className = "btn btn-sm btn-outline-danger fw-bold";
+            } else {
+                btnStop.disabled = true;
+                btnStop.innerHTML = '완료됨';
+                btnStop.className = "btn btn-sm btn-secondary fw-bold";
+            }
+
+            if (taskData.status === 'error') {
+                statusText.className = 'fw-bold mb-3 text-danger small';
+                statusText.innerText = `오류/정지: ${taskData.message}`;
+            } else if (taskData.status === 'done') {
+                statusText.className = 'fw-bold mb-3 text-success small';
+                statusText.innerText = `총 ${taskData.total}개 상품 스캔 완료!`;
+            } else {
+                statusText.className = 'fw-bold mb-3 text-primary small';
+                statusText.innerText = taskData.message;
+            }
+
+            // 검사 완료 후 중복 리스트 렌더링
+            if (taskData.status === 'done' && taskData.duplicates) {
+                if (taskData.duplicates.length > 0) {
+                    let rows = taskData.duplicates.map(dup => `
+                        <tr>
+                            <td class="fw-bold text-truncate" style="max-width: 150px;" title="${dup.name}">${dup.name}</td>
+                            <td class="text-muted font-monospace">${dup.original_id}</td>
+                            <td class="text-danger font-monospace fw-bold">${dup.duplicate_id}</td>
+                        </tr>
+                    `).join('');
+                    
+                    resultArea.innerHTML = `
+                        <div class="alert alert-warning py-2 small mb-2 fw-bold text-dark">
+                            <i class="bi bi-exclamation-triangle-fill text-danger me-1"></i>
+                            ${taskData.duplicates.length}개의 중복 상품이 발견되었습니다.
+                        </div>
+                        <div class="table-responsive border rounded" style="max-height: 250px;">
+                            <table class="table table-sm table-hover mb-0" style="font-size: 0.8rem;">
+                                <thead class="table-light" style="position: sticky; top: 0; z-index: 1;">
+                                    <tr><th>중복 상품명</th><th>원본 채널번호</th><th>중복 채널번호</th></tr>
+                                </thead>
+                                <tbody>${rows}</tbody>
+                            </table>
+                        </div>
+                    `;
+                } else {
+                    resultArea.innerHTML = `
+                        <div class="alert alert-success py-3 text-center mb-0 border-0 fw-bold">
+                            <i class="bi bi-check-circle-fill me-1"></i> 이 상점은 중복된 상품이 없이 깨끗합니다!
+                        </div>
+                    `;
+                }
+            } else if (taskData.is_running) {
+                // 실행 중일 때는 반짝이는 스피너 효과
+                resultArea.innerHTML = `
+                    <div class="text-center py-4 text-muted">
+                        <div class="spinner-border text-primary mb-2" role="status" style="width: 2rem; height: 2rem;"></div>
+                        <p class="small mb-0">네이버 서버에서 데이터를 가져오는 중입니다...</p>
+                    </div>
+                `;
+            }
+        }
+        
+        btnStopAll.classList.toggle('d-none', !anyRunning);
+        submitBtn.disabled = anyRunning;
+        submitBtn.innerHTML = anyRunning ? '<span class="spinner-border spinner-border-sm me-2"></span>백그라운드에서 검사 진행 중...' : '선택 상점 동시 중복 체크 시작';
+        
+        if (!anyRunning) stopPolling();
+    }
+
+    document.getElementById('checkForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const checkboxes = document.querySelectorAll('.store-checkbox:checked');
+        if(checkboxes.length === 0) { alert('검사할 상점을 선택해주세요.'); return; }
+
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>검사 요청 중...';
+
+        try {
+            const res = await fetch("{{ url_for('store.start_dup_task') }}", { method: 'POST', body: new FormData(e.target) });
+            const result = await res.json();
+            if (result.success) {
+                startPolling(); 
+                fetchStatus(); 
+            } else {
+                alert(result.message);
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '선택 상점 동시 중복 체크 시작';
+            }
+        } catch (err) {
+            alert("서버 연결에 실패했습니다.");
+            submitBtn.disabled = false;
+        }
     });
-});
+
+    document.addEventListener("DOMContentLoaded", fetchStatus);
 </script>
 {% endblock %}
