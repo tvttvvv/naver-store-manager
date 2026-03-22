@@ -6,9 +6,7 @@ from app.models import ApiKey
 
 keys_bp = Blueprint('keys', __name__)
 
-@keys_bp.route('/', methods=['GET', 'POST'])
-@login_required
-def index():
+def handle_keys():
     # 현재 로그인한 사용자의 API 키 정보를 가져옵니다.
     api_key = ApiKey.query.filter_by(user_id=current_user.id).first()
     
@@ -19,7 +17,7 @@ def index():
         
         if not client_id or not client_secret:
             flash('Client ID와 Secret을 모두 입력해주세요.', 'danger')
-            return redirect(url_for('keys.index'))
+            return redirect(request.path)
             
         if api_key:
             # 이미 있으면 덮어쓰기 (업데이트)
@@ -38,6 +36,23 @@ def index():
             
         db.session.commit()
         flash('✅ 네이버 커머스 API 키가 성공적으로 저장되었습니다!', 'success')
-        return redirect(url_for('keys.index'))
+        return redirect(request.path)
         
     return render_template('keys/index.html', api_key=api_key)
+
+
+# ✨ [해결] 화면(base.html)이 어떤 이름으로 찾을지 몰라 예상되는 3개의 문을 모두 열어둡니다!
+@keys_bp.route('/', methods=['GET', 'POST'], endpoint='index')
+@login_required
+def index():
+    return handle_keys()
+
+@keys_bp.route('/api_keys', methods=['GET', 'POST'], endpoint='api_keys')
+@login_required
+def api_keys():
+    return handle_keys()
+
+@keys_bp.route('/manage', methods=['GET', 'POST'], endpoint='manage')
+@login_required
+def manage():
+    return handle_keys()
