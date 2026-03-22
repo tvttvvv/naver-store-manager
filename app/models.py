@@ -2,17 +2,13 @@ from app import db
 from flask_login import UserMixin
 from datetime import datetime
 
-# 1. 사용자 계정 모델
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(150), unique=True, nullable=False)
     password_hash = db.Column(db.String(256), nullable=False)
-    
-    # 관계 설정
     api_keys = db.relationship('ApiKey', backref='owner', lazy=True, cascade="all, delete-orphan")
     monitored_keywords = db.relationship('MonitoredKeyword', backref='owner', lazy=True, cascade="all, delete-orphan")
 
-# 2. 네이버 상점 API 키 모델
 class ApiKey(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     store_name = db.Column(db.String(100), nullable=False)
@@ -20,7 +16,6 @@ class ApiKey(db.Model):
     client_secret = db.Column(db.String(200), nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
 
-# 3. ✨ [신규] 스터디박스 황금 키워드 보관함 모델
 class MonitoredKeyword(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
@@ -29,3 +24,12 @@ class MonitoredKeyword(db.Model):
     rank_info = db.Column(db.String(50))
     link = db.Column(db.String(500))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # ✨ [추가] 사용자가 수동으로 입력/수정할 수 있는 7가지 데이터 공간 ✨
+    publisher = db.Column(db.String(100), default="-")
+    supply_rate = db.Column(db.String(50), default="-")
+    isbn = db.Column(db.String(50), default="-")
+    price = db.Column(db.String(50), default="-")
+    shipping_fee = db.Column(db.String(50), default="무료")
+    store_name = db.Column(db.String(100), default="-")
+    book_title = db.Column(db.String(200), default="-")
