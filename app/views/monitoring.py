@@ -86,7 +86,7 @@ def update_keyword():
         return jsonify({'success': True})
     return jsonify({'success': False, 'message': '데이터를 찾을 수 없습니다.'})
 
-# ✨ [신규] 네이버 커머스 API 토큰 발급기
+
 def get_commerce_token(client_id, client_secret):
     try:
         timestamp = str(int(time.time() * 1000))
@@ -105,24 +105,28 @@ def get_commerce_token(client_id, client_secret):
         res = requests.post(url, data=data, timeout=5)
         if res.status_code == 200:
             return res.json().get("access_token")
-    except: pass
+    except Exception as e:
+        print(f"[디버그] 커머스 토큰 발급 에러: {e}")
     return None
 
 def async_refresh_ranks(app, user_id, search_client_id, search_client_secret):
     with app.app_context():
         keywords = MonitoredKeyword.query.filter_by(user_id=user_id).all()
         
-        # 회원이 등록해둔 상점 API 키 가져오기
+        # 커머스 API 키 확인
         api_key = ApiKey.query.filter_by(user_id=user_id).first()
         commerce_token = None
         if api_key:
             commerce_token = get_commerce_token(api_key.client_id, api_key.client_secret)
+            print(f"[디버그] 커머스 토큰 발급 여부: {'성공' if commerce_token else '실패'}")
+        else:
+            print("[디버그] 등록된 커머스 API 키가 없습니다.")
 
         for kw in keywords:
             kw.prev_store_rank = kw.store_rank
             rank = "500위 밖"
             
-            # 1. 네이버 쇼핑 API로 순위 탐색
+            # 1. 쇼핑 순위 탐색 (일반 API)
             try:
                 if search_client_id and search_client_secret:
                     api_headers = {"X-Naver-Client-Id": search_client_id, "X-Naver-Client-Secret": search_client_secret}
@@ -141,30 +145,41 @@ def async_refresh_ranks(app, user_id, search_client_id, search_client_secret):
                             break
                         if found: break
                         time.sleep(0.1)
-            except: rank = "탐색 실패"
+            except Exception as e:
+                print(f"[디버그] 순위 탐색 에러: {e}")
+                rank = "탐색 실패"
             kw.store_rank = rank
 
-            # ✨ 2. [핵심] 커머스 API로 내 상품 정보 끌어오기!
+            # ✨ 2. [완벽 수정] 커머스 API로 내 상품 정보 검색 (POST 방식 적용)
             if commerce_token:
                 try:
-                    search_url = f"https://api.commerce.naver.com/external/v1/products/search?name={urllib.parse.quote(kw.keyword)}"
-                    c_headers = {"Authorization": f"Bearer {commerce_token}"}
-                    c_res = requests.get(search_url, headers=c_headers, timeout=5)
+                    search_url = "https://api.commerce.naver.com/external/v1/products/search"
+                    c_headers = {
+                        "Authorization": f"Bearer {commerce_token}",
+                        "Content-Type": "application/json"
+                    }
+                    # POST 방식으로 데이터 전송
+                    payload = {
+                        "page": 1,
+                        "size": 10,
+                        "orderType": "NO",
+                        "name": kw.keyword
+                    }
+                    c_res = requests.post(search_url, headers=c_headers, json=payload, timeout=5)
                     
                     if c_res.status_code == 200:
                         content = c_res.json()
-                        if content.get('contents'): # 내 상점에 해당 상품이 존재하면!
+                        if content.get('contents'): # 내 상점에 상품이 있으면 정보 채우기!
                             product = content['contents'][0]
                             c_no = product.get('channelProducts', [{}])[0].get('channelProductNo')
                             o_no = product.get('originProductNo')
                             
-                            # 정보 덮어쓰기
                             if c_no: kw.product_link = f"https://smartstore.naver.com/main/products/{c_no}"
                             if product.get('salePrice'): kw.price = f"{product.get('salePrice'):,}원"
                             kw.store_name = "스터디박스"
                             kw.book_title = product.get('name', kw.keyword)
 
-                            # 세부 정보(ISBN, 출판사) 가져오기
+                            # 상세 정보 (ISBN, 출판사) 가져오기
                             if o_no:
                                 detail_url = f"https://api.commerce.naver.com/external/v2/products/origin-products/{o_no}"
                                 detail_res = requests.get(detail_url, headers=c_headers, timeout=5)
@@ -173,7 +188,10 @@ def async_refresh_ranks(app, user_id, search_client_id, search_client_secret):
                                     if book_info:
                                         if book_info.get('isbn'): kw.isbn = book_info.get('isbn')
                                         if book_info.get('publisher'): kw.publisher = book_info.get('publisher')
-                except: pass
+                    else:
+                        print(f"[디버그] 커머스 상품 검색 실패: {c_res.text}")
+                except Exception as e:
+                    print(f"[디버그] 커머스 통신 에러: {e}")
 
             time.sleep(0.5)
             db.session.commit() 
