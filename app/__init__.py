@@ -4,45 +4,39 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
 from apscheduler.schedulers.background import BackgroundScheduler
 import time
+import requests
+import urllib.parse
+import re
 
 db = SQLAlchemy()
 login_manager = LoginManager()
 
+# ✨ 스크래핑 전용 함수
+def get_real_store_rank_scraper(keyword, target_store="스터디박스"):
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+    try:
+        url = f"https://search.shopping.naver.com/search/all?query={urllib.parse.quote(keyword)}"
+        res = requests.get(url, headers=headers, timeout=5)
+        if target_store in res.text:
+            items = res.text.split('class="product_item__')
+            if len(items) > 1:
+                for idx, item in enumerate(items[1:], start=1):
+                    if target_store in item: return str(idx)
+            names = re.findall(r'"mallName":"([^"]+)"', res.text)
+            for idx, name in enumerate(names, start=1):
+                if target_store in name: return str(idx)
+    except:
+        return "스크래핑 실패"
+    return "순위 밖"
+
 def update_ranks_job(app):
     with app.app_context():
         from app.models import MonitoredKeyword
-        import requests, urllib.parse
-        
-        client_id = os.environ.get("NAVER_CLIENT_ID", "")
-        client_secret = os.environ.get("NAVER_CLIENT_SECRET", "")
-        if not client_id or not client_secret: 
-            return
-            
         keywords = MonitoredKeyword.query.all()
         for kw in keywords:
             kw.prev_store_rank = kw.store_rank 
-            rank = "500위 밖"
-            try:
-                headers = {"X-Naver-Client-Id": client_id, "X-Naver-Client-Secret": client_secret}
-                found = False
-                for start_idx in [1, 101, 201, 301, 401]:
-                    url = f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(kw.keyword)}&display=100&start={start_idx}"
-                    res = requests.get(url, headers=headers, timeout=5)
-                    if res.status_code == 200:
-                        items = res.json().get('items', [])
-                        for idx, item in enumerate(items):
-                            if "스터디박스" in item.get('mallName', ''):
-                                rank = str(start_idx + idx)
-                                found = True
-                                break
-                    else:
-                        if start_idx == 1: rank = "API에러"
-                        break
-                    if found: break
-                    time.sleep(0.1) # 딜레이
-            except:
-                rank = "통신실패"
-            kw.store_rank = rank
+            kw.store_rank = get_real_store_rank_scraper(kw.keyword, "스터디박스")
+            time.sleep(1) # 네이버 봇 차단 방지 1초 딜레이
         db.session.commit()
 
 def create_app():
@@ -71,7 +65,6 @@ def create_app():
     scheduler.start()
 
     from app.models import User
-    
     @login_manager.user_loader
     def load_user(user_id):
         return User.query.get(int(user_id))
@@ -80,7 +73,6 @@ def create_app():
         if db_url and db_url.startswith('sqlite:////'):
             db_path = db_url.replace('sqlite:///', '')
             os.makedirs(os.path.dirname(db_path), exist_ok=True)
-
         db.create_all()
         
         try:
