@@ -7,8 +7,6 @@ from app import db
 from app.models import User, MonitoredKeyword
 import requests
 import urllib.parse
-import re
-import random
 
 monitoring_bp = Blueprint('monitoring', __name__)
 
@@ -90,52 +88,34 @@ def update_keyword():
 def async_refresh_ranks(app, user_id, client_id, client_secret):
     with app.app_context():
         keywords = MonitoredKeyword.query.filter_by(user_id=user_id).all()
+        
         for kw in keywords:
             kw.prev_store_rank = kw.store_rank
-            rank = "순위 밖"
+            rank = "500위 밖"
             
-            fake_ip = f"211.{random.randint(10, 250)}.{random.randint(10, 250)}.{random.randint(10, 250)}"
-            headers = {
-                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
-                "X-Forwarded-For": fake_ip,
-                "Accept-Language": "ko-KR,ko;q=0.9"
-            }
-            
-            # 1. 모바일 스크래핑
-            found = False
             try:
-                url = f"https://msearch.shopping.naver.com/search/all?query={urllib.parse.quote(kw.keyword)}"
-                res = requests.get(url, headers=headers, timeout=5)
-                if "captcha" not in res.text.lower() and "비정상적인" not in res.text:
-                    if "스터디박스" in res.text:
-                        names = re.findall(r'"mallName":"([^"]+)"', res.text)
-                        for idx, name in enumerate(names, start=1):
-                            if "스터디박스" in name:
-                                rank = str(idx)
-                                found = True
-                                break
-            except: pass
-
-            # 2. 실패시 API 폴백
-            if not found:
-                try:
-                    if client_id and client_secret:
-                        api_headers = {"X-Naver-Client-Id": client_id, "X-Naver-Client-Secret": client_secret}
-                        for start_idx in [1, 101]:
-                            api_url = f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(kw.keyword)}&display=100&start={start_idx}"
-                            api_res = requests.get(api_url, headers=api_headers, timeout=5)
-                            if api_res.status_code == 200:
-                                for idx, item in enumerate(api_res.json().get('items', [])):
-                                    if "스터디박스" in item.get('mallName', ''):
-                                        rank = str(start_idx + idx)
-                                        found = True
-                                        break
-                            if found: break
-                            time.sleep(0.1)
-                except: rank = "탐색 실패"
+                if client_id and client_secret:
+                    api_headers = {"X-Naver-Client-Id": client_id, "X-Naver-Client-Secret": client_secret}
+                    found = False
+                    for start_idx in [1, 101, 201, 301, 401]:
+                        api_url = f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(kw.keyword)}&display=100&start={start_idx}"
+                        api_res = requests.get(api_url, headers=api_headers, timeout=5)
+                        if api_res.status_code == 200:
+                            for idx, item in enumerate(api_res.json().get('items', [])):
+                                if "스터디박스" in item.get('mallName', ''):
+                                    rank = str(start_idx + idx)
+                                    found = True
+                                    break
+                        else:
+                            if start_idx == 1: rank = "API에러"
+                            break
+                        if found: break
+                        time.sleep(0.1) # API 호출 제한 방지
+            except:
+                rank = "탐색 실패"
                 
             kw.store_rank = rank
-            time.sleep(1)
+            time.sleep(0.5) # 안전빵 딜레이
             db.session.commit() 
 
 
@@ -145,10 +125,13 @@ def refresh_all_ranks():
     client_id = os.environ.get("NAVER_CLIENT_ID", "")
     client_secret = os.environ.get("NAVER_CLIENT_SECRET", "")
     
+    if not client_id or not client_secret:
+        return jsonify({'success': False, 'message': '네이버 API 환경변수(ID/SECRET)가 서버에 설정되어 있지 않습니다.'})
+    
     app = current_app._get_current_object()
     user_id = current_user.id
     
     thread = Thread(target=async_refresh_ranks, args=(app, user_id, client_id, client_secret))
     thread.start()
             
-    return jsonify({'success': True, 'message': '✅ 백그라운드 우회 탐색(스크래핑+API)이 시작되었습니다!\n(데이터당 1~2초씩 소요되며 화면에 실시간 반영됩니다.)'})
+    return jsonify({'success': True, 'message': '✅ 백그라운드 API 탐색(500위)이 시작되었습니다!\n(화면에 실시간 반영됩니다.)'})
