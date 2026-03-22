@@ -1,38 +1,46 @@
 {% extends "base.html" %}
 {% block content %}
-<h3 class="mb-4 fw-bold">API 키 관리</h3>
+<h3 class="mb-4 fw-bold">상점 API 키 관리 (네이버 커머스 API)</h3>
+
 <div class="row">
-    <div class="col-md-5">
-        <div class="card shadow-sm border-0 mb-4">
-            <div class="card-header bg-white py-3"><h6 class="mb-0 fw-bold">새 상점 연결</h6></div>
+    <div class="col-md-8 col-lg-6">
+        <div class="card shadow-sm border-0">
             <div class="card-body p-4">
-                <form method="POST">
-                    <div class="mb-3"><label class="form-label text-muted small">상점 별칭 (예: 메인스토어)</label><input type="text" name="store_name" class="form-control" required></div>
-                    <div class="mb-3"><label class="form-label text-muted small">Client ID</label><input type="text" name="client_id" class="form-control" required></div>
-                    <div class="mb-4"><label class="form-label text-muted small">Client Secret</label><input type="password" name="client_secret" class="form-control" required></div>
-                    <button type="submit" class="btn btn-primary w-100 py-2">저장하기</button>
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                  {% if messages %}
+                    {% for category, message in messages %}
+                      <div class="alert alert-{{ category }} fw-bold">{{ message }}</div>
+                    {% endfor %}
+                  {% endif %}
+                {% endwith %}
+                
+                <form method="POST" action="{{ url_for('keys.index') }}">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">스마트스토어 상점명</label>
+                        <input type="text" class="form-control bg-light" name="store_name" value="{{ api_key.store_name if api_key else '스터디박스' }}" readonly>
+                        <div class="form-text">현재 '스터디박스' 전용으로 고정되어 있습니다.</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-primary">네이버 커머스 API - Client ID</label>
+                        <input type="text" class="form-control" name="client_id" value="{{ api_key.client_id if api_key else '' }}" placeholder="발급받은 애플리케이션 ID를 입력하세요" required>
+                    </div>
+                    
+                    <div class="mb-4">
+                        <label class="form-label fw-bold text-primary">네이버 커머스 API - Client Secret</label>
+                        <input type="password" class="form-control" name="client_secret" value="{{ api_key.client_secret if api_key else '' }}" placeholder="발급받은 애플리케이션 시크릿을 입력하세요" required>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary w-100 fw-bold py-2">API 키 저장 및 연동 시작</button>
                 </form>
             </div>
         </div>
-    </div>
-    <div class="col-md-7">
-        <div class="card shadow-sm border-0">
-            <div class="card-header bg-white py-3"><h6 class="mb-0 fw-bold">연결된 상점 목록</h6></div>
-            <div class="card-body p-0">
-                <table class="table table-hover align-middle mb-0">
-                    <thead class="table-light"><tr><th class="ps-4">상점 이름</th><th>Client ID</th><th class="text-end pe-4">관리</th></tr></thead>
-                    <tbody>
-                        {% for key in api_keys %}
-                        <tr>
-                            <td class="ps-4 fw-bold">{{ key.store_name }}</td>
-                            <td class="text-muted font-monospace">{{ key.client_id[:8] }}********</td>
-                            <td class="text-end pe-4"><a href="{{ url_for('keys.delete_key', key_id=key.id) }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('이 상점을 삭제하시겠습니까?');">연결 해제</a></td>
-                        </tr>
-                        {% else %}
-                        <tr><td colspan="3" class="text-center text-muted py-4">등록된 상점이 없습니다.</td></tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+        
+        <div class="alert alert-warning mt-4 shadow-sm">
+            <h6 class="fw-bold text-dark"><i class="bi bi-exclamation-triangle-fill text-danger"></i> 필수 설정 안내 (IP 화이트리스트)</h6>
+            <p class="mb-1 small text-dark">네이버 커머스 API 센터에 로그인 하신 후, <strong>[애플리케이션 상세 설정 -> API 호출 허용 IP]</strong> 항목에 아래의 IP 주소를 반드시 추가해 주셔야 정상 작동합니다.</p>
+            <div class="bg-white p-2 mt-2 rounded border text-center">
+                <span class="fs-4 fw-bold text-danger">52.8.234.191</span>
             </div>
         </div>
     </div>
