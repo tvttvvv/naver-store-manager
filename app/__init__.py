@@ -3,56 +3,56 @@ from flask import Flask, redirect, url_for
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
 
-# 데이터베이스 및 로그인 매니저 초기화
 db = SQLAlchemy()
 login_manager = LoginManager()
 
 def create_app():
     app = Flask(__name__)
-    
-    # 보안 및 DB 설정 (환경변수 또는 기본값)
     app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'my-super-secret-key')
     
-    # SQLite 기본 설정 (실제 배포 환경의 DATABASE_URL이 있으면 우선 적용)
     basedir = os.path.abspath(os.path.dirname(__file__))
     app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///' + os.path.join(basedir, 'app.db'))
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-    # 앱에 DB 및 로그인 매니저 연동
     db.init_app(app)
     login_manager.init_app(app)
     
-    # 로그인이 필요할 때 튕겨낼 페이지 경로 설정
     login_manager.login_view = 'auth.login'
     login_manager.login_message = '로그인이 필요한 서비스입니다.'
 
-    # 모델 임포트 및 유저 로더 설정
     from app.models import User
     
     @login_manager.user_loader
     def load_user(user_id):
         return User.query.get(int(user_id))
 
-    # 앱 컨텍스트 내에서 데이터베이스 테이블 자동 생성
     with app.app_context():
         db.create_all()
+        # ✨ [핵심] 기존 데이터를 보존하면서 새로운 정보 칸(컬럼)만 안전하게 추가! ✨
+        try:
+            db.session.execute(db.text("ALTER TABLE monitored_keyword ADD COLUMN publisher VARCHAR(100) DEFAULT '-'"))
+            db.session.execute(db.text("ALTER TABLE monitored_keyword ADD COLUMN supply_rate VARCHAR(50) DEFAULT '-'"))
+            db.session.execute(db.text("ALTER TABLE monitored_keyword ADD COLUMN isbn VARCHAR(50) DEFAULT '-'"))
+            db.session.execute(db.text("ALTER TABLE monitored_keyword ADD COLUMN price VARCHAR(50) DEFAULT '-'"))
+            db.session.execute(db.text("ALTER TABLE monitored_keyword ADD COLUMN shipping_fee VARCHAR(50) DEFAULT '무료'"))
+            db.session.execute(db.text("ALTER TABLE monitored_keyword ADD COLUMN store_name VARCHAR(100) DEFAULT '-'"))
+            db.session.execute(db.text("ALTER TABLE monitored_keyword ADD COLUMN book_title VARCHAR(200) DEFAULT '-'"))
+            db.session.commit()
+        except Exception:
+            db.session.rollback() # 이미 칸이 만들어져 있으면 무시하고 넘어갑니다.
 
-    # =========================================================
-    # ✨ 블루프린트(라우터) 모두 등록 (빠진 것 없이 전부 추가 완료!)
-    # =========================================================
     from app.views.auth import auth_bp
     from app.views.store import store_bp
     from app.views.monitoring import monitoring_bp
     from app.views.kyobo import kyobo_bp
-    from app.views.keys import keys_bp  # ✨ [추가] API 키 관리 모듈 연결!
+    from app.views.keys import keys_bp 
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(store_bp, url_prefix='/store')
     app.register_blueprint(monitoring_bp, url_prefix='/monitoring')
     app.register_blueprint(kyobo_bp, url_prefix='/kyobo')
-    app.register_blueprint(keys_bp, url_prefix='/keys')  # ✨ [추가] API 키 관리 방 연결!
+    app.register_blueprint(keys_bp, url_prefix='/keys') 
 
-    # 아무것도 안 붙은 대문(/)으로 접속하면 알아서 /store 로 보내버리기
     @app.route('/')
     def index():
         return redirect(url_for('store.index'))
