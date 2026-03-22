@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h4 class="mb-4 fw-bold">스터디박스 모니터링</h4>
+
+<div class="card shadow-sm border-0 mb-4">
+    <div class="card-body p-4">
+        
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h6 class="mb-0 fw-bold text-muted">키워드 및 내 상점 순위 현황</h6>
+            <button class="btn btn-primary px-4 py-2" onclick="triggerManualUpdate()" id="updateBtn">
+                수동 업데이트 및 Pro 연동
+            </button>
+        </div>
+        
+        <div class="table-responsive border rounded">
+            <table class="table table-bordered text-center align-middle mb-0" style="font-size: 14px;">
+                <thead style="background-color: #00FFFF;">
+                    <tr>
+                        <th class="py-2">순번</th>
+                        <th class="py-2">키워드</th>
+                        <th class="py-2">네이버카운트</th>
+                        <th class="py-2">내상점순위</th>
+                        <th class="py-2">키워드네이버링크</th>
+                        <th class="py-2">출판사명</th>
+                        <th class="py-2">공급률</th>
+                        <th class="py-2">ISBN</th>
+                        <th class="py-2">가격</th>
+                        <th class="py-2">택배비</th>
+                        <th class="py-2">상점 책제목</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for book in books %}
+                    <tr>
+                        <td class="text-muted">{{ book.id }}</td>
+                        <td style="background-color: #00FF00; font-weight: bold;">{{ book.keyword }}</td>
+                        <td style="background-color: #00FF00; font-weight: bold;">{{ book.naver_count }}</td>
+                        <td style="background-color: #00FF00; font-weight: bold;">{{ book.shop_rank }}</td>
+                        <td>
+                            {% if book.link %}
+                            <a href="{{ book.link }}" target="_blank" class="text-decoration-none"><i class="bi bi-box-arrow-up-right"></i></a>
+                            {% endif %}
+                        </td>
+                        <td class="text-muted">{{ book.publisher }}</td>
+                        <td class="text-muted">{{ book.supply_rate }}</td>
+                        <td class="font-monospace">{{ book.isbn }}</td>
+                        <td>{{ book.price }}</td>
+                        <td>{{ book.shipping }}</td>
+                        <td class="text-truncate text-muted" style="max-width: 150px;" title="{{ book.shop_title }}">{{ book.shop_title }}</td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="11" class="text-center py-5 text-muted">
+                            <i class="bi bi-inbox fs-1 d-block mb-2"></i>
+                            데이터가 없습니다.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+    </div>
+</div>
+
+<script>
+    function triggerManualUpdate() {
+        const btn = document.getElementById('updateBtn');
+        const originalText = btn.innerHTML;
+        
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>업데이트 중...';
+        
+        fetch("{{ url_for('studybox.manual_update') }}", { method: 'POST' })
+            .then(response => response.json())
+            .then(data => {
+                alert(data.message);
+                location.reload(); 
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert("업데이트 중 오류가 발생했습니다.");
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            });
+    }
+</script>
+
+{% endblock %}
