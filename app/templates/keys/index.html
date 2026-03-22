@@ -1,94 +1,114 @@
 {% extends "base.html" %}
 {% block content %}
-<h3 class="mb-4 fw-bold">상점 API 키 관리 (네이버 커머스 API)</h3>
+<h3 class="mb-4 fw-bold">API 키 관리</h3>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, message in messages %}
+      <div class="alert alert-{{ category }} fw-bold mb-4">{{ message }}</div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
 
 <div class="row">
     <div class="col-md-5">
         <div class="card shadow-sm border-0 mb-4">
-            <div class="card-header bg-primary text-white fw-bold">
-                <i class="bi bi-plus-circle"></i> 새 상점 API 키 등록
-            </div>
+            <div class="card-header bg-white py-3"><h6 class="mb-0 fw-bold" id="formHeader">새 상점 연결</h6></div>
             <div class="card-body p-4">
-                {% with messages = get_flashed_messages(with_categories=true) %}
-                  {% if messages %}
-                    {% for category, message in messages %}
-                      <div class="alert alert-{{ category }} fw-bold">{{ message }}</div>
-                    {% endfor %}
-                  {% endif %}
-                {% endwith %}
-                
-                <form method="POST" action="{{ request.path }}">
-                    <input type="hidden" name="action" value="add">
-                    
+                <form method="POST" action="{{ request.path }}" id="keyForm">
+                    <input type="hidden" name="action" id="formAction" value="add">
+                    <input type="hidden" name="key_id" id="formKeyId" value="">
+
                     <div class="mb-3">
-                        <label class="form-label fw-bold">스마트스토어 상점명</label>
-                        <input type="text" class="form-control" name="store_name" placeholder="예: 스터디박스" required>
+                        <label class="form-label text-muted small">상점 별칭 (예: 메인스토어)</label>
+                        <input type="text" name="store_name" id="storeName" class="form-control" required>
                     </div>
-                    
                     <div class="mb-3">
-                        <label class="form-label fw-bold text-primary">Client ID</label>
-                        <input type="text" class="form-control" name="client_id" placeholder="애플리케이션 ID 입력" required>
+                        <label class="form-label text-muted small">Client ID</label>
+                        <input type="text" name="client_id" id="clientId" class="form-control" required>
                     </div>
-                    
                     <div class="mb-4">
-                        <label class="form-label fw-bold text-primary">Client Secret</label>
-                        <input type="password" class="form-control" name="client_secret" placeholder="($2a$로 시작하는 암호 입력)" required>
+                        <label class="form-label text-muted small">Client Secret</label>
+                        <input type="password" name="client_secret" id="clientSecret" class="form-control" placeholder="커머스 API 시크릿 ($2a$ 시작)" required>
+                        <div id="secretHelp" class="form-text text-danger d-none mt-1" style="font-size: 0.8rem;">수정을 위해 암호를 다시 입력해주세요.</div>
                     </div>
                     
-                    <button type="submit" class="btn btn-primary w-100 fw-bold py-2">API 키 등록</button>
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-primary w-100 py-2" id="submitBtn">저장하기</button>
+                        <button type="button" class="btn btn-secondary w-50 py-2 d-none" id="cancelBtn" onclick="cancelEdit()">취소</button>
+                    </div>
                 </form>
             </div>
         </div>
-        
-        <div class="alert alert-warning shadow-sm">
-            <h6 class="fw-bold text-dark"><i class="bi bi-exclamation-triangle-fill text-danger"></i> 필수 설정 안내 (IP 등록)</h6>
-            <p class="mb-1 small text-dark">네이버 커머스 API 센터의 <strong>[API 호출 허용 IP]</strong> 항목에 아래의 서버 IP를 반드시 추가해 주셔야 정상 작동합니다.</p>
-            <div class="bg-white p-2 mt-2 rounded border text-center">
-                <span class="fs-5 fw-bold text-danger">52.8.234.191</span>
+
+        <div class="alert alert-warning border-0 shadow-sm px-4 py-3">
+            <h6 class="fw-bold mb-2"><i class="bi bi-shield-lock-fill text-warning"></i> 커머스 API 허용 IP 추가 필수</h6>
+            <p class="mb-2 text-muted" style="font-size: 0.85rem;">네이버 커머스 API 센터의 <strong>[API 호출 허용 IP]</strong> 항목에 아래의 서버 IP를 반드시 추가해야 연동됩니다.</p>
+            <div class="bg-white px-3 py-2 rounded text-center fw-bold text-danger fs-5 border">
+                52.8.234.191
             </div>
         </div>
     </div>
     
     <div class="col-md-7">
         <div class="card shadow-sm border-0">
-            <div class="card-header bg-dark text-white fw-bold">
-                <i class="bi bi-list-ul"></i> 등록된 상점 목록
-            </div>
+            <div class="card-header bg-white py-3"><h6 class="mb-0 fw-bold">연결된 상점 목록</h6></div>
             <div class="card-body p-0">
-                <div class="table-responsive">
-                    <table class="table table-hover align-middle mb-0 text-center">
-                        <thead class="table-light">
-                            <tr>
-                                <th>상점명</th>
-                                <th>Client ID</th>
-                                <th>관리</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% if api_keys %}
-                                {% for key in api_keys %}
-                                <tr>
-                                    <td class="fw-bold">{{ key.store_name }}</td>
-                                    <td class="text-muted small">{{ key.client_id[:10] }}...</td>
-                                    <td>
-                                        <form method="POST" action="{{ request.path }}" style="display:inline;" onsubmit="return confirm('정말 삭제하시겠습니까?');">
-                                            <input type="hidden" name="action" value="delete">
-                                            <input type="hidden" name="key_id" value="{{ key.id }}">
-                                            <button type="submit" class="btn btn-sm btn-danger fw-bold"><i class="bi bi-trash"></i> 삭제</button>
-                                        </form>
-                                    </td>
-                                </tr>
-                                {% endfor %}
-                            {% else %}
-                                <tr>
-                                    <td colspan="3" class="py-5 text-muted">등록된 상점 API 키가 없습니다. 좌측에서 새로 등록해주세요.</td>
-                                </tr>
-                            {% endif %}
-                        </tbody>
-                    </table>
-                </div>
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light"><tr><th class="ps-4">상점 이름</th><th>Client ID</th><th class="text-end pe-4">관리</th></tr></thead>
+                    <tbody>
+                        {% for key in api_keys %}
+                        <tr>
+                            <td class="ps-4 fw-bold">{{ key.store_name }}</td>
+                            <td class="text-muted font-monospace">{{ key.client_id[:8] }}********</td>
+                            <td class="text-end pe-4">
+                                <button class="btn btn-sm btn-outline-success me-1" onclick="editKey('{{ key.id }}', '{{ key.store_name }}', '{{ key.client_id }}')">수정</button>
+                                <form method="POST" action="{{ request.path }}" style="display:inline;" onsubmit="return confirm('이 상점을 삭제하시겠습니까?');">
+                                    <input type="hidden" name="action" value="delete">
+                                    <input type="hidden" name="key_id" value="{{ key.id }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger">연결 해제</button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="3" class="text-center text-muted py-4">등록된 상점이 없습니다.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
             </div>
         </div>
     </div>
 </div>
+
+<script>
+    function editKey(id, name, clientId) {
+        document.getElementById('formAction').value = 'edit';
+        document.getElementById('formKeyId').value = id;
+        document.getElementById('storeName').value = name;
+        document.getElementById('clientId').value = clientId;
+        document.getElementById('clientSecret').value = ''; 
+        
+        document.getElementById('formHeader').innerHTML = '상점 연결 수정';
+        document.getElementById('submitBtn').textContent = '수정 완료';
+        document.getElementById('submitBtn').classList.replace('btn-primary', 'btn-success');
+        
+        document.getElementById('cancelBtn').classList.remove('d-none');
+        document.getElementById('secretHelp').classList.remove('d-none');
+    }
+
+    function cancelEdit() {
+        document.getElementById('formAction').value = 'add';
+        document.getElementById('formKeyId').value = '';
+        document.getElementById('storeName').value = '';
+        document.getElementById('clientId').value = '';
+        document.getElementById('clientSecret').value = '';
+        
+        document.getElementById('formHeader').innerHTML = '새 상점 연결';
+        document.getElementById('submitBtn').textContent = '저장하기';
+        document.getElementById('submitBtn').classList.replace('btn-success', 'btn-primary');
+        
+        document.getElementById('cancelBtn').classList.add('d-none');
+        document.getElementById('secretHelp').classList.add('d-none');
+    }
+</script>
 {% endblock %}
