@@ -1,70 +1,27 @@
 {% extends "base.html" %}
 {% block content %}
-<h3 class="mb-4 fw-bold">스터디박스 모니터링</h3>
-
-{% if not api_url_configured %}
-<div class="alert alert-danger mb-4 shadow-sm fw-bold">
-    <i class="bi bi-exclamation-triangle-fill fs-5 me-2"></i>
-    현재 <code>ANALYZER_API_URL</code> 이 설정되지 않아 원격 서버와 통신할 수 없습니다!
-</div>
-{% endif %}
-
-<div class="row mb-4">
-    <div class="col-md-5">
-        <div class="card shadow-sm border-0 h-100">
-            <div class="card-body p-4">
-                <form id="monitorForm">
-                    <div class="mb-3">
-                        <label class="form-label fw-bold text-dark d-flex justify-content-between align-items-center">
-                            <span><i class="bi bi-keyboard me-1"></i>도서 키워드 연속 입력</span>
-                            <span class="badge bg-primary">A등급(황금) 즉시 등록</span>
-                        </label>
-                        <textarea name="keywords" id="keywords" class="form-control" rows="6" placeholder="키워드를 한 줄에 하나씩 입력하세요.&#10;발견되는 즉시 하단 표에 등록됩니다." required {% if not api_url_configured %}disabled{% endif %}></textarea>
-                    </div>
-                    <button type="submit" id="submitBtn" class="btn btn-dark w-100 py-2 fw-bold fs-6 shadow-sm" {% if not api_url_configured %}disabled{% endif %}>
-                        <i class="bi bi-radar me-1"></i> A등급 원격 탐색 가동
-                    </button>
-                </form>
-            </div>
-        </div>
-    </div>
-    
-    <div class="col-md-7">
-        <div class="card shadow-sm border-0 h-100 bg-light">
-            <div class="card-header bg-white py-2 border-bottom-0 d-flex justify-content-between align-items-center rounded-top shadow-sm">
-                <h6 class="mb-0 fw-bold text-secondary" style="font-size: 0.9rem;"><i class="bi bi-activity me-1"></i>스캔 현황판</h6>
-                <button id="btnStop" class="btn btn-sm btn-danger d-none fw-bold py-0" onclick="stopTask()">강제 중지</button>
-            </div>
-            
-            <div class="card-body py-2 d-flex flex-column justify-content-between">
-                <h6 id="status_text" class="fw-bold mb-2 text-muted small">대기 중입니다.</h6>
-                
-                <div id="progress_wrapper">
-                    <div class="progress mb-2" style="height: 12px;">
-                        <div id="progressBar" class="progress-bar bg-secondary" role="progressbar" style="width: 100%;"></div>
-                    </div>
-                </div>
-
-                <div class="position-relative mt-1 rounded border bg-white flex-grow-1" style="min-height: 100px;">
-                    <ul class="list-group list-group-flush position-absolute w-100 h-100 overflow-auto" id="log_list" style="top:0; left:0;"></ul>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
+<h3 class="mb-4 fw-bold">스터디박스 모니터링 (A등급 수신함)</h3>
 
 <div class="row">
     <div class="col-12">
         <div class="card shadow-sm border-0">
             <div class="card-body p-4">
                 <div class="d-flex justify-content-between align-items-center mb-3">
-                    <h6 class="fw-bold mb-0 text-dark">키워드 및 내 상점 순위 현황</h6>
-                    <button class="btn btn-primary fw-bold" onclick="alert('Pro 연동 준비 중입니다.')">수동 업데이트 및 Pro 연동</button>
+                    <div>
+                        <h6 class="fw-bold mb-1 text-dark">키워드 및 내 상점 순위 현황</h6>
+                        <span class="text-muted small">
+                            <i class="bi bi-broadcast text-primary"></i> 
+                            다른 탭(도서 분석기)에서 분석을 돌려놓고 이 창을 켜두시면 A등급이 자동으로 들어옵니다.
+                        </span>
+                    </div>
+                    <button class="btn btn-primary fw-bold shadow-sm" onclick="alert('Pro 연동 준비 중입니다.')">
+                        수동 업데이트 및 Pro 연동
+                    </button>
                 </div>
                 
-                <div class="table-responsive border rounded">
-                    <table class="table table-bordered table-hover text-center align-middle mb-0" style="font-size: 0.85rem; white-space: nowrap;">
-                        <thead class="table-light text-muted">
+                <div class="table-responsive border rounded" style="max-height: 600px; overflow-y: auto;">
+                    <table class="table table-bordered text-center align-middle mb-0" style="font-size: 0.85rem; white-space: nowrap;">
+                        <thead class="table-light text-muted" style="position: sticky; top: 0; z-index: 1;">
                             <tr>
                                 <th>순번</th>
                                 <th>키워드</th>
@@ -81,7 +38,7 @@
                             </tr>
                         </thead>
                         <tbody id="savedKeywordsBody">
-                            <tr><td colspan="12" class="text-center py-5 text-muted">등록된 데이터가 없습니다.</td></tr>
+                            <tr><td colspan="12" class="text-center py-5 text-muted">데이터를 기다리는 중입니다...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -91,7 +48,6 @@
 </div>
 
 <style>
-    /* ✨ 2번째 사진과 동일한 네온그린 형광 디자인 ✨ */
     .bg-neon-green {
         background-color: #00ff00 !important;
         color: #000 !important;
@@ -100,86 +56,7 @@
 </style>
 
 <script>
-    let pollingTimer = null;
-    let isFetching = false;
-    let lastFoundCount = 0; // A등급 발견 횟수를 저장하여 실시간 갱신 트리거
-
-    const submitBtn = document.getElementById('submitBtn');
-    const btnStop = document.getElementById('btnStop');
-    const statusText = document.getElementById('status_text');
-    const progressWrapper = document.getElementById('progress_wrapper');
-    const logList = document.getElementById('log_list');
-
-    async function stopTask() {
-        if (!confirm('분석을 중단하시겠습니까?')) return;
-        await fetch("{{ url_for('monitoring.stop_monitoring') }}", { method: 'POST' });
-        fetchStatus(); 
-    }
-
-    function startPolling() { if (!pollingTimer) pollingTimer = setInterval(fetchStatus, 1500); }
-    function stopPolling() { if (pollingTimer) { clearInterval(pollingTimer); pollingTimer = null; } }
-
-    async function fetchStatus() {
-        if (isFetching) return;
-        isFetching = true;
-        try {
-            const res = await fetch("{{ url_for('monitoring.status') }}");
-            const data = await res.json();
-            if (data.status === 'empty') return; 
-            updateUI(data.data);
-        } catch (e) { console.error(e); } 
-        finally { isFetching = false; }
-    }
-
-    function updateUI(taskData) {
-        if (taskData.is_running) {
-            btnStop.classList.remove('d-none');
-            submitBtn.disabled = true;
-            submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>탐색 가동 중...';
-        } else {
-            btnStop.classList.add('d-none');
-            submitBtn.disabled = false;
-            submitBtn.innerHTML = '<i class="bi bi-radar me-1"></i> A등급 원격 탐색 가동';
-            stopPolling();
-        }
-
-        if (taskData.status === 'error') {
-            statusText.className = 'fw-bold mb-2 text-danger small';
-            statusText.innerText = `중단됨: ${taskData.message}`;
-        } else if (taskData.status === 'done') {
-            statusText.className = 'fw-bold mb-2 text-success small';
-            statusText.innerText = `✨ 분석 완료! (총 ${taskData.total}개 스캔 완료)`;
-        } else {
-            statusText.className = 'fw-bold mb-2 text-primary small';
-            statusText.innerText = `[${taskData.current}/${taskData.total}] ${taskData.message}`;
-        }
-
-        if (taskData.total > 0) {
-            const percent = Math.round((taskData.current / taskData.total) * 100);
-            let pColor = taskData.status === 'error' ? 'bg-danger' : (taskData.status === 'done' ? 'bg-success' : 'bg-primary');
-            let aClass = taskData.is_running ? 'progress-bar-striped progress-bar-animated' : '';
-            progressWrapper.innerHTML = `<div class="progress mb-2" style="height: 12px;"><div class="progress-bar ${pColor} ${aClass}" style="width: ${percent}%;">${percent}%</div></div>`;
-        }
-
-        if (taskData.logs && taskData.logs.length > 0) {
-            logList.innerHTML = taskData.logs.map(log => {
-                let badgeClass = log.type === 'success' ? 'bg-success fw-bold' : (log.type === 'warning' ? 'bg-warning text-dark fw-bold' : 'bg-secondary');
-                return `<li class="list-group-item d-flex justify-content-between align-items-center py-1 px-2 border-bottom text-muted" style="font-size: 0.75rem;">
-                            <span class="text-truncate me-2 fw-bold" style="max-width: 250px;">${log.target}</span>
-                            <span class="badge ${badgeClass} rounded-pill">${log.statusMsg}</span>
-                        </li>`;
-            }).join('');
-            logList.scrollTop = logList.scrollHeight; 
-        }
-
-        // ✨ 백그라운드에서 새로운 A등급이 표에 꽂혔다면, 즉시 프론트엔드 표 갱신! ✨
-        if (taskData.new_a_grade_count > lastFoundCount) {
-            lastFoundCount = taskData.new_a_grade_count;
-            loadSavedKeywords(); // 즉시 표를 새로 그립니다.
-        }
-    }
-
-    // ✨ 스터디박스 모니터링 테이블 렌더링 로직 ✨
+    // 2초마다 1번 사이트가 쏴준 새로운 데이터가 있는지 확인해서 표를 다시 그립니다.
     async function loadSavedKeywords() {
         const tbody = document.getElementById('savedKeywordsBody');
         try {
@@ -191,7 +68,7 @@
                     <tr>
                         <td class="align-middle">${index + 1}</td>
                         <td class="align-middle bg-neon-green">${k.keyword}</td>
-                        <td class="align-middle bg-neon-green">${k.search_volume.toLocaleString()}</td>
+                        <td class="align-middle bg-neon-green">업데이트됨<br><span class="small fw-normal">(${k.search_volume.toLocaleString()})</span></td>
                         <td class="align-middle bg-neon-green">1</td>
                         <td class="align-middle"><a href="${k.link}" target="_blank" class="btn btn-sm btn-outline-secondary py-0 px-2 text-decoration-none"><i class="bi bi-box-arrow-up-right me-1"></i>링크</a></td>
                         <td class="align-middle text-muted">-</td>
@@ -204,47 +81,25 @@
                     </tr>
                 `).join('');
             } else {
-                tbody.innerHTML = '<tr><td colspan="12" class="text-center py-5 text-muted">등록된 키워드가 없습니다. 위에서 탐색을 실행하세요.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="12" class="text-center py-5 text-muted">도서 분석기에서 A등급 키워드가 발견되면 여기에 자동으로 추가됩니다.</td></tr>';
             }
         } catch (e) {
-            tbody.innerHTML = '<tr><td colspan="12" class="text-center py-5 text-danger">데이터 로드 실패</td></tr>';
+            console.error(e);
         }
     }
 
     async function deleteKeyword(id) {
-        if (!confirm('이 키워드를 표에서 삭제하시겠습니까?')) return;
+        if (!confirm('이 키워드를 삭제하시겠습니까?')) return;
         const fd = new FormData();
         fd.append('id', id);
         await fetch("{{ url_for('monitoring.delete_keyword') }}", { method: 'POST', body: fd });
-        loadSavedKeywords(); // 지우고 표 즉시 갱신
+        loadSavedKeywords();
     }
 
-    document.getElementById('monitorForm').addEventListener('submit', async function(e) {
-        e.preventDefault();
-        submitBtn.disabled = true;
-        lastFoundCount = 0; // 갱신 트리거 초기화
-        
-        try {
-            const res = await fetch("{{ url_for('monitoring.start_monitoring') }}", { method: 'POST', body: new FormData(e.target) });
-            const result = await res.json();
-            if (result.success) {
-                logList.innerHTML = '';
-                startPolling(); 
-                fetchStatus(); 
-            } else {
-                alert(result.message);
-                submitBtn.disabled = false;
-            }
-        } catch (err) {
-            alert("서버 연결에 실패했습니다.");
-            submitBtn.disabled = false;
-        }
-    });
-
-    // 화면 로드 시 저장된 리스트 쫙 띄워주기
+    // 페이지 로드 시 최초 1회 실행 후, 2초마다 갱신(실시간 동기화)
     document.addEventListener("DOMContentLoaded", () => {
-        fetchStatus();
         loadSavedKeywords();
+        setInterval(loadSavedKeywords, 2000);
     });
 </script>
 {% endblock %}
