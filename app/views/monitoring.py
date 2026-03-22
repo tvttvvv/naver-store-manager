@@ -1,4 +1,5 @@
 import os
+import time
 from flask import Blueprint, render_template, request, jsonify
 from flask_login import login_required, current_user
 from app import db
@@ -67,7 +68,7 @@ def get_saved_keywords():
             'book_title': k.book_title,
             'product_link': k.product_link,
             'store_rank': k.store_rank,
-            'prev_store_rank': k.prev_store_rank # ✨ 화면으로 보내기
+            'prev_store_rank': k.prev_store_rank 
         } for k in keywords]
     })
 
@@ -114,22 +115,26 @@ def refresh_all_ranks():
         
     keywords = MonitoredKeyword.query.filter_by(user_id=current_user.id).all()
     for kw in keywords:
-        # ✨ [핵심] 수동 새로고침 때도 과거 순위 밀어넣기
         kw.prev_store_rank = kw.store_rank
         try:
             headers = {"X-Naver-Client-Id": client_id, "X-Naver-Client-Secret": client_secret}
             url = f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(kw.keyword)}&display=100"
             res = requests.get(url, headers=headers, timeout=5)
+            
             if res.status_code == 200:
                 items = res.json().get('items', [])
-                rank = "-"
+                rank = "100위 밖" # ✨ 찾지 못했을 때의 기본값
                 for idx, item in enumerate(items):
                     if "스터디박스" in item.get('mallName', ''):
                         rank = str(idx + 1)
                         break
                 kw.store_rank = rank
+            else:
+                kw.store_rank = "API에러"
         except:
-            pass
+            kw.store_rank = "통신실패"
+            
+        time.sleep(0.1) # ✨ 0.1초 쉬어주기
             
     db.session.commit()
     return jsonify({'success': True, 'message': '모든 키워드의 스터디박스 순위가 최신화되었습니다.'})
