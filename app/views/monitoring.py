@@ -32,7 +32,9 @@ def receive_webhook():
                 search_volume=data.get('search_volume', 0),
                 rank_info="최상단 노출",
                 link=data.get('link', '#'),
-                store_rank='1'
+                store_rank='1',
+                # ✨ [핵심] 1번 서버가 힘들게 긁어온 진짜 배송비를 여기서 받아서 저장합니다!
+                shipping_fee=data.get('shipping_fee', '-') 
             )
             db.session.add(new_kw)
             db.session.commit()
@@ -90,7 +92,6 @@ def update_keyword():
         kw.shipping_fee = request.form.get('shipping_fee', '무료')
         kw.store_name = request.form.get('store_name', '-')
         kw.book_title = request.form.get('book_title', '-')
-        # ✨ [신규 추가] 링크와 순위 값 업데이트
         kw.product_link = request.form.get('product_link', '-')
         kw.store_rank = request.form.get('store_rank', '1')
         
