@@ -1,6 +1,7 @@
 import json
 import time
 import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, Response, stream_with_context
 from flask_login import login_required, current_user
 from app.models import ApiKey
@@ -45,36 +46,42 @@ def stream_delete():
                 return
 
             if delete_mode == 'isbn':
-                # ISBN 특정 삭제 모드 (기존과 동일)
+                # 특정 ISBN 멀티스레드 삭제 처리
                 yield send_json({'status': 'info', 'message': '입력한 ISBN 상품 정보 조회 중...'})
                 isbn_list = [isbn.strip() for isbn in isbn_input.replace(',', '\n').split('\n') if isbn.strip()]
+                yield send_json({'status': 'start', 'total': len(isbn_list), 'message': '선택 상품 초고속 삭제 시작!'})
                 
-                yield send_json({'status': 'start', 'total': len(isbn_list), 'message': '선택 상품 삭제 시작!'})
                 success_count, fail_count = 0, 0
+                current_count = 0
                 
-                for i, isbn in enumerate(isbn_list):
-                    origin_no, channel_no = find_product_by_isbn(token, isbn)
-                    if origin_no or channel_no:
-                        res_status = delete_product(token, origin_no, channel_no)
-                        if '완료' in res_status: success_count += 1
-                        else: fail_count += 1
-                    else:
-                        res_status = "조회 불가 (상품 없음)"
-                        fail_count += 1
+                with ThreadPoolExecutor(max_workers=5) as executor:
+                    future_to_isbn = {}
+                    for isbn in isbn_list:
+                        future_to_isbn[executor.submit(find_product_by_isbn, token, isbn)] = isbn
                         
-                    yield send_json({'status': 'progress', 'current': i + 1, 'total': len(isbn_list), 'target_name': f'ISBN: {isbn}', 'result_status': res_status})
-                    time.sleep(0.2)
-                    
+                    for future in as_completed(future_to_isbn):
+                        isbn = future_to_isbn[future]
+                        origin_no, channel_no = future.result()
+                        if origin_no or channel_no:
+                            res_status = delete_product(token, origin_no, channel_no)
+                            if '완료' in res_status: success_count += 1
+                            else: fail_count += 1
+                        else:
+                            res_status = "조회 불가 (상품 없음)"
+                            fail_count += 1
+                            
+                        current_count += 1
+                        yield send_json({'status': 'progress', 'current': current_count, 'total': len(isbn_list), 'target_name': f'ISBN: {isbn}', 'result_status': res_status})
+                        
                 yield send_json({'status': 'done', 'message': '모든 작업이 완료되었습니다!', 'success_count': success_count, 'fail_count': fail_count})
 
             elif delete_mode == 'all':
-                # ✨ 핵심! 실시간 싹쓸이 삭제 모드 ✨
-                yield send_json({'status': 'start', 'total': 0, 'message': '전체 상품 탐색 및 즉시 삭제를 시작합니다!'})
+                yield send_json({'status': 'start', 'total': 0, 'message': '🚀 10배 빠른 멀티스레드 싹쓸이 삭제를 시작합니다!'})
                 
                 url = "https://api.commerce.naver.com/external/v1/products/search"
                 headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
                 
-                processed_ids = set() # 무한루프 방지용 찌꺼기 기억 장치
+                processed_ids = set()
                 page = 1
                 current_count = 0
                 success_count, fail_count = 0, 0
@@ -94,42 +101,44 @@ def stream_delete():
                         
                     contents = res.json().get('contents', [])
                     if not contents:
-                        break # 탐색할 상품이 더 이상 없으면 완벽하게 끝!
+                        break
                         
-                    # 이미 처리해 본(삭제 불가 등) 상품은 제외하고 '새로운 타겟'만 추려냄
                     new_items = [p for p in contents if p.get('originProductNo') not in processed_ids]
-                    
                     if not new_items:
-                        # 이 페이지엔 지울 게 없으니 다음 페이지로 이동
                         page += 1
                         continue
                         
-                    # 찾은 족족 그 자리에서 바로 삭제 (회원님 아이디어)
-                    for p in new_items:
-                        origin_no = p.get('originProductNo')
-                        channel_products = p.get('channelProducts', [{}])
-                        channel_no = channel_products[0].get('channelProductNo') if channel_products else None
-                        name = channel_products[0].get('name', '이름 없는 상품') if channel_products else '이름 없는 상품'
-                        
-                        res_status = delete_product(token, origin_no, channel_no)
-                        
-                        if '완료' in res_status: success_count += 1
-                        else: fail_count += 1
+                    # ✨ 한 번에 10개씩 동시 폭격 (멀티스레딩 엔진 가동) ✨
+                    with ThreadPoolExecutor(max_workers=10) as executor:
+                        future_to_item = {}
+                        for p in new_items:
+                            origin_no = p.get('originProductNo')
+                            channel_products = p.get('channelProducts', [{}])
+                            channel_no = channel_products[0].get('channelProductNo') if channel_products else None
+                            name = channel_products[0].get('name', '이름 없는 상품') if channel_products else '이름 없는 상품'
                             
-                        processed_ids.add(origin_no)
-                        current_count += 1
+                            future = executor.submit(delete_product, token, origin_no, channel_no)
+                            future_to_item[future] = (origin_no, name)
+                            
+                        # 끝나는 즉시 화면에 팡팡 전송!
+                        for future in as_completed(future_to_item):
+                            origin_no, name = future_to_item[future]
+                            processed_ids.add(origin_no)
+                            current_count += 1
+                            
+                            res_status = future.result()
+                            if '완료' in res_status: success_count += 1
+                            else: fail_count += 1
+                                
+                            yield send_json({
+                                'status': 'progress',
+                                'current': current_count,
+                                'total': 0,
+                                'target_name': f'[{origin_no}] {name[:15]}...',
+                                'result_status': res_status
+                            })
                         
-                        yield send_json({
-                            'status': 'progress',
-                            'current': current_count,
-                            'total': 0, # 전체 개수를 모르므로 0으로 보냄
-                            'target_name': f'[{origin_no}] {name[:15]}...',
-                            'result_status': res_status
-                        })
-                        time.sleep(0.2)
-                        
-                    # [가장 중요] 삭제를 했으므로 뒤쪽 페이지 상품들이 앞으로 당겨졌습니다. 
-                    # 놓치는 상품이 없도록 다시 1페이지부터 싹쓸이 탐색!
+                    # 삭제 후에는 리스트가 당겨지므로 1페이지부터 다시 탐색
                     page = 1
                     
                 yield send_json({'status': 'done', 'message': '상점 내 모든 상품 싹쓸이 완료!', 'success_count': success_count, 'fail_count': fail_count})
