@@ -49,12 +49,13 @@ def stream_delete():
                 # 특정 ISBN 멀티스레드 삭제 처리
                 yield send_json({'status': 'info', 'message': '입력한 ISBN 상품 정보 조회 중...'})
                 isbn_list = [isbn.strip() for isbn in isbn_input.replace(',', '\n').split('\n') if isbn.strip()]
-                yield send_json({'status': 'start', 'total': len(isbn_list), 'message': '선택 상품 초고속 삭제 시작!'})
+                yield send_json({'status': 'start', 'total': len(isbn_list), 'message': '선택 상품 삭제 시작 (안전 모드)'})
                 
                 success_count, fail_count = 0, 0
                 current_count = 0
                 
-                with ThreadPoolExecutor(max_workers=5) as executor:
+                # 워커를 3개로 세팅하여 네이버 차단 회피
+                with ThreadPoolExecutor(max_workers=3) as executor:
                     future_to_isbn = {}
                     for isbn in isbn_list:
                         future_to_isbn[executor.submit(find_product_by_isbn, token, isbn)] = isbn
@@ -76,7 +77,7 @@ def stream_delete():
                 yield send_json({'status': 'done', 'message': '모든 작업이 완료되었습니다!', 'success_count': success_count, 'fail_count': fail_count})
 
             elif delete_mode == 'all':
-                yield send_json({'status': 'start', 'total': 0, 'message': '🚀 10배 빠른 멀티스레드 싹쓸이 삭제를 시작합니다!'})
+                yield send_json({'status': 'start', 'total': 0, 'message': '🚀 네이버 안전 싹쓸이 모드(3배속+재시도)를 가동합니다!'})
                 
                 url = "https://api.commerce.naver.com/external/v1/products/search"
                 headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
@@ -108,8 +109,8 @@ def stream_delete():
                         page += 1
                         continue
                         
-                    # ✨ 한 번에 10개씩 동시 폭격 (멀티스레딩 엔진 가동) ✨
-                    with ThreadPoolExecutor(max_workers=10) as executor:
+                    # ✨ 동시 삭제 워커를 3개로 제한하여 네이버의 "요청 폭주 차단" 방지
+                    with ThreadPoolExecutor(max_workers=3) as executor:
                         future_to_item = {}
                         for p in new_items:
                             origin_no = p.get('originProductNo')
@@ -120,7 +121,6 @@ def stream_delete():
                             future = executor.submit(delete_product, token, origin_no, channel_no)
                             future_to_item[future] = (origin_no, name)
                             
-                        # 끝나는 즉시 화면에 팡팡 전송!
                         for future in as_completed(future_to_item):
                             origin_no, name = future_to_item[future]
                             processed_ids.add(origin_no)
@@ -138,7 +138,6 @@ def stream_delete():
                                 'result_status': res_status
                             })
                         
-                    # 삭제 후에는 리스트가 당겨지므로 1페이지부터 다시 탐색
                     page = 1
                     
                 yield send_json({'status': 'done', 'message': '상점 내 모든 상품 싹쓸이 완료!', 'success_count': success_count, 'fail_count': fail_count})
