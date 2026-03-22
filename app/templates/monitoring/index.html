@@ -161,25 +161,24 @@
                     linkBtn = `<a href="${finalUrl}" target="_blank" class="btn btn-sm btn-outline-primary py-0 px-2 text-decoration-none"><i class="bi bi-link-45deg"></i> 상품</a>`;
                 }
 
-                // ✨ [핵심 시각화] 이전 순위와 비교해서 상승/하락 화살표 달아주기
-                let rankDisplay = `<span class="fs-6">${k.store_rank}</span>`;
+                // ✨ [핵심 시각화] 숫자와 문자를 똑똑하게 구분해서 화살표 그려주기
+                let rankDisplay = `<span class="fs-6 fw-bold">${k.store_rank}</span>`;
                 if (k.prev_store_rank && k.prev_store_rank !== '-') {
-                    if (k.store_rank !== '-') {
-                        let prev = parseInt(k.prev_store_rank);
-                        let curr = parseInt(k.store_rank);
-                        if (!isNaN(prev) && !isNaN(curr)) {
-                            // 네이버 쇼핑은 숫자가 '작아질수록' 상단 노출(상승)입니다.
-                            if (curr < prev) {
-                                rankDisplay += `<br><span class="rank-up">▲ ${prev - curr}</span>`;
-                            } else if (curr > prev) {
-                                rankDisplay += `<br><span class="rank-down">▼ ${curr - prev}</span>`;
-                            } else {
-                                rankDisplay += `<br><span class="rank-same">-</span>`;
-                            }
+                    if (k.store_rank !== k.prev_store_rank) {
+                        // 숫자가 아닌 글자('100위 밖')는 계산을 위해 101로 변환해서 비교
+                        let prevNum = parseInt(k.prev_store_rank.replace(/[^0-9]/g, '')) || 101;
+                        let currNum = parseInt(k.store_rank.replace(/[^0-9]/g, '')) || 101;
+                        
+                        if (currNum < prevNum) { // 숫자가 작아지면 순위 상승(▲)
+                            rankDisplay += `<br><span class="rank-up">▲ ${prevNum - currNum}</span>`;
+                        } else if (currNum > prevNum) { // 숫자가 커지면 순위 하락(▼)
+                            rankDisplay += `<br><span class="rank-down">▼ ${currNum - prevNum}</span>`;
+                        } else {
+                            // 완전히 문자로만 되어있어서 구분이 안될 때
+                            rankDisplay += `<br><span class="text-muted small" style="font-size:0.75rem;">(이전: ${k.prev_store_rank})</span>`;
                         }
                     } else {
-                        // 순위권에서 밖으로 밀려났을 때
-                        rankDisplay += `<br><span class="text-muted small" style="font-size:0.75rem;">(이전: ${k.prev_store_rank})</span>`;
+                        rankDisplay += `<br><span class="rank-same">-</span>`;
                     }
                 }
 
@@ -189,7 +188,7 @@
                     <td class="align-middle bg-neon-green">${k.keyword}</td>
                     <td class="align-middle bg-neon-green fs-6">${k.search_volume.toLocaleString()}</td>
                     
-                    <td class="align-middle bg-neon-green fw-bold text-dark" id="rank_${k.id}" data-val="${k.store_rank}">
+                    <td class="align-middle bg-neon-green text-dark" id="rank_${k.id}" data-val="${k.store_rank}">
                         ${rankDisplay}
                     </td>
                     
