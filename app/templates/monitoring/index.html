@@ -20,7 +20,6 @@
                 </div>
 
                 <div class="d-flex align-items-center mb-3 p-2 bg-light rounded border flex-wrap gap-2">
-                    
                     <div class="d-flex align-items-center">
                         <i class="bi bi-search text-secondary ms-1 me-2"></i>
                         <select id="searchCategory" class="form-select form-select-sm w-auto me-2 fw-bold" style="cursor: pointer;">
@@ -42,7 +41,6 @@
                             <option value="vol_asc">네이버 검색량 낮은순</option>
                         </select>
                     </div>
-                    
                 </div>
                 
                 <div class="table-responsive border rounded" style="max-height: 600px; overflow-y: auto;">
@@ -92,21 +90,18 @@
     let allKeywordsData = []; 
     let searchCategory = 'all';
     let searchQuery = '';
-    let currentSort = 'recent'; // 기본 정렬 상태
+    let currentSort = 'recent';
 
-    // 검색어 입력 이벤트
     document.getElementById('searchInput').addEventListener('input', function(e) {
         searchQuery = e.target.value.toLowerCase();
         renderTable();
     });
 
-    // 검색 카테고리 변경 이벤트
     document.getElementById('searchCategory').addEventListener('change', function(e) {
         searchCategory = e.target.value;
         renderTable();
     });
 
-    // ✨ 정렬 기준 변경 이벤트 ✨
     document.getElementById('sortOption').addEventListener('change', function(e) {
         currentSort = e.target.value;
         renderTable();
@@ -132,7 +127,6 @@
         if (isEditing) return;
         const tbody = document.getElementById('savedKeywordsBody');
 
-        // 1. 검색어에 맞게 데이터 걸러내기 (필터링)
         let filteredData = allKeywordsData.filter(k => {
             if (!searchQuery) return true; 
             
@@ -148,17 +142,14 @@
             return true;
         });
 
-        // ✨ 2. 선택한 기준에 맞게 데이터 정렬하기 (소팅) ✨
         if (currentSort === 'vol_desc') {
             filteredData.sort((a, b) => b.search_volume - a.search_volume);
         } else if (currentSort === 'vol_asc') {
             filteredData.sort((a, b) => a.search_volume - b.search_volume);
         } else {
-            // recent (최근 등록순): ID가 클수록 최근에 들어온 데이터
             filteredData.sort((a, b) => b.id - a.id);
         }
 
-        // 3. 걸러지고 정렬된 데이터로 HTML 그리기
         if (filteredData.length > 0) {
             tbody.innerHTML = filteredData.map((k, index) => {
                 let linkBtn = '<span class="text-muted">-</span>';
@@ -237,7 +228,7 @@
         fd.append('supply_rate', document.getElementById(`in_sup_${id}`).value || '-');
         fd.append('isbn', document.getElementById(`in_isbn_${id}`).value || '-');
         fd.append('price', document.getElementById(`in_price_${id}`).value || '-');
-        fd.append('shipping_fee', document.getElementById(`in_ship_${id}`).value || '무료');
+        fd.append('shipping_fee', document.getElementById(`in_ship_${id}`).value || '-'); // ✨ 저장 시 기본값 무조건 '-' 로 변경
         fd.append('store_name', document.getElementById(`in_store_${id}`).value || '-');
         fd.append('book_title', document.getElementById(`in_title_${id}`).value || '-');
 
@@ -260,7 +251,7 @@
 
     document.addEventListener("DOMContentLoaded", () => {
         loadSavedKeywords();
-        setInterval(loadSavedKeywords, 2000); // 2초마다 갱신
+        setInterval(loadSavedKeywords, 2000); 
     });
 </script>
 {% endblock %}
