@@ -10,32 +10,23 @@ from app.naver_api import get_naver_token, find_product_by_isbn, delete_product,
 
 store_bp = Blueprint('store', __name__)
 
+# ==============================================================================
+# 1. 일괄 삭제 관리용 엔진 (기존 기능 완벽 유지)
+# ==============================================================================
 global_tasks = {}
 
 def init_task(user_id, store_id, store_name, delete_mode):
-    if user_id not in global_tasks:
-        global_tasks[user_id] = {}
-        
+    if user_id not in global_tasks: global_tasks[user_id] = {}
     global_tasks[user_id][store_id] = {
-        'is_running': True,
-        'store_name': store_name,
-        'mode': delete_mode,
-        'status': 'start',
-        'message': '작업을 준비 중입니다...',
-        'current': 0,
-        'total': 0,
-        'target_name': '',
-        'result_status': '',
-        'success_count': 0,
-        'fail_count': 0,
-        'logs': []
+        'is_running': True, 'store_name': store_name, 'mode': delete_mode,
+        'status': 'start', 'message': '작업을 준비 중입니다...',
+        'current': 0, 'total': 0, 'target_name': '', 'result_status': '',
+        'success_count': 0, 'fail_count': 0, 'logs': []
     }
 
 def update_task(user_id, store_id, status=None, message=None, current=None, total=None, target_name=None, result_status=None, s_count=None, f_count=None):
-    if user_id not in global_tasks or store_id not in global_tasks[user_id]:
-        return
+    if user_id not in global_tasks or store_id not in global_tasks[user_id]: return
     t = global_tasks[user_id][store_id]
-    
     if status: t['status'] = status
     if message: t['message'] = message
     if current is not None: t['current'] = current
@@ -45,15 +36,11 @@ def update_task(user_id, store_id, status=None, message=None, current=None, tota
     if s_count is not None: t['success_count'] = s_count
     if f_count is not None: t['fail_count'] = f_count
 
-    # ✨ 로그 버그 해결: 최신 50개만 롤링 저장하여 프론트엔드에 통째로 덮어씌움 (메모리 누수 방지)
     if target_name and result_status:
         log_type = 'success' if '완료' in result_status or '우회' in result_status else 'danger'
-        if '안내' in target_name or '에러' in target_name:
-            log_type = 'info' if '안내' in target_name else 'danger'
-
+        if '안내' in target_name or '에러' in target_name: log_type = 'info' if '안내' in target_name else 'danger'
         t['logs'].append({'type': log_type, 'target': target_name, 'statusMsg': result_status})
-        if len(t['logs']) > 50: 
-            t['logs'].pop(0)
+        if len(t['logs']) > 50: t['logs'].pop(0)
 
 def background_delete_job(app, store_id, delete_mode, isbn_list, user_id):
     with app.app_context():
@@ -222,10 +209,122 @@ def background_delete_job(app, store_id, delete_mode, isbn_list, user_id):
             if user_id in global_tasks and store_id in global_tasks[user_id]:
                 global_tasks[user_id][store_id]['is_running'] = False
 
+
+# ==============================================================================
+# 2. ✨ 신규 추가: 상품 중복 체크용 멀티 엔진 ✨
+# ==============================================================================
+global_dup_tasks = {}
+
+def init_dup_task(user_id, store_id, store_name):
+    if user_id not in global_dup_tasks: global_dup_tasks[user_id] = {}
+    global_dup_tasks[user_id][store_id] = {
+        'is_running': True, 'store_name': store_name,
+        'status': 'start', 'message': '상점 정보 확인 중...',
+        'current': 0, 'total': 0, 'duplicates': []
+    }
+
+def update_dup_task(user_id, store_id, status=None, message=None, current=None, total=None, duplicates=None):
+    if user_id not in global_dup_tasks or store_id not in global_dup_tasks[user_id]: return
+    t = global_dup_tasks[user_id][store_id]
+    if status: t['status'] = status
+    if message: t['message'] = message
+    if current is not None: t['current'] = current
+    if total is not None: t['total'] = total
+    if duplicates is not None: t['duplicates'] = duplicates
+
+def background_duplicate_check_job(app, store_id, user_id):
+    """백그라운드에서 상점의 전체 상품을 수집하여 중복을 검사합니다."""
+    with app.app_context():
+        try:
+            user = User.query.get(user_id)
+            selected_key = ApiKey.query.filter_by(id=store_id, owner=user).first()
+            if not selected_key:
+                update_dup_task(user_id, store_id, status='error', message='상점 정보가 유효하지 않습니다.')
+                return
+
+            update_dup_task(user_id, store_id, status='info', message='네이버 API 인증 중...')
+            token = get_naver_token(selected_key.client_id, selected_key.client_secret)
+            if not token:
+                update_dup_task(user_id, store_id, status='error', message='API 인증에 실패했습니다.')
+                return
+
+            update_dup_task(user_id, store_id, status='start', message='네이버 서버에서 상품 목록 수집 시작...')
+            url = "https://api.commerce.naver.com/external/v1/products/search"
+            headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
+            
+            all_products = []
+            page = 1
+            session = requests.Session()
+            
+            while True:
+                if not global_dup_tasks[user_id][store_id]['is_running']: break
+                
+                payload = {"page": page, "size": 50, "orderType": "NO"}
+                try: 
+                    res = session.post(url, headers=headers, json=payload, timeout=10)
+                except Exception:
+                    update_dup_task(user_id, store_id, status='info', message=f'응답 지연... 재시도 중 ({page}페이지)')
+                    time.sleep(2)
+                    continue
+
+                if res.status_code != 200:
+                    update_dup_task(user_id, store_id, status='error', message=f'API 통신 실패 ({res.status_code})')
+                    return
+                    
+                contents = res.json().get('contents', [])
+                if not contents: break
+                    
+                all_products.extend(contents)
+                # 실시간으로 수집되는 개수를 화면에 쏴줍니다.
+                update_dup_task(user_id, store_id, status='progress', current=len(all_products), message=f'상품 수집 중... (현재 {len(all_products)}개 확보)')
+                
+                if len(contents) < 50: break
+                page += 1
+                time.sleep(0.2)
+
+            if not global_dup_tasks[user_id][store_id]['is_running']:
+                update_dup_task(user_id, store_id, status='error', message='사용자에 의해 검사가 강제 종료되었습니다.')
+                return
+
+            # 수집이 끝나면 0.1초 만에 중복을 싹 다 찾아냅니다.
+            update_dup_task(user_id, store_id, status='info', message=f'수집 완료! 총 {len(all_products)}개 상품 중복 분석 중...')
+            seen_names = {}
+            duplicates = []
+            
+            for p in all_products:
+                channel_products = p.get('channelProducts', [{}])
+                if not channel_products: continue
+                    
+                channel_product = channel_products[0]
+                name = channel_product.get('name', '이름 없는 상품')
+                prod_id = channel_product.get('channelProductNo', 'ID 없음')
+                
+                if name in seen_names:
+                    duplicates.append({
+                        'name': name,
+                        'original_id': seen_names[name],
+                        'duplicate_id': prod_id
+                    })
+                else:
+                    seen_names[name] = prod_id
+                    
+            update_dup_task(user_id, store_id, status='done', current=len(all_products), total=len(all_products), duplicates=duplicates, message='중복 검사 완료!')
+
+        except Exception as e:
+            update_dup_task(user_id, store_id, status='error', message=f'서버 내부 오류: {str(e)}')
+        finally:
+            if user_id in global_dup_tasks and store_id in global_dup_tasks[user_id]:
+                global_dup_tasks[user_id][store_id]['is_running'] = False
+
+
+# ==============================================================================
+# 3. 라우터 엔드포인트
+# ==============================================================================
 @store_bp.route('/')
 @login_required
 def index(): return render_template('store/index.html', store_count=len(current_user.api_keys))
 
+# --- 삭제 관련 라우트 ---
 @store_bp.route('/delete_isbn', methods=['GET'])
 @login_required
 def delete_isbn(): return render_template('store/delete_isbn.html', api_keys=current_user.api_keys)
@@ -234,8 +333,7 @@ def delete_isbn(): return render_template('store/delete_isbn.html', api_keys=cur
 @login_required
 def get_task_status():
     user_id = current_user.id
-    if user_id in global_tasks and global_tasks[user_id]:
-        return jsonify({'status': 'active', 'tasks': global_tasks[user_id]})
+    if user_id in global_tasks and global_tasks[user_id]: return jsonify({'status': 'active', 'tasks': global_tasks[user_id]})
     return jsonify({'status': 'empty'})
 
 @store_bp.route('/api/start_task', methods=['POST'])
@@ -243,23 +341,18 @@ def get_task_status():
 def start_task():
     store_ids = request.form.getlist('selected_stores')
     if not store_ids: return jsonify({'success': False, 'message': '상점을 하나 이상 선택해주세요.'})
-
     user_id = current_user.id
     delete_mode = request.form.get('delete_mode', 'isbn')
     isbn_input = request.form.get('isbn_list', '')
-    
     isbn_list = [isbn.strip() for isbn in isbn_input.replace(',', '\n').split('\n') if isbn.strip()] if delete_mode == 'isbn' else []
-
     app = current_app._get_current_object()
     for sid_str in store_ids:
         store_id = int(sid_str)
         key = ApiKey.query.filter_by(id=store_id, owner=current_user).first()
         if not key: continue
         if user_id in global_tasks and store_id in global_tasks[user_id] and global_tasks[user_id][store_id]['is_running']: continue
-            
         init_task(user_id, store_id, key.store_name, delete_mode)
         threading.Thread(target=background_delete_job, args=(app, store_id, delete_mode, isbn_list, user_id)).start()
-
     return jsonify({'success': True})
 
 @store_bp.route('/api/stop_task', methods=['POST'])
@@ -275,24 +368,45 @@ def stop_task():
             if sid in global_tasks[user_id]: global_tasks[user_id][sid]['is_running'] = False
     return jsonify({'success': True})
 
-@store_bp.route('/check_duplicates', methods=['GET', 'POST'])
+# --- 중복 체크 관련 라우트 ---
+@store_bp.route('/check_duplicates', methods=['GET'])
 @login_required
-def check_duplicates():
-    if request.method == 'POST':
-        store_id = request.form.get('selected_store')
-        selected_key = ApiKey.query.filter_by(id=store_id, owner=current_user).first()
-        if not selected_key: return jsonify({'success': False, 'message': '유효하지 않은 상점입니다.'})
-        token = get_naver_token(selected_key.client_id, selected_key.client_secret)
-        if not token: return jsonify({'success': False, 'message': 'API 인증에 실패했습니다.'})
-        
-        products = fetch_all_products(token)
-        seen_names, duplicates = {}, []
-        for p in products:
-            channel_products = p.get('channelProducts', [{}])
-            if not channel_products: continue
-            name = channel_products[0].get('name', '이름 없는 상품')
-            prod_id = channel_products[0].get('channelProductNo', 'ID 없음')
-            if name in seen_names: duplicates.append({'name': name, 'original_id': seen_names[name], 'duplicate_id': prod_id})
-            else: seen_names[name] = prod_id
-        return jsonify({'success': True, 'total_checked': len(products), 'duplicate_count': len(duplicates), 'duplicates': duplicates})
+def check_duplicates(): 
     return render_template('store/check_duplicates.html', api_keys=current_user.api_keys)
+
+@store_bp.route('/api/start_dup_task', methods=['POST'])
+@login_required
+def start_dup_task():
+    store_ids = request.form.getlist('selected_stores')
+    if not store_ids: return jsonify({'success': False, 'message': '상점을 하나 이상 선택해주세요.'})
+    user_id = current_user.id
+    app = current_app._get_current_object()
+    for sid_str in store_ids:
+        store_id = int(sid_str)
+        key = ApiKey.query.filter_by(id=store_id, owner=current_user).first()
+        if not key: continue
+        if user_id in global_dup_tasks and store_id in global_dup_tasks[user_id] and global_dup_tasks[user_id][store_id]['is_running']: continue
+        init_dup_task(user_id, store_id, key.store_name)
+        threading.Thread(target=background_duplicate_check_job, args=(app, store_id, user_id)).start()
+    return jsonify({'success': True})
+
+@store_bp.route('/api/get_dup_task_status', methods=['GET'])
+@login_required
+def get_dup_task_status():
+    user_id = current_user.id
+    if user_id in global_dup_tasks and global_dup_tasks[user_id]:
+        return jsonify({'status': 'active', 'tasks': global_dup_tasks[user_id]})
+    return jsonify({'status': 'empty'})
+
+@store_bp.route('/api/stop_dup_task', methods=['POST'])
+@login_required
+def stop_dup_task():
+    store_id = request.form.get('store_id') 
+    user_id = current_user.id
+    if user_id in global_dup_tasks:
+        if store_id == 'all':
+            for sid in global_dup_tasks[user_id]: global_dup_tasks[user_id][sid]['is_running'] = False
+        else:
+            sid = int(store_id)
+            if sid in global_dup_tasks[user_id]: global_dup_tasks[user_id][sid]['is_running'] = False
+    return jsonify({'success': True})
