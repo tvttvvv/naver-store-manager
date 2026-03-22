@@ -21,26 +21,28 @@ def update_ranks_job(app):
         keywords = MonitoredKeyword.query.all()
         for kw in keywords:
             kw.prev_store_rank = kw.store_rank 
+            rank = "500위 밖"
             try:
                 headers = {"X-Naver-Client-Id": client_id, "X-Naver-Client-Secret": client_secret}
-                url = f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(kw.keyword)}&display=100"
-                res = requests.get(url, headers=headers, timeout=5)
-                
-                if res.status_code == 200:
-                    items = res.json().get('items', [])
-                    rank = "100위 밖" # ✨ 찾지 못했을 때의 기본값
-                    for idx, item in enumerate(items):
-                        if "스터디박스" in item.get('mallName', ''):
-                            rank = str(idx + 1)
-                            break
-                    kw.store_rank = rank
-                else:
-                    kw.store_rank = "API에러" # 네이버 API 호출 횟수 초과 등 에러 시
+                found = False
+                for start_idx in [1, 101, 201, 301, 401]:
+                    url = f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(kw.keyword)}&display=100&start={start_idx}"
+                    res = requests.get(url, headers=headers, timeout=5)
+                    if res.status_code == 200:
+                        items = res.json().get('items', [])
+                        for idx, item in enumerate(items):
+                            if "스터디박스" in item.get('mallName', ''):
+                                rank = str(start_idx + idx)
+                                found = True
+                                break
+                    else:
+                        if start_idx == 1: rank = "API에러"
+                        break
+                    if found: break
+                    time.sleep(0.1) # 딜레이
             except:
-                kw.store_rank = "통신실패"
-            
-            time.sleep(0.1) # ✨ 네이버 차단 방지용 0.1초 휴식
-            
+                rank = "통신실패"
+            kw.store_rank = rank
         db.session.commit()
 
 def create_app():
