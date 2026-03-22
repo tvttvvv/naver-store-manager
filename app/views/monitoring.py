@@ -31,7 +31,8 @@ def receive_webhook():
                 keyword=keyword,
                 search_volume=data.get('search_volume', 0),
                 rank_info="최상단 노출",
-                link=data.get('link', '#')
+                link=data.get('link', '#'),
+                store_rank='1'
             )
             db.session.add(new_kw)
             db.session.commit()
@@ -53,14 +54,15 @@ def get_saved_keywords():
             'search_volume': k.search_volume,
             'rank': k.rank_info,
             'link': k.link,
-            # ✨ 저장된 추가 정보들도 화면에 뿌려주기 위해 불러옵니다 ✨
             'publisher': k.publisher,
             'supply_rate': k.supply_rate,
             'isbn': k.isbn,
             'price': k.price,
             'shipping_fee': k.shipping_fee,
             'store_name': k.store_name,
-            'book_title': k.book_title
+            'book_title': k.book_title,
+            'product_link': k.product_link,
+            'store_rank': k.store_rank
         } for k in keywords]
     })
 
@@ -74,7 +76,6 @@ def delete_keyword():
         db.session.commit()
     return jsonify({'success': True})
 
-# ✨ [신규 추가] 사용자가 화면에서 타이핑한 정보들을 DB에 덮어써주는 기능 ✨
 @monitoring_bp.route('/api/update_keyword', methods=['POST'])
 @login_required
 def update_keyword():
@@ -89,6 +90,10 @@ def update_keyword():
         kw.shipping_fee = request.form.get('shipping_fee', '무료')
         kw.store_name = request.form.get('store_name', '-')
         kw.book_title = request.form.get('book_title', '-')
+        # ✨ [신규 추가] 링크와 순위 값 업데이트
+        kw.product_link = request.form.get('product_link', '-')
+        kw.store_rank = request.form.get('store_rank', '1')
+        
         db.session.commit()
         return jsonify({'success': True})
         
