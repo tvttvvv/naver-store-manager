@@ -46,17 +46,14 @@ def stream_delete():
                 return
 
             if delete_mode == 'isbn':
-                # ----------------------------------------------------
-                # [ISBN 특정 삭제 모드] 하이브리드(삭제->묶음중지) 적용
-                # ----------------------------------------------------
+                # [ISBN 특정 삭제 모드]
                 yield send_json({'status': 'info', 'message': '입력한 ISBN 상품 정보 조회 중...'})
                 isbn_list = [isbn.strip() for isbn in isbn_input.replace(',', '\n').split('\n') if isbn.strip()]
-                yield send_json({'status': 'start', 'total': len(isbn_list), 'message': '1차 작업: 대상 상품 완전 삭제 시도 중...'})
+                yield send_json({'status': 'start', 'total': len(isbn_list), 'message': '1차: 대상 상품 완전 삭제 시도 중...'})
                 
                 success_count, fail_count, current_count = 0, 0, 0
                 targets_info = []
 
-                # 1. ISBN을 기반으로 상품 번호 동시 탐색
                 with ThreadPoolExecutor(max_workers=3) as executor:
                     future_to_isbn = {executor.submit(find_product_by_isbn, token, isbn): isbn for isbn in isbn_list}
                     for future in as_completed(future_to_isbn):
@@ -64,7 +61,6 @@ def stream_delete():
                         origin_no, channel_no = future.result()
                         targets_info.append((isbn, origin_no, channel_no))
                 
-                # 2. 완전 삭제 우선 시도
                 suspend_targets = []
                 item_details = {}
                 with ThreadPoolExecutor(max_workers=3) as executor:
@@ -86,7 +82,6 @@ def stream_delete():
                             success_count += 1
                             yield send_json({'status': 'progress', 'current': current_count, 'total': len(isbn_list), 'target_name': f'ISBN: {isbn}', 'result_status': res_status})
                         else:
-                            # 삭제 실패 시, 2차 작업을 위해 보류 리스트에 담아둡니다.
                             if channel_no:
                                 suspend_targets.append(channel_no)
                                 item_details[channel_no] = isbn
@@ -95,18 +90,16 @@ def stream_delete():
                                 fail_count += 1
                                 yield send_json({'status': 'progress', 'current': current_count, 'total': len(isbn_list), 'target_name': f'ISBN: {isbn}', 'result_status': res_status})
 
-                # 3. 삭제 실패한 상품들 모아서 일괄 판매/전시 중지
                 if suspend_targets:
-                    # 네이버 정책상 최대 50개씩 쪼개서 묶음 전송
                     for i in range(0, len(suspend_targets), 50):
                         batch = suspend_targets[i:i+50]
-                        yield send_json({'status': 'info', 'message': f'2차 작업: 완전 삭제 실패 상품 {len(batch)}개 일괄 중지 처리 중...'})
+                        yield send_json({'status': 'info', 'message': f'2차: 삭제 실패 상품 {len(batch)}개 일괄 중지 처리 중...'})
                         suspend_res = suspend_products_in_bulk(token, batch)
                         
                         for c_no in batch:
                             isbn = item_details[c_no]
                             current_count += 1
-                            if '완료' in suspend_res:
+                            if '완료' in suspend_res or '우회' in suspend_res:
                                 success_count += 1
                                 yield send_json({'status': 'progress', 'current': current_count, 'total': len(isbn_list), 'target_name': f'ISBN: {isbn}', 'result_status': suspend_res})
                             else:
@@ -116,10 +109,8 @@ def stream_delete():
                 yield send_json({'status': 'done', 'message': '모든 작업이 완료되었습니다!', 'success_count': success_count, 'fail_count': fail_count})
 
             elif delete_mode == 'all':
-                # ----------------------------------------------------
-                # [전체 싹쓸이 모드] 하이브리드(삭제->묶음중지) 적용
-                # ----------------------------------------------------
-                yield send_json({'status': 'start', 'total': 0, 'message': '🚀 1차: 완전삭제 ➡️ 2차: 묶음중지 콤보를 가동합니다!'})
+                # ✨ [싹쓸이 무한 스윕 모드] 멈춤 현상 완벽 방어 ✨
+                yield send_json({'status': 'start', 'total': 0, 'message': '🚀 1차: 완전삭제 ➡️ 2차: 묶음중지 콤보 가동!'})
                 
                 url = "https://api.commerce.naver.com/external/v1/products/search"
                 headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
@@ -128,13 +119,17 @@ def stream_delete():
                 page = 1
                 current_count = 0
                 success_count, fail_count = 0, 0
+                found_any_in_sweep = False  # 한 바퀴(스윕) 도는 동안 처리한 상품이 있는지 체크
+                
+                # 통신 안정성을 위해 Session 사용
+                session = requests.Session()
                 
                 while True:
                     payload = {"page": page, "size": 50, "orderType": "NO"}
                     try:
-                        res = requests.post(url, headers=headers, json=payload, timeout=10)
+                        res = session.post(url, headers=headers, json=payload, timeout=10)
                     except Exception as e:
-                        yield send_json({'status': 'info', 'message': '응답 지연... 안전하게 재시도 중입니다.'})
+                        yield send_json({'status': 'info', 'message': f'응답 지연... 재시도 중 ({page}페이지)'})
                         time.sleep(2)
                         continue
 
@@ -143,15 +138,30 @@ def stream_delete():
                         return
                         
                     contents = res.json().get('contents', [])
+                    
+                    # 더 이상 페이지에 상품이 없으면 (끝까지 도달함)
                     if not contents:
-                        break # 남은 상품이 0개면 무한루프 종료!
-                        
+                        if found_any_in_sweep:
+                            # 처리한 게 있다면 순서가 밀린 상품이 있을 수 있으니 1페이지부터 다시 한 바퀴 돕니다.
+                            yield send_json({'status': 'info', 'message': '누락 상품 점검을 위해 1페이지부터 재탐색합니다.'})
+                            page = 1
+                            found_any_in_sweep = False
+                            continue
+                        else:
+                            # 한 바퀴를 다 돌았는데 처리한 게 없다면 완벽하게 끝난 것입니다.
+                            break 
+                            
+                    # 이미 처리한 상품 걸러내기
                     new_items = [p for p in contents if p.get('originProductNo') not in processed_ids]
+                    
                     if not new_items:
+                        # [핵심 방어] 이 페이지엔 지울 게 없지만, 화면이 멈추지 않도록 생존 신고(Heartbeat)를 보냅니다.
                         page += 1
+                        yield send_json({'status': 'info', 'message': f'이미 처리된 상품 패스 중... (현재 {page}페이지 탐색)'})
+                        time.sleep(0.1)
                         continue
                         
-                    # 1단계: 3배속 엔진으로 '완전 삭제' 시도
+                    found_any_in_sweep = True
                     suspend_targets = []
                     item_details = {}
                     
@@ -168,9 +178,13 @@ def stream_delete():
                             
                         for future in as_completed(future_to_item):
                             origin_no, channel_no, name = future_to_item[future]
-                            processed_ids.add(origin_no) # 다시 무한루프 도는 것 방지
+                            processed_ids.add(origin_no) 
                             
-                            res_status = future.result()
+                            try:
+                                res_status = future.result()
+                            except Exception:
+                                res_status = "시스템 오류"
+                                
                             if '완료' in res_status:
                                 current_count += 1
                                 success_count += 1
@@ -179,7 +193,6 @@ def stream_delete():
                                     'target_name': f'[{origin_no}] {name[:15]}...', 'result_status': res_status
                                 })
                             else:
-                                # 삭제가 불가능한 상품(판매 이력 등)은 '묶음 중지' 대기열로 넘김
                                 if channel_no:
                                     suspend_targets.append(channel_no)
                                     item_details[channel_no] = (origin_no, name)
@@ -191,15 +204,14 @@ def stream_delete():
                                         'target_name': f'[{origin_no}] {name[:15]}...', 'result_status': res_status
                                     })
                                     
-                    # 2단계: 대기열에 담긴 '삭제 실패작'들을 한 방에 묶어서 중지 처리
                     if suspend_targets:
-                        yield send_json({'status': 'info', 'message': f'완전 삭제 실패 상품 {len(suspend_targets)}개 일괄 중지 처리 중...'})
+                        yield send_json({'status': 'info', 'message': f'삭제 불가 상품 {len(suspend_targets)}개 일괄 중지 처리 중...'})
                         suspend_res = suspend_products_in_bulk(token, suspend_targets)
                         
                         for c_no in suspend_targets:
                             origin_no, name = item_details[c_no]
                             current_count += 1
-                            if '완료' in suspend_res:
+                            if '완료' in suspend_res or '우회' in suspend_res:
                                 success_count += 1
                             else:
                                 fail_count += 1
@@ -209,7 +221,8 @@ def stream_delete():
                                 'target_name': f'[{origin_no}] {name[:15]}...', 'result_status': suspend_res
                             })
                             
-                    page = 1 # 상품들을 삭제/중지했기 때문에 목록이 갱신되었습니다. 1페이지부터 다시 스캔!
+                    # 매 페이지 처리 완료 후 앞으로 전진합니다. 1페이지로 돌아가지 않습니다!
+                    page += 1 
                     time.sleep(0.5)
                     
                 yield send_json({'status': 'done', 'message': '상점 내 모든 상품 완전삭제 및 묶음중지 완료!', 'success_count': success_count, 'fail_count': fail_count})
