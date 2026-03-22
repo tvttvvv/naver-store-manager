@@ -161,20 +161,17 @@
                     linkBtn = `<a href="${finalUrl}" target="_blank" class="btn btn-sm btn-outline-primary py-0 px-2 text-decoration-none"><i class="bi bi-link-45deg"></i> 상품</a>`;
                 }
 
-                // ✨ [핵심 시각화] 숫자와 문자를 똑똑하게 구분해서 화살표 그려주기
                 let rankDisplay = `<span class="fs-6 fw-bold">${k.store_rank}</span>`;
                 if (k.prev_store_rank && k.prev_store_rank !== '-') {
                     if (k.store_rank !== k.prev_store_rank) {
-                        // 숫자가 아닌 글자('100위 밖')는 계산을 위해 101로 변환해서 비교
                         let prevNum = parseInt(k.prev_store_rank.replace(/[^0-9]/g, '')) || 101;
                         let currNum = parseInt(k.store_rank.replace(/[^0-9]/g, '')) || 101;
                         
-                        if (currNum < prevNum) { // 숫자가 작아지면 순위 상승(▲)
+                        if (currNum < prevNum) { 
                             rankDisplay += `<br><span class="rank-up">▲ ${prevNum - currNum}</span>`;
-                        } else if (currNum > prevNum) { // 숫자가 커지면 순위 하락(▼)
+                        } else if (currNum > prevNum) { 
                             rankDisplay += `<br><span class="rank-down">▼ ${currNum - prevNum}</span>`;
                         } else {
-                            // 완전히 문자로만 되어있어서 구분이 안될 때
                             rankDisplay += `<br><span class="text-muted small" style="font-size:0.75rem;">(이전: ${k.prev_store_rank})</span>`;
                         }
                     } else {
@@ -275,10 +272,11 @@
         loadSavedKeywords();
     }
 
+    // ✨ 백그라운드 갱신 요청을 보내고 바로 버튼을 활성화 시킵니다.
     async function refreshAllRanks() {
         const btn = document.getElementById('refreshRanksBtn');
         const origText = btn.innerHTML;
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> 업데이트 중...';
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> 명령 전송 중...';
         btn.disabled = true;
 
         try {
@@ -286,12 +284,13 @@
             const result = await res.json();
             if (result.success) {
                 alert(result.message);
-                loadSavedKeywords(); 
+                // 브라우저는 이제 아무것도 안하고 기존 2초 타이머에 의해 
+                // DB가 변하는 대로 표만 다시 그리게 됩니다!
             } else {
                 alert(result.message || '업데이트에 실패했습니다.');
             }
         } catch(e) {
-            alert('순위 업데이트 중 서버 에러가 발생했습니다.');
+            alert('순위 업데이트 명령 전송 중 서버 에러가 발생했습니다.');
         } finally {
             btn.innerHTML = origText;
             btn.disabled = false;
@@ -300,6 +299,7 @@
 
     document.addEventListener("DOMContentLoaded", () => {
         loadSavedKeywords();
+        // 2초마다 표 갱신 타이머 작동 중!
         setInterval(loadSavedKeywords, 2000); 
     });
 </script>
