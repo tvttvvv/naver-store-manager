@@ -81,25 +81,20 @@
 </div>
 
 <script>
-    // 1. 체크박스 선택 시 우측에 카드가 실시간으로 나타나는 쾌적한 동적 UI 로직
     const cardsGrid = document.getElementById('cardsGrid');
     const initialState = document.getElementById('initialState');
 
     function renderDynamicCards() {
         const checkedBoxes = Array.from(document.querySelectorAll('.store-checkbox:checked'));
-        
         if (checkedBoxes.length === 0) {
             initialState.classList.remove('d-none');
-            // 서버 작업 중이 아닌 단순 빈 카드들만 지움
             Array.from(cardsGrid.children).forEach(card => {
                 if(card.dataset.status === 'ready') card.remove();
             });
             return;
         }
-        
         initialState.classList.add('d-none');
 
-        // 체크된 상점의 대기 카드를 만듦
         checkedBoxes.forEach(cb => {
             const storeId = cb.value;
             const storeName = cb.nextElementSibling.innerText.trim();
@@ -109,7 +104,7 @@
                 card = document.createElement('div');
                 card.className = "col-12";
                 card.id = `task_card_${storeId}`;
-                card.dataset.status = 'ready'; // 대기 상태 태그
+                card.dataset.status = 'ready'; 
                 card.innerHTML = `
                     <div class="card shadow-sm border-0 h-100">
                         <div class="card-body">
@@ -119,9 +114,9 @@
                             </div>
                             <h6 id="status_text_${storeId}" class="fw-bold mb-3 text-secondary small">버튼을 눌러 작업을 시작하세요.</h6>
                             <div id="progress_wrapper_${storeId}">
-                                <div class="progress mb-2" style="height: 15px;"><div class="progress-bar bg-light" style="width: 100%;"></div></div>
+                                <div class="progress mb-2" style="height: 16px;"><div class="progress-bar bg-light" style="width: 100%;"></div></div>
                             </div>
-                            <div class="position-relative mt-2 rounded border bg-light" style="height: 100px;">
+                            <div class="position-relative mt-2 rounded border bg-light" style="height: 120px;">
                                 <ul class="list-group list-group-flush position-absolute w-100 h-100 overflow-auto" id="log_list_${storeId}" style="top:0; left:0;"></ul>
                             </div>
                         </div>
@@ -131,7 +126,6 @@
             }
         });
 
-        // 체크 해제된 상점 카드는 (실행 중이 아니라면) 우측에서 실시간 삭제
         Array.from(cardsGrid.children).forEach(card => {
             const sid = card.id.replace('task_card_', '');
             if (!document.getElementById(`store_${sid}`).checked && card.dataset.status === 'ready') {
@@ -140,7 +134,6 @@
         });
     }
 
-    // 체크박스들에 이벤트 리스너 달기
     document.querySelectorAll('.store-checkbox').forEach(cb => {
         cb.addEventListener('change', renderDynamicCards);
     });
@@ -149,7 +142,7 @@
         const checkboxes = document.querySelectorAll('.store-checkbox');
         const allChecked = Array.from(checkboxes).every(c => c.checked);
         checkboxes.forEach(c => c.checked = !allChecked);
-        renderDynamicCards(); // 우측 카드 갱신
+        renderDynamicCards(); 
     }
 
     function toggleMode() {
@@ -207,7 +200,6 @@
         } catch (e) { console.error(e); }
     }
 
-    // ✨ 화면 렌더링 최적화 (로그 버그 원천 차단)
     function updateUI(tasks) {
         let anyRunning = false;
         initialState.classList.add('d-none');
@@ -218,7 +210,6 @@
             
             let card = document.getElementById(`task_card_${storeId}`);
             if (!card) {
-                // 기존 브라우저 탭을 껐다 켰을 때 카드 복구용
                 card = document.createElement('div');
                 card.className = "col-12";
                 card.id = `task_card_${storeId}`;
@@ -231,7 +222,7 @@
                             </div>
                             <h6 id="status_text_${storeId}" class="fw-bold mb-3 text-primary small">로딩 중...</h6>
                             <div id="progress_wrapper_${storeId}"></div>
-                            <div class="position-relative mt-2 rounded border bg-light" style="height: 100px;">
+                            <div class="position-relative mt-2 rounded border bg-light" style="height: 120px;">
                                 <ul class="list-group list-group-flush position-absolute w-100 h-100 overflow-auto" id="log_list_${storeId}" style="top:0; left:0;"></ul>
                             </div>
                         </div>
@@ -239,66 +230,94 @@
                 `;
                 cardsGrid.appendChild(card);
             }
-            card.dataset.status = 'running'; // 작업이 들어온 카드는 삭제 금지
+            card.dataset.status = 'running'; 
 
             const statusText = document.getElementById(`status_text_${storeId}`);
             const progressWrapper = document.getElementById(`progress_wrapper_${storeId}`);
             const logList = document.getElementById(`log_list_${storeId}`);
             const btnStop = document.getElementById(`btn_stop_${storeId}`);
             
+            // ✨ 버튼 UI 버그 수정 (정지됨 -> 완료됨)
             if (taskData.is_running) {
                 btnStop.disabled = false;
                 btnStop.innerHTML = '개별 정지';
                 btnStop.className = "btn btn-sm btn-outline-danger fw-bold";
             } else {
                 btnStop.disabled = true;
-                btnStop.innerHTML = '작업 종료됨';
-                btnStop.className = "btn btn-sm btn-secondary fw-bold";
+                if (taskData.status === 'done') {
+                    btnStop.innerHTML = '<i class="bi bi-check-circle"></i> 완벽 정리됨';
+                    btnStop.className = "btn btn-sm btn-success fw-bold text-white";
+                } else {
+                    btnStop.innerHTML = '강제 중단됨';
+                    btnStop.className = "btn btn-sm btn-secondary fw-bold";
+                }
             }
 
+            // 메시지 처리
             if (taskData.status === 'error') {
                 statusText.className = 'fw-bold mb-3 text-danger small';
                 statusText.innerText = `오류/정지: ${taskData.message}`;
             } else if (taskData.status === 'done') {
                 statusText.className = 'fw-bold mb-3 text-success small';
-                statusText.innerText = `작업 완료! (성공: ${taskData.success_count}건, 실패: ${taskData.fail_count}건)`;
+                statusText.innerText = `✨ 작업 완료! (성공: ${taskData.success_count}건, 실패: ${taskData.fail_count}건)`;
             } else {
                 statusText.className = 'fw-bold mb-3 text-primary small';
                 statusText.innerText = taskData.target_name ? `[${taskData.current}${taskData.total > 0 ? '/' + taskData.total : '번째'}] ${taskData.target_name} 처리 중...` : taskData.message;
             }
 
-            const progressColor = taskData.status === 'error' ? 'bg-danger' : 'bg-success';
-            const animatedClass = taskData.is_running ? 'progress-bar-striped progress-bar-animated' : '';
-            
+            // ✨ 바(Bar) 텍스트 버그 완벽 수정 ✨
+            let pColor = taskData.status === 'error' ? 'bg-danger' : (taskData.status === 'done' ? 'bg-success' : 'bg-primary');
+            let aClass = taskData.is_running ? 'progress-bar-striped progress-bar-animated' : '';
+            let barText = '';
+            let labelText = '';
+
+            if (taskData.status === 'done') {
+                barText = '작업 100% 완료';
+                labelText = '종료됨';
+            } else if (taskData.status === 'error') {
+                barText = '정지됨';
+                labelText = '중단됨';
+            } else {
+                barText = taskData.total > 0 ? '' : '싹쓸이 스캔 진행 중...';
+                labelText = '가동 중';
+            }
+
             if (taskData.total > 0) {
                 const percent = Math.round((taskData.current / taskData.total) * 100);
+                if (taskData.status !== 'done' && taskData.status !== 'error') barText = `${percent}%`;
+                
                 progressWrapper.innerHTML = `
-                    <div class="progress mb-2" style="height: 15px;">
-                        <div class="progress-bar ${progressColor} ${animatedClass}" role="progressbar" style="width: ${percent}%;">${percent}%</div>
+                    <div class="progress mb-2" style="height: 18px;">
+                        <div class="progress-bar ${pColor} ${aClass}" role="progressbar" style="width: ${taskData.status === 'done' ? 100 : percent}%;">${barText}</div>
                     </div>
-                    <div class="d-flex justify-content-between text-muted small fw-bold" style="font-size: 0.8rem;"><span>${taskData.current} / ${taskData.total}</span><span>${percent}%</span></div>
+                    <div class="d-flex justify-content-between text-muted small fw-bold" style="font-size: 0.8rem;">
+                        <span>${taskData.current} / ${taskData.total}</span>
+                        <span>${taskData.status === 'done' ? '100%' : percent + '%'}</span>
+                    </div>
                 `;
             } else {
                 progressWrapper.innerHTML = `
-                    <div class="progress mb-2" style="height: 15px;">
-                        <div class="progress-bar ${progressColor} ${animatedClass}" role="progressbar" style="width: 100%;">${taskData.is_running ? '무한 싹쓸이 중' : '정지됨'}</div>
+                    <div class="progress mb-2" style="height: 18px;">
+                        <div class="progress-bar ${pColor} ${aClass}" role="progressbar" style="width: 100%;">${barText}</div>
                     </div>
-                    <div class="d-flex justify-content-between text-muted small fw-bold" style="font-size: 0.8rem;"><span>현재 ${taskData.current}개째 완료</span><span>${taskData.is_running ? '가동 중' : '완료됨'}</span></div>
+                    <div class="d-flex justify-content-between text-muted small fw-bold" style="font-size: 0.8rem;">
+                        <span>현재 ${taskData.current}개 처리 완료</span>
+                        <span>${labelText}</span>
+                    </div>
                 `;
             }
 
-            // ✨ 버그 원천 차단: 배열을 통째로 덮어씌워서 멈춤 현상(프리즈) 완벽 방지
             if (taskData.logs && taskData.logs.length > 0) {
                 logList.innerHTML = taskData.logs.map(log => {
                     let badgeClass = log.type === 'success' ? 'bg-success' : (log.type === 'danger' ? 'bg-danger' : 'bg-info text-dark');
                     return `
                         <li class="list-group-item d-flex justify-content-between align-items-center py-1 px-2 border-bottom text-muted" style="font-size: 0.75rem;">
-                            <span class="text-truncate me-2 font-monospace" style="max-width: 130px;" title="${log.target}">${log.target}</span>
+                            <span class="text-truncate me-2 font-monospace" style="max-width: 140px;" title="${log.target}">${log.target}</span>
                             <span class="badge ${badgeClass} rounded-pill">${log.statusMsg}</span>
                         </li>
                     `;
                 }).join('');
-                logList.scrollTop = logList.scrollHeight; // 항상 최하단으로 스크롤 고정
+                logList.scrollTop = logList.scrollHeight; 
             }
         }
         
