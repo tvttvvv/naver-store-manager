@@ -53,11 +53,19 @@
         color: #000 !important;
         font-weight: 800;
     }
+    .edit-input { /* 입력칸 디자인 */
+        min-width: 80px; 
+        max-width: 150px; 
+        text-align: center;
+    }
 </style>
 
 <script>
-    // 2초마다 1번 사이트가 쏴준 새로운 데이터가 있는지 확인해서 표를 다시 그립니다.
+    let isEditing = false; // ✨ 수정 중일 때는 표가 마음대로 새로고침 되지 않도록 막는 역할!
+
     async function loadSavedKeywords() {
+        if (isEditing) return; // 수정 중이면 갱신 멈춤
+
         const tbody = document.getElementById('savedKeywordsBody');
         try {
             const res = await fetch("{{ url_for('monitoring.get_saved_keywords') }}");
@@ -70,14 +78,20 @@
                         <td class="align-middle bg-neon-green">${k.keyword}</td>
                         <td class="align-middle bg-neon-green">업데이트됨<br><span class="small fw-normal">(${k.search_volume.toLocaleString()})</span></td>
                         <td class="align-middle bg-neon-green">1</td>
-                        <td class="align-middle"><a href="${k.link}" target="_blank" class="btn btn-sm btn-outline-secondary py-0 px-2 text-decoration-none"><i class="bi bi-box-arrow-up-right me-1"></i>링크</a></td>
-                        <td class="align-middle text-muted">-</td>
-                        <td class="align-middle text-muted">-</td>
-                        <td class="align-middle text-muted">-</td>
-                        <td class="align-middle text-muted">-</td>
-                        <td class="align-middle fw-bold text-secondary">무료</td>
-                        <td class="align-middle text-muted">-</td>
-                        <td class="align-middle"><button class="btn btn-sm btn-danger py-0 px-2" onclick="deleteKeyword(${k.id})" title="리스트에서 삭제"><i class="bi bi-trash"></i></button></td>
+                        <td class="align-middle"><a href="${k.link}" target="_blank" class="btn btn-sm btn-outline-secondary py-0 px-2 text-decoration-none"><i class="bi bi-box-arrow-up-right"></i> 링크</a></td>
+                        
+                        <td class="align-middle text-muted" id="pub_${k.id}">${k.publisher}</td>
+                        <td class="align-middle text-muted" id="sup_${k.id}">${k.supply_rate}</td>
+                        <td class="align-middle text-muted fw-bold text-dark" id="isbn_${k.id}">${k.isbn}</td>
+                        <td class="align-middle text-muted" id="price_${k.id}">${k.price}</td>
+                        <td class="align-middle fw-bold text-secondary" id="ship_${k.id}">${k.shipping_fee}</td>
+                        <td class="align-middle text-muted" id="store_${k.id}">${k.store_name}</td>
+                        <td class="align-middle text-muted" id="title_${k.id}">${k.book_title}</td>
+                        
+                        <td class="align-middle" id="action_${k.id}">
+                            <button class="btn btn-sm btn-primary py-0 px-2" onclick="editKeyword(${k.id})" title="수정"><i class="bi bi-pencil-square"></i></button>
+                            <button class="btn btn-sm btn-danger py-0 px-2" onclick="deleteKeyword(${k.id})" title="삭제"><i class="bi bi-trash"></i></button>
+                        </td>
                     </tr>
                 `).join('');
             } else {
@@ -88,15 +102,76 @@
         }
     }
 
+    // ✨ 연필(수정) 버튼을 눌렀을 때 텍스트를 입력창으로 변신시키는 함수 ✨
+    function editKeyword(id) {
+        isEditing = true; 
+        const fields = ['pub', 'sup', 'isbn', 'price', 'ship', 'store', 'title'];
+        
+        fields.forEach(f => {
+            const td = document.getElementById(`${f}_${id}`);
+            const val = td.innerText.trim();
+            td.setAttribute('data-orig', val); // 취소를 누를 때를 대비해 원본 저장
+            
+            // 입력칸으로 교체 ('-' 기호는 지워줌)
+            const cleanVal = (val !== '-') ? val : '';
+            td.innerHTML = `<input type="text" id="in_${f}_${id}" class="form-control form-control-sm px-1 py-0 edit-input" value="${cleanVal}">`;
+        });
+        
+        // 버튼을 '저장'과 '취소'로 변경
+        const actionTd = document.getElementById(`action_${id}`);
+        actionTd.innerHTML = `
+            <button class="btn btn-sm btn-success py-0 px-2" onclick="saveKeyword(${id})" title="저장"><i class="bi bi-check-lg"></i></button>
+            <button class="btn btn-sm btn-secondary py-0 px-2" onclick="cancelEdit(${id})" title="취소"><i class="bi bi-x-lg"></i></button>
+        `;
+    }
+
+    // ✨ 취소(X) 버튼을 눌렀을 때 원래대로 되돌리는 함수 ✨
+    function cancelEdit(id) {
+        const fields = ['pub', 'sup', 'isbn', 'price', 'ship', 'store', 'title'];
+        fields.forEach(f => {
+            const td = document.getElementById(`${f}_${id}`);
+            td.innerText = td.getAttribute('data-orig'); // 원래 저장해둔 글씨로 복구
+        });
+        
+        // 버튼을 다시 '수정'과 '삭제'로 변경
+        const actionTd = document.getElementById(`action_${id}`);
+        actionTd.innerHTML = `
+            <button class="btn btn-sm btn-primary py-0 px-2" onclick="editKeyword(${id})" title="수정"><i class="bi bi-pencil-square"></i></button>
+            <button class="btn btn-sm btn-danger py-0 px-2" onclick="deleteKeyword(${id})" title="삭제"><i class="bi bi-trash"></i></button>
+        `;
+        isEditing = false; 
+    }
+
+    // ✨ 저장(V) 버튼을 눌렀을 때 DB로 전송하는 함수 ✨
+    async function saveKeyword(id) {
+        const fd = new FormData();
+        fd.append('id', id);
+        fd.append('publisher', document.getElementById(`in_pub_${id}`).value || '-');
+        fd.append('supply_rate', document.getElementById(`in_sup_${id}`).value || '-');
+        fd.append('isbn', document.getElementById(`in_isbn_${id}`).value || '-');
+        fd.append('price', document.getElementById(`in_price_${id}`).value || '-');
+        fd.append('shipping_fee', document.getElementById(`in_ship_${id}`).value || '무료');
+        fd.append('store_name', document.getElementById(`in_store_${id}`).value || '-');
+        fd.append('book_title', document.getElementById(`in_title_${id}`).value || '-');
+
+        try {
+            await fetch("{{ url_for('monitoring.update_keyword') }}", { method: 'POST', body: fd });
+            isEditing = false;
+            loadSavedKeywords(); // 저장 완료 후 표 다시 그리기
+        } catch(e) {
+            alert('저장 중 오류가 발생했습니다.');
+        }
+    }
+
     async function deleteKeyword(id) {
-        if (!confirm('이 키워드를 삭제하시겠습니까?')) return;
+        if (!confirm('이 키워드를 완전히 삭제하시겠습니까?')) return;
         const fd = new FormData();
         fd.append('id', id);
         await fetch("{{ url_for('monitoring.delete_keyword') }}", { method: 'POST', body: fd });
         loadSavedKeywords();
     }
 
-    // 페이지 로드 시 최초 1회 실행 후, 2초마다 갱신(실시간 동기화)
+    // 페이지 접속 시 표를 띄우고, 2초마다 1번 서버(분석기)에서 날아온 데이터가 있는지 확인
     document.addEventListener("DOMContentLoaded", () => {
         loadSavedKeywords();
         setInterval(loadSavedKeywords, 2000);
