@@ -97,9 +97,17 @@ def get_commerce_token(client_id, client_secret):
     except: pass
     return None
 
-def async_refresh_ranks(app, user_id, search_client_id, search_client_secret):
+# ✨ 통합 갱신 엔진 (kw_ids 배열이 들어오면 선택된 것만, 안 들어오면 전체를 갱신합니다)
+def async_refresh_ranks(app, user_id, search_client_id, search_client_secret, kw_ids=None):
     with app.app_context():
-        keywords = MonitoredKeyword.query.filter_by(user_id=user_id).all()
+        # kw_ids 유무에 따라 타겟 지정
+        if kw_ids:
+            keywords = MonitoredKeyword.query.filter(MonitoredKeyword.id.in_(kw_ids), MonitoredKeyword.user_id==user_id).all()
+        else:
+            keywords = MonitoredKeyword.query.filter_by(user_id=user_id).all()
+            
+        if not keywords: return
+
         api_key = ApiKey.query.filter_by(user_id=user_id).first()
         commerce_token = get_commerce_token(api_key.client_id, api_key.client_secret) if api_key else None
         target_mall_name = api_key.store_name if api_key else "스터디박스"
@@ -107,12 +115,26 @@ def async_refresh_ranks(app, user_id, search_client_id, search_client_secret):
         c_headers = {"Authorization": f"Bearer {commerce_token}", "Content-Type": "application/json"} if commerce_token else {}
         api_headers = {"X-Naver-Client-Id": search_client_id, "X-Naver-Client-Secret": search_client_secret} if search_client_id else {}
 
+        # 1. 커머스 API 필터링 로드
+        all_products = []
+        if commerce_token:
+            search_url = "https://api.commerce.naver.com/external/v1/products/search"
+            for page in range(1, 11):
+                payload = {"page": page, "size": 50}
+                try:
+                    c_res = requests.post(search_url, headers=c_headers, json=payload, timeout=5)
+                    if c_res.status_code == 200:
+                        contents = c_res.json().get('contents', [])
+                        all_products.extend(contents)
+                        if len(contents) < 50: break
+                    else: break
+                except: break
+
         for kw in keywords:
-            # 기존 데이터 보존 (엑셀 모드 유지)
             kw.prev_store_rank = kw.store_rank
             new_rank = "500위 밖"
             
-            # [A] 순위 탐색 (1~500위 스캔)
+            # [A] 순위 탐색
             if api_headers:
                 try:
                     found_rank = False
@@ -131,19 +153,16 @@ def async_refresh_ranks(app, user_id, search_client_id, search_client_secret):
             
             kw.store_rank = new_rank
 
-            # [B] 수만 개의 상품 중 목표물만 0.1초 만에 저격하는 초정밀 검색 엔진 (회원님 아이디어 적용)
+            # [B] 초정밀 매칭
             if commerce_token:
                 kw_clean = re.sub(r'[^a-zA-Z0-9가-힣]', '', kw.keyword)
                 matched_p = None
                 
                 if kw_clean:
-                    # 1. 키워드의 앞 2~3글자만 추출 (예: '파이썬기초책' -> '파이썬')
                     short_kw = kw_clean[:3] if len(kw_clean) >= 3 else kw_clean[:2]
-                    
                     candidate_products = []
-                    # 2. 수만 개를 다 가져오지 않고, 'short_kw'가 포함된 상품만 네이버에 요청 (속도/메모리 한계 극복)
                     search_url = "https://api.commerce.naver.com/external/v1/products/search"
-                    for page in range(1, 6): # 최대 250개까지만 추려냅니다
+                    for page in range(1, 6): 
                         payload = {"page": page, "size": 50, "name": short_kw}
                         try:
                             c_res = requests.post(search_url, headers=c_headers, json=payload, timeout=5)
@@ -154,7 +173,6 @@ def async_refresh_ranks(app, user_id, search_client_id, search_client_secret):
                             else: break
                         except: break
 
-                    # 3. 추려낸 후보군 중에서 정규식으로 100% 완벽하게 똑같은 상품만 필터링
                     regex_pattern = '.*'.join(list(kw_clean))
                     best_score = 0
                     best_candidate = None
@@ -166,17 +184,14 @@ def async_refresh_ranks(app, user_id, search_client_id, search_client_secret):
                         
                         if not name_clean: continue
                         
-                        # 1순위 철벽방어: 키워드 글자가 중간에 껴있어도 완벽히 일치하는지 확인!
                         if re.search(regex_pattern, name_clean):
                             matched_p = p
                             break
                         
-                        # 2순위 철벽방어: 글자 구성이 완전히 똑같은지 확인
                         if set(kw_clean).issubset(set(name_clean)):
                             matched_p = p
                             break
 
-                        # 유사도 검사의 커트라인을 60% 이상으로 대폭 상향 (엉뚱한 책 도배 절대 금지)
                         score = difflib.SequenceMatcher(None, kw_clean, name_clean).ratio()
                         if score > best_score:
                             best_score = score
@@ -185,7 +200,7 @@ def async_refresh_ranks(app, user_id, search_client_id, search_client_secret):
                     if not matched_p and best_score > 0.6: 
                         matched_p = best_candidate
 
-                # [C] 매칭 성공! -> 기존 엑셀 기록은 보존하면서 새 정보만 살짝 덮어쓰기
+                # [C] 엑셀 보존형 덮어쓰기
                 if matched_p:
                     o_no = matched_p.get('originProductNo')
                     c_prods = matched_p.get('channelProducts', [])
@@ -193,14 +208,13 @@ def async_refresh_ranks(app, user_id, search_client_id, search_client_secret):
                     c_no = c_prods[0].get('channelProductNo') if c_prods else None
 
                     kw.store_name = c_name
-                    kw.book_title = "" # 관리 칸 밀림 현상 방지
+                    kw.book_title = "" 
                     
                     if c_no: kw.product_link = f"https://smartstore.naver.com/main/products/{c_no}"
                     
                     sale_price = c_prods[0].get('salePrice') if c_prods else matched_p.get('salePrice')
                     if sale_price is not None: kw.price = f"{sale_price:,}원"
 
-                    # 깊숙이 숨겨진 ISBN, 배송비, 출판사 정보 끝까지 털어오기
                     if o_no:
                         op_url = f"https://api.commerce.naver.com/external/v2/products/origin-products/{o_no}"
                         try:
@@ -225,6 +239,8 @@ def async_refresh_ranks(app, user_id, search_client_id, search_client_secret):
             db.session.commit()
             time.sleep(0.3)
 
+
+# ✨ 기존 기능: 전체 새로고침
 @monitoring_bp.route('/api/refresh_all_ranks', methods=['POST'])
 @login_required
 def refresh_all_ranks():
@@ -233,6 +249,30 @@ def refresh_all_ranks():
     app = current_app._get_current_object()
     user_id = current_user.id
     
-    thread = Thread(target=async_refresh_ranks, args=(app, user_id, search_id, search_pw))
+    thread = Thread(target=async_refresh_ranks, args=(app, user_id, search_id, search_pw, None))
     thread.start()
-    return jsonify({'success': True, 'message': '✅ 백그라운드에서 대용량 스토어 전용 매칭이 시작되었습니다.\n(수동 기록은 안전하게 보존됩니다. 10초 뒤 새로고침을 해주세요!)'})
+    return jsonify({'success': True, 'message': '✅ 백그라운드에서 전체 업데이트가 시작되었습니다.'})
+
+# ✨ 신규 기능: 선택(개별) 새로고침
+@monitoring_bp.route('/api/refresh_keyword', methods=['POST'])
+@login_required
+def refresh_keyword():
+    kw_id = request.form.get('id')
+    if not kw_id: return jsonify({'success': False})
+    
+    search_id = os.environ.get("NAVER_CLIENT_ID", "")
+    search_pw = os.environ.get("NAVER_CLIENT_SECRET", "")
+    app = current_app._get_current_object()
+    user_id = current_user.id
+    
+    kw = MonitoredKeyword.query.filter_by(id=kw_id, user_id=user_id).first()
+    if kw:
+        # 화면에 즉각 반응을 주기 위해 순위 칸만 조용히 바꿉니다. (기존 데이터 보존)
+        kw.store_rank = "⏳ 개별 갱신중..."
+        db.session.commit()
+        
+        # 배열 형태로 id 하나만 묶어서 던지면 해당 항목만 업데이트됩니다.
+        thread = Thread(target=async_refresh_ranks, args=(app, user_id, search_id, search_pw, [kw.id]))
+        thread.start()
+        return jsonify({'success': True, 'message': f'✅ [{kw.keyword}] 개별 갱신이 시작되었습니다.\n잠시 후 새로고침 해주세요.'})
+    return jsonify({'success': False})
