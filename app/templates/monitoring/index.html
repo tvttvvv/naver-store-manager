@@ -126,7 +126,6 @@
         }
     }
 
-    // ✨ [핵심 수정] 500위 밖, 에러 등 글자를 완벽하게 무시하는 계산기 함수
     function getRankNum(rankStr) {
         if (!rankStr || rankStr === '-' || rankStr.includes('밖') || rankStr.includes('에러') || rankStr.includes('실패')) return 9999;
         return parseInt(rankStr.replace(/[^0-9]/g, '')) || 9999;
@@ -167,7 +166,6 @@
                     linkBtn = `<a href="${finalUrl}" target="_blank" class="btn btn-sm btn-outline-primary py-0 px-2 text-decoration-none"><i class="bi bi-link-45deg"></i> 상품</a>`;
                 }
 
-                // ✨ [핵심 시각화] 진짜 똑똑해진 변동폭 화살표 로직
                 let rankDisplay = `<span class="fs-6 fw-bold">${k.store_rank}</span>`;
                 if (k.prev_store_rank && k.prev_store_rank !== '-') {
                     if (k.store_rank !== k.prev_store_rank) {
@@ -183,7 +181,6 @@
                         } else if (currNum > prevNum) { 
                             rankDisplay += `<br><span class="rank-down">▼ ${currNum - prevNum}</span>`;
                         } else {
-                            // 완전히 문자로만 되어있어서 구분이 안될 때
                             rankDisplay += `<br><span class="text-muted small" style="font-size:0.75rem;">(이전: ${k.prev_store_rank})</span>`;
                         }
                     } else {
@@ -214,6 +211,7 @@
                     <td class="align-middle text-muted" id="title_${k.id}" data-val="${k.book_title}">${k.book_title}</td>
                     
                     <td class="align-middle" id="action_${k.id}">
+                        <button class="btn btn-sm btn-success py-0 px-2 me-1" onclick="refreshSingleKeyword(${k.id})" title="이 항목만 새로고침"><i class="bi bi-arrow-clockwise"></i></button>
                         <button class="btn btn-sm btn-primary py-0 px-2" onclick="editKeyword(${k.id})" title="수정"><i class="bi bi-pencil-square"></i></button>
                         <button class="btn btn-sm btn-danger py-0 px-2" onclick="deleteKeyword(${k.id})" title="삭제"><i class="bi bi-trash"></i></button>
                     </td>
@@ -295,6 +293,7 @@
             const result = await res.json();
             if (result.success) {
                 alert(result.message);
+                loadSavedKeywords();
             } else {
                 alert(result.message || '업데이트에 실패했습니다.');
             }
@@ -303,6 +302,29 @@
         } finally {
             btn.innerHTML = origText;
             btn.disabled = false;
+        }
+    }
+
+    // ✨ [신규 추가] 특정 행만 콕 집어서 새로고침하는 기능
+    async function refreshSingleKeyword(id) {
+        const fd = new FormData();
+        fd.append('id', id);
+
+        try {
+            const res = await fetch("{{ url_for('monitoring.refresh_keyword') }}", { 
+                method: 'POST',
+                body: fd
+            });
+            const result = await res.json();
+            
+            if (result.success) {
+                alert(result.message);
+                loadSavedKeywords(); // 즉시 새로고침하여 '⏳ 개별 갱신중...' 텍스트 표시
+            } else {
+                alert('개별 업데이트 명령 전송에 실패했습니다.');
+            }
+        } catch(e) {
+            alert('서버와 통신 중 에러가 발생했습니다.');
         }
     }
 
