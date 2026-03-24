@@ -103,7 +103,7 @@ def async_refresh_ranks(app, user_id, search_client_id, search_client_secret):
         if api_key: commerce_token = get_commerce_token(api_key.client_id, api_key.client_secret)
 
         for kw in keywords:
-            # 새로고침 시 기존 데이터 초기화 (공급률 제외)
+            # 알맹이 싹 비우기
             kw.prev_store_rank = kw.store_rank
             kw.store_rank = "로딩중..."
             kw.book_title = "데이터 수집중..."
@@ -139,7 +139,7 @@ def async_refresh_ranks(app, user_id, search_client_id, search_client_secret):
                 except:
                     kw.store_rank = "탐색 실패"
 
-            # 2. 커머스 API 상세 정보 로드
+            # ✨ 2. 커머스 API 상세 정보 로드 (깐깐한 검사 제거, 네이버 결과 100% 신뢰!)
             if not commerce_token:
                 kw.book_title = "커머스 토큰/IP 오류"
             else:
@@ -147,56 +147,49 @@ def async_refresh_ranks(app, user_id, search_client_id, search_client_secret):
                     search_url = "https://api.commerce.naver.com/external/v1/products/search"
                     c_headers = {"Authorization": f"Bearer {commerce_token}", "Content-Type": "application/json"}
                     
-                    # 내 상점의 상품 50개를 불러와서 직접 대조합니다.
-                    payload = {"page": 1, "size": 50}
+                    payload = {"page": 1, "size": 10, "name": kw.keyword}
                     c_res = requests.post(search_url, headers=c_headers, json=payload, timeout=5)
                     
                     if c_res.status_code == 200:
                         contents = c_res.json().get('contents', [])
                         if not contents:
-                            kw.book_title = "상점에 등록된 상품 없음"
+                            kw.book_title = "상점에 검색된 상품 없음"
                         else:
-                            target_kw_clean = kw.keyword.replace(" ", "").lower()
-                            matched = False
+                            # 검색된 상품 중 첫 번째(가장 정확한) 상품을 그대로 가져옵니다.
+                            p = contents[0]
+                            c_prods = p.get('channelProducts', [])
+                            channel_name = c_prods[0].get('name', '') if c_prods else p.get('name', '')
+                            o_no = p.get('originProductNo')
                             
-                            for p in contents:
-                                c_prods = p.get('channelProducts', [])
-                                channel_name = c_prods[0].get('name', '') if c_prods else p.get('name', '')
-                                clean_channel_name = channel_name.replace(" ", "").lower()
+                            if o_no:
+                                detail_url = f"https://api.commerce.naver.com/external/v2/products/origin-products/{o_no}"
+                                d_res = requests.get(detail_url, headers=c_headers, timeout=5)
                                 
-                                # 키워드가 상점 상품명에 포함되어 있는지 띄어쓰기 무시하고 검사
-                                if target_kw_clean in clean_channel_name:
-                                    matched = True
-                                    o_no = p.get('originProductNo')
+                                if d_res.status_code == 200:
+                                    d_data = d_res.json()
                                     
-                                    if o_no:
-                                        detail_url = f"https://api.commerce.naver.com/external/v2/products/origin-products/{o_no}"
-                                        d_res = requests.get(detail_url, headers=c_headers, timeout=5)
-                                        
-                                        if d_res.status_code == 200:
-                                            d_data = d_res.json()
-                                            
-                                            kw.book_title = d_data.get('name', channel_name)
-                                            kw.store_name = api_key.store_name if api_key else "스터디박스"
-                                            
-                                            c_no = c_prods[0].get('channelProductNo') if c_prods else None
-                                            if c_no: kw.product_link = f"https://smartstore.naver.com/main/products/{c_no}"
-                                            
-                                            sale_price = d_data.get('salePrice')
-                                            if sale_price is not None: kw.price = f"{sale_price:,}원"
-                                            
-                                            base_fee = d_data.get('deliveryInfo', {}).get('deliveryFee', {}).get('baseFee')
-                                            if base_fee is not None:
-                                                kw.shipping_fee = "무료" if base_fee == 0 else f"{base_fee:,}원"
-                                            
-                                            book_info = d_data.get('detailAttribute', {}).get('bookInfo', {})
-                                            if book_info:
-                                                kw.isbn = book_info.get('isbn', '-')
-                                                kw.publisher = book_info.get('publisher', '-')
-                                    break 
+                                    # 모든 정보 빠짐없이 채워넣기
+                                    kw.book_title = d_data.get('name', channel_name)
+                                    kw.store_name = api_key.store_name if api_key else "스터디박스"
                                     
-                            if not matched:
-                                kw.book_title = "이름 불일치 (검색실패)"
+                                    c_no = c_prods[0].get('channelProductNo') if c_prods else None
+                                    if c_no: kw.product_link = f"https://smartstore.naver.com/main/products/{c_no}"
+                                    
+                                    sale_price = d_data.get('salePrice')
+                                    if sale_price is not None: kw.price = f"{sale_price:,}원"
+                                    
+                                    base_fee = d_data.get('deliveryInfo', {}).get('deliveryFee', {}).get('baseFee')
+                                    if base_fee is not None:
+                                        kw.shipping_fee = "무료" if base_fee == 0 else f"{base_fee:,}원"
+                                    
+                                    book_info = d_data.get('detailAttribute', {}).get('bookInfo', {})
+                                    if book_info:
+                                        kw.isbn = book_info.get('isbn', '-')
+                                        kw.publisher = book_info.get('publisher', '-')
+                                else:
+                                    kw.book_title = "상세정보 로드 실패"
+                            else:
+                                kw.book_title = "원본 상품 번호 없음"
                     else:
                         kw.book_title = f"커머스 연결 거절 ({c_res.status_code})"
                 except Exception as e:
@@ -214,4 +207,4 @@ def refresh_all_ranks():
     user_id = current_user.id
     thread = Thread(target=async_refresh_ranks, args=(app, user_id, search_id, search_pw))
     thread.start()
-    return jsonify({'success': True, 'message': '✅ 전체 순위 및 최신 상품 정보 조회가 시작되었습니다!\n새로고침 시 에러 원인이 표시됩니다.'})
+    return jsonify({'success': True, 'message': '✅ 전체 순위 및 최신 상품 정보 조회가 시작되었습니다!\n새로고침 시 진행상황이 표시됩니다.'})
