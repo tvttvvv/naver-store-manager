@@ -81,16 +81,8 @@
 </div>
 
 <style>
-    .bg-neon-green {
-        background-color: #00ff00 !important;
-        color: #000 !important;
-        font-weight: 800;
-    }
-    .edit-input { 
-        min-width: 70px; 
-        max-width: 150px; 
-        text-align: center;
-    }
+    .bg-neon-green { background-color: #00ff00 !important; color: #000 !important; font-weight: 800; }
+    .edit-input { min-width: 70px; max-width: 150px; text-align: center; }
     .rank-up { color: #dc3545; font-weight: bold; font-size: 0.8rem; }
     .rank-down { color: #0d6efd; font-weight: bold; font-size: 0.8rem; }
     .rank-same { color: #adb5bd; font-weight: bold; font-size: 0.8rem; }
@@ -127,9 +119,7 @@
                 allKeywordsData = result.data;
                 renderTable(); 
             }
-        } catch (e) {
-            console.error(e);
-        }
+        } catch (e) {}
     }
 
     function getRankNum(rankStr) {
@@ -174,40 +164,34 @@
                     if (k.store_rank !== k.prev_store_rank && !k.store_rank.includes('매칭중') && !k.store_rank.includes('갱신중')) {
                         let prevNum = getRankNum(k.prev_store_rank);
                         let currNum = getRankNum(k.store_rank);
-                        
-                        if (prevNum === 9999 && currNum !== 9999) {
-                            rankDisplay += `<br><span class="rank-up">▲ 순위권 진입!</span>`;
-                        } else if (prevNum !== 9999 && currNum === 9999) {
-                            rankDisplay += `<br><span class="rank-down">▼ 밀려남</span>`;
-                        } else if (currNum < prevNum) { 
-                            rankDisplay += `<br><span class="rank-up">▲ ${prevNum - currNum}</span>`;
-                        } else if (currNum > prevNum) { 
-                            rankDisplay += `<br><span class="rank-down">▼ ${currNum - prevNum}</span>`;
-                        } else {
-                            rankDisplay += `<br><span class="text-muted small" style="font-size:0.75rem;">(이전: ${k.prev_store_rank})</span>`;
-                        }
+                        if (prevNum === 9999 && currNum !== 9999) { rankDisplay += `<br><span class="rank-up">▲ 순위권 진입!</span>`; } 
+                        else if (prevNum !== 9999 && currNum === 9999) { rankDisplay += `<br><span class="rank-down">▼ 밀려남</span>`; } 
+                        else if (currNum < prevNum) { rankDisplay += `<br><span class="rank-up">▲ ${prevNum - currNum}</span>`; } 
+                        else if (currNum > prevNum) { rankDisplay += `<br><span class="rank-down">▼ ${currNum - prevNum}</span>`; } 
+                        else { rankDisplay += `<br><span class="text-muted small" style="font-size:0.75rem;">(이전: ${k.prev_store_rank})</span>`; }
                     } else if (!k.store_rank.includes('매칭중') && !k.store_rank.includes('갱신중')) {
                         rankDisplay += `<br><span class="rank-same">-</span>`;
                     }
                 }
+
+                // ✨ 에러 메시지는 빨간색으로, 정상 이름은 회색으로 표시하는 로직
+                let storeNameDisplay = k.store_name.includes('⚠️') ? `<span class="text-danger fw-bold">${k.store_name}</span>` : `<span class="text-muted">${k.store_name}</span>`;
 
                 return `
                 <tr>
                     <td class="align-middle">${index + 1}</td>
                     <td class="align-middle bg-neon-green">${k.keyword}</td>
                     <td class="align-middle bg-neon-green fs-6">${k.search_volume.toLocaleString()}</td>
-                    
                     <td class="align-middle bg-neon-green text-dark" id="rank_${k.id}" data-val="${k.store_rank}">${rankDisplay}</td>
                     <td class="align-middle"><a href="${k.link}" target="_blank" class="btn btn-sm btn-outline-secondary py-0 px-2 text-decoration-none"><i class="bi bi-search"></i> 키워드</a></td>
                     <td class="align-middle" id="plink_${k.id}" data-val="${k.product_link}">${linkBtn}</td>
-                    
                     <td class="align-middle text-muted" id="pub_${k.id}" data-val="${k.publisher}">${k.publisher}</td>
                     <td class="align-middle text-muted" id="sup_${k.id}" data-val="${k.supply_rate}">${k.supply_rate}</td>
                     <td class="align-middle text-dark fw-bold" id="isbn_${k.id}" data-val="${k.isbn}">${k.isbn}</td>
                     <td class="align-middle text-muted" id="price_${k.id}" data-val="${k.price}">${k.price}</td>
                     <td class="align-middle fw-bold text-secondary" id="ship_${k.id}" data-val="${k.shipping_fee}">${k.shipping_fee}</td>
-                    <td class="align-middle text-muted" id="store_${k.id}" data-val="${k.store_name}">${k.store_name}</td>
-                    <td class="align-middle text-danger fw-bold" id="title_${k.id}" data-val="${k.book_title}">${k.book_title}</td>
+                    
+                    <td class="align-middle" id="store_${k.id}" data-val="${k.store_name}">${storeNameDisplay}</td>
                     
                     <td class="align-middle" id="action_${k.id}">
                         <button class="btn btn-sm btn-primary py-0 px-2" onclick="editKeyword(${k.id})" title="수정"><i class="bi bi-pencil-square"></i></button>
@@ -223,17 +207,13 @@
 
     function editKeyword(id) {
         isEditing = true; 
-        const fields = ['rank', 'plink', 'pub', 'sup', 'isbn', 'price', 'ship', 'store', 'title'];
-        
+        const fields = ['rank', 'plink', 'pub', 'sup', 'isbn', 'price', 'ship', 'store']; // title 필드 삭제됨
         fields.forEach(f => {
             const td = document.getElementById(`${f}_${id}`);
             const val = td.getAttribute('data-val'); 
             const cleanVal = (val !== '-') ? val : '';
-            const extraClass = (f === 'plink' || f === 'title') ? 'w-100' : 'edit-input';
-            
-            // ISBN 수정 칸은 색상으로 강조!
+            const extraClass = (f === 'plink' || f === 'store') ? 'w-100' : 'edit-input';
             let style = (f === 'isbn') ? "background-color: #fff3cd; font-weight: bold;" : "";
-            
             td.innerHTML = `<input type="text" id="in_${f}_${id}" class="form-control form-control-sm px-1 py-0 ${extraClass}" value="${cleanVal}" style="${style}" placeholder="${f==='isbn'?'ISBN 입력':''}">`;
         });
         
@@ -245,8 +225,7 @@
     }
 
     function cancelEdit(id) {
-        isEditing = false; 
-        renderTable(); 
+        isEditing = false; renderTable(); 
     }
 
     async function saveKeyword(id) {
@@ -260,15 +239,12 @@
         fd.append('price', document.getElementById(`in_price_${id}`).value || '-');
         fd.append('shipping_fee', document.getElementById(`in_ship_${id}`).value || '-');
         fd.append('store_name', document.getElementById(`in_store_${id}`).value || '-');
-        fd.append('book_title', document.getElementById(`in_title_${id}`).value || '-');
 
         try {
             await fetch("{{ url_for('monitoring.update_keyword') }}", { method: 'POST', body: fd });
             isEditing = false;
             loadSavedKeywords(); 
-        } catch(e) {
-            alert('저장 중 오류가 발생했습니다.');
-        }
+        } catch(e) { alert('저장 중 오류가 발생했습니다.'); }
     }
 
     async function deleteKeyword(id) {
@@ -279,78 +255,40 @@
         loadSavedKeywords();
     }
 
-    // ✨ [신규 기능 연동] ISBN 기반 업데이트 요청
     async function refreshByIsbn() {
         const btn = document.getElementById('refreshIsbnBtn');
         const origText = btn.innerHTML;
         btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 매칭 요청중...';
         btn.disabled = true;
-
         try {
             const res = await fetch("{{ url_for('monitoring.refresh_by_isbn') }}", { method: 'POST' });
             const result = await res.json();
             alert(result.message);
             loadSavedKeywords();
-        } catch(e) {
-            alert('서버 에러가 발생했습니다.');
-        } finally {
-            btn.innerHTML = origText;
-            btn.disabled = false;
-        }
+        } catch(e) { alert('서버 에러가 발생했습니다.'); } 
+        finally { btn.innerHTML = origText; btn.disabled = false; }
     }
 
-    // ✨ [신규 기능 연동] 데이터 초기화
     async function clearAllData() {
         if(!confirm("키워드와 ISBN을 제외한 나머지 데이터(가격, 링크, 택배비 등)를 모두 비우시겠습니까?")) return;
-        
         try {
             const res = await fetch("{{ url_for('monitoring.clear_data') }}", { method: 'POST' });
             const result = await res.json();
-            if(result.success) {
-                alert(result.message);
-                loadSavedKeywords();
-            }
-        } catch(e) {
-            alert('초기화 중 오류가 발생했습니다.');
-        }
+            if(result.success) { alert(result.message); loadSavedKeywords(); }
+        } catch(e) { alert('초기화 중 오류가 발생했습니다.'); }
     }
 
-    // ✨ [신규 기능 연동] 엑셀 다운로드 (JS 자체 처리로 매우 빠름)
     function exportToExcel() {
-        if(allKeywordsData.length === 0) {
-            alert("다운로드할 데이터가 없습니다.");
-            return;
-        }
-        
-        // 엑셀에서 한글이 깨지지 않도록 BOM 추가
-        let csvContent = "\uFEFF"; 
-        csvContent += "순번,키워드,네이버카운트,스터디박스 순위,상품링크,출판사명,공급률,ISBN,가격,택배비,상점 책제목\n";
-        
+        if(allKeywordsData.length === 0) { alert("다운로드할 데이터가 없습니다."); return; }
+        let csvContent = "\uFEFF순번,키워드,네이버카운트,스터디박스 순위,상품링크,출판사명,공급률,ISBN,가격,택배비,상점 책제목\n";
         allKeywordsData.forEach((k, index) => {
-            let row = [
-                index + 1,
-                k.keyword,
-                k.search_volume,
-                k.store_rank,
-                k.product_link,
-                k.publisher,
-                k.supply_rate,
-                k.isbn,
-                k.price,
-                k.shipping_fee,
-                k.store_name
-            ];
-            // 쉼표 등 특수문자 처리를 위해 따옴표로 감싸기
-            let rowStr = row.map(v => `"${(v || '').toString().replace(/"/g, '""')}"`).join(',');
-            csvContent += rowStr + "\n";
+            let row = [ index + 1, k.keyword, k.search_volume, k.store_rank, k.product_link, k.publisher, k.supply_rate, k.isbn, k.price, k.shipping_fee, k.store_name ];
+            csvContent += row.map(v => `"${(v || '').toString().replace(/"/g, '""')}"`).join(',') + "\n";
         });
-        
         let blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         let link = document.createElement("a");
-        let url = URL.createObjectURL(blob);
-        link.setAttribute("href", url);
-        link.setAttribute("download", "스터디박스_모니터링_목록.csv");
-        link.style.visibility = 'hidden';
+        link.href = URL.createObjectURL(blob);
+        link.download = "스터디박스_모니터링.csv";
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
