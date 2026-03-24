@@ -1,5 +1,6 @@
 import os
 import time
+import re
 from threading import Thread
 from flask import Blueprint, render_template, request, jsonify, current_app
 from flask_login import login_required, current_user
@@ -11,6 +12,10 @@ import bcrypt
 import base64
 
 monitoring_bp = Blueprint('monitoring', __name__)
+
+def simplify(s):
+    # 특수문자 띄어쓰기 전부 제거하고 글자만 추출
+    return re.sub(r'[^a-zA-Z0-9가-힣]', '', str(s))
 
 @monitoring_bp.route('/')
 @login_required
@@ -103,25 +108,22 @@ def async_refresh_ranks(app, user_id, search_client_id, search_client_secret):
         if api_key: commerce_token = get_commerce_token(api_key.client_id, api_key.client_secret)
 
         for kw in keywords:
-            # 알맹이 싹 비우기
-            kw.prev_store_rank = kw.store_rank
-            kw.store_rank = "로딩중..."
-            kw.book_title = "데이터 수집중..."
-            kw.store_name = "-"
-            kw.product_link = "-"
-            kw.price = "-"
-            kw.shipping_fee = "-"
-            kw.isbn = "-"
-            kw.publisher = "-"
+            # ✨ 1단계: 개별 행 진행률 표시 시작
+            kw.store_rank = "🔍 탐색중..."
+            kw.store_name = "⏳ 데이터 로딩..." # 화면의 '상점 책제목' 자리에 표시
+            kw.book_title = "" # 자리 밀림 방지를 위해 완전히 비움
+            db.session.commit()
+            time.sleep(0.1)
+
+            mall_product_id = None
+            clean_title_shopping = None
             
-            # 1. 네이버 쇼핑 일반 API 검색 (순위)
-            if not search_client_id or not search_client_secret:
-                kw.store_rank = "검색API키 누락"
-            else:
+            # ✨ 2단계: 네이버 쇼핑에서 순위 및 진짜 '상품 번호' 캐내기
+            if search_client_id and search_client_secret:
+                api_headers = {"X-Naver-Client-Id": search_client_id, "X-Naver-Client-Secret": search_client_secret}
                 kw.store_rank = "500위 밖"
                 try:
-                    api_headers = {"X-Naver-Client-Id": search_client_id, "X-Naver-Client-Secret": search_client_secret}
-                    found_rank = False
+                    found = False
                     for start_idx in [1, 101, 201, 301, 401]:
                         api_url = f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(kw.keyword)}&display=100&start={start_idx}"
                         api_res = requests.get(api_url, headers=api_headers, timeout=5)
@@ -129,72 +131,104 @@ def async_refresh_ranks(app, user_id, search_client_id, search_client_secret):
                             for idx, item in enumerate(api_res.json().get('items', [])):
                                 if "스터디박스" in item.get('mallName', ''):
                                     kw.store_rank = str(start_idx + idx)
-                                    found_rank = True
+                                    mall_product_id = item.get('mallProductId') # 핵심! 진짜 상품 번호 확보
+                                    raw_title = item.get('title', '')
+                                    clean_title_shopping = re.sub(r'<[^>]*>', '', raw_title)
+                                    kw.price = f"{int(item.get('lprice', 0)):,}원"
+                                    kw.product_link = item.get('link', '')
+                                    found = True
                                     break
-                        else:
-                            kw.store_rank = "API 오류/한도초과"
-                            break
-                        if found_rank: break
+                        if found: break
                         time.sleep(0.1)
                 except:
-                    kw.store_rank = "탐색 실패"
-
-            # ✨ 2. 커머스 API 상세 정보 로드 (깐깐한 검사 제거, 네이버 결과 100% 신뢰!)
-            if not commerce_token:
-                kw.book_title = "커머스 토큰/IP 오류"
+                    kw.store_rank = "API 에러"
             else:
-                try:
-                    search_url = "https://api.commerce.naver.com/external/v1/products/search"
-                    c_headers = {"Authorization": f"Bearer {commerce_token}", "Content-Type": "application/json"}
-                    
-                    payload = {"page": 1, "size": 10, "name": kw.keyword}
-                    c_res = requests.post(search_url, headers=c_headers, json=payload, timeout=5)
-                    
-                    if c_res.status_code == 200:
-                        contents = c_res.json().get('contents', [])
-                        if not contents:
-                            kw.book_title = "상점에 검색된 상품 없음"
-                        else:
-                            # 검색된 상품 중 첫 번째(가장 정확한) 상품을 그대로 가져옵니다.
-                            p = contents[0]
-                            c_prods = p.get('channelProducts', [])
-                            channel_name = c_prods[0].get('name', '') if c_prods else p.get('name', '')
-                            o_no = p.get('originProductNo')
-                            
-                            if o_no:
-                                detail_url = f"https://api.commerce.naver.com/external/v2/products/origin-products/{o_no}"
-                                d_res = requests.get(detail_url, headers=c_headers, timeout=5)
-                                
-                                if d_res.status_code == 200:
-                                    d_data = d_res.json()
-                                    
-                                    # 모든 정보 빠짐없이 채워넣기
-                                    kw.book_title = d_data.get('name', channel_name)
-                                    kw.store_name = api_key.store_name if api_key else "스터디박스"
-                                    
-                                    c_no = c_prods[0].get('channelProductNo') if c_prods else None
-                                    if c_no: kw.product_link = f"https://smartstore.naver.com/main/products/{c_no}"
-                                    
-                                    sale_price = d_data.get('salePrice')
-                                    if sale_price is not None: kw.price = f"{sale_price:,}원"
-                                    
-                                    base_fee = d_data.get('deliveryInfo', {}).get('deliveryFee', {}).get('baseFee')
-                                    if base_fee is not None:
-                                        kw.shipping_fee = "무료" if base_fee == 0 else f"{base_fee:,}원"
-                                    
-                                    book_info = d_data.get('detailAttribute', {}).get('bookInfo', {})
-                                    if book_info:
-                                        kw.isbn = book_info.get('isbn', '-')
-                                        kw.publisher = book_info.get('publisher', '-')
-                                else:
-                                    kw.book_title = "상세정보 로드 실패"
-                            else:
-                                kw.book_title = "원본 상품 번호 없음"
-                    else:
-                        kw.book_title = f"커머스 연결 거절 ({c_res.status_code})"
-                except Exception as e:
-                    kw.book_title = "시스템 에러 발생"
+                kw.store_rank = "검색키 누락"
+                
+            db.session.commit()
 
+            # ✨ 3단계: 획득한 상품 번호로 커머스 API에서 숨겨진 세부 정보(택배비, ISBN 등) 가져오기
+            if commerce_token:
+                try:
+                    c_headers = {"Authorization": f"Bearer {commerce_token}", "Content-Type": "application/json"}
+                    matched_origin_no = None
+                    matched_channel_name = None
+                    matched_c_no = None
+                    matched_price = None
+                    
+                    # [상황 A] 쇼핑 검색에서 100% 일치하는 상품을 찾은 경우 (정밀 타격)
+                    if mall_product_id:
+                        cp_url = f"https://api.commerce.naver.com/external/v1/products/channel-products/{mall_product_id}"
+                        cp_res = requests.get(cp_url, headers=c_headers, timeout=5)
+                        if cp_res.status_code == 200:
+                            cp_data = cp_res.json()
+                            matched_origin_no = cp_data.get('originProductNo')
+                            matched_channel_name = cp_data.get('name', clean_title_shopping)
+                            matched_c_no = mall_product_id
+                            matched_price = cp_data.get('salePrice')
+                    
+                    # [상황 B] 500위 밖이라 쇼핑 검색 실패 -> 지능형 단어 매칭 발동!
+                    else:
+                        search_url = "https://api.commerce.naver.com/external/v1/products/search"
+                        payload = {"page": 1, "size": 30}
+                        c_res = requests.post(search_url, headers=c_headers, json=payload, timeout=5)
+                        
+                        if c_res.status_code == 200:
+                            contents = c_res.json().get('contents', [])
+                            kw_simple = simplify(kw.keyword)
+                            first_word = simplify(kw.keyword.split()[0]) if kw.keyword.split() else ""
+                            
+                            for p in contents:
+                                c_prods = p.get('channelProducts', [])
+                                c_name = c_prods[0].get('name', '') if c_prods else p.get('name', '')
+                                c_name_simple = simplify(c_name)
+                                
+                                # 키워드가 통째로 있거나, 최소한 첫 번째 단어(예: 파이썬)라도 일치하면 합격!
+                                if (kw_simple in c_name_simple) or (first_word and first_word in c_name_simple):
+                                    matched_origin_no = p.get('originProductNo')
+                                    matched_channel_name = c_name
+                                    matched_c_no = c_prods[0].get('channelProductNo') if c_prods else None
+                                    matched_price = c_prods[0].get('salePrice') if c_prods else p.get('salePrice')
+                                    break
+                    
+                    # 일치하는 상품을 찾았다면, 상세 정보(Origin) 조립 완료하기
+                    if matched_origin_no:
+                        op_url = f"https://api.commerce.naver.com/external/v2/products/origin-products/{matched_origin_no}"
+                        op_res = requests.get(op_url, headers=c_headers, timeout=5)
+                        if op_res.status_code == 200:
+                            op_data = op_res.json()
+                            
+                            # [핵심 해결] 책 제목을 화면의 '상점 책제목' 자리에 딱 맞게 밀어 넣음
+                            kw.store_name = matched_channel_name 
+                            kw.book_title = "" 
+                            
+                            if matched_c_no:
+                                kw.product_link = f"https://smartstore.naver.com/main/products/{matched_c_no}"
+                                
+                            if matched_price is not None:
+                                kw.price = f"{matched_price:,}원"
+                            elif kw.price == "-": 
+                                s_price = op_data.get('salePrice')
+                                if s_price is not None: kw.price = f"{s_price:,}원"
+                                
+                            base_fee = op_data.get('deliveryInfo', {}).get('deliveryFee', {}).get('baseFee')
+                            if base_fee is not None:
+                                kw.shipping_fee = "무료" if base_fee == 0 else f"{base_fee:,}원"
+                                
+                            book_info = op_data.get('detailAttribute', {}).get('bookInfo', {})
+                            if book_info:
+                                kw.isbn = book_info.get('isbn', '-')
+                                kw.publisher = book_info.get('publisher', '-')
+                        else:
+                            kw.store_name = f"{matched_channel_name} (상세 조회 실패)"
+                    else:
+                        kw.store_name = "매칭 상품 없음 (스토어 확인)"
+                        
+                except Exception as e:
+                    kw.store_name = "데이터 로드 에러"
+            else:
+                kw.store_name = "커머스 API 키 오류"
+                
             db.session.commit()
             time.sleep(0.2)
 
@@ -205,6 +239,20 @@ def refresh_all_ranks():
     search_pw = os.environ.get("NAVER_CLIENT_SECRET", "")
     app = current_app._get_current_object()
     user_id = current_user.id
+    
+    # 누르는 즉시 화면 피드백을 주기 위해 전체 초기화
+    keywords = MonitoredKeyword.query.filter_by(user_id=user_id).all()
+    for kw in keywords:
+        kw.store_rank = "⏳ 대기중..."
+        kw.store_name = "업데이트 예정..."
+        kw.book_title = ""
+        kw.product_link = "-"
+        kw.price = "-"
+        kw.shipping_fee = "-"
+        kw.isbn = "-"
+        kw.publisher = "-"
+    db.session.commit()
+    
     thread = Thread(target=async_refresh_ranks, args=(app, user_id, search_id, search_pw))
     thread.start()
-    return jsonify({'success': True, 'message': '✅ 전체 순위 및 최신 상품 정보 조회가 시작되었습니다!\n새로고침 시 진행상황이 표시됩니다.'})
+    return jsonify({'success': True, 'message': '✅ 백그라운드 업데이트가 시작되었습니다.\n5~10초 간격으로 새로고침하여 진행상황을 확인하세요!'})
