@@ -1,7 +1,6 @@
 import os
 import time
 import re
-import difflib
 from threading import Thread
 from flask import Blueprint, render_template, request, jsonify, current_app
 from flask_login import login_required, current_user
@@ -99,7 +98,7 @@ def get_commerce_token(client_id, client_secret):
 
 def async_refresh_ranks(app, user_id, search_client_id, search_client_secret, kw_ids=None):
     with app.app_context():
-        # ✨ 1단계: 필요한 ID만 빨리 가져오고 DB 잠금을 즉시 해제합니다! (Database is locked 에러 완벽 해결)
+        # ✨ DB 잠김(Lock) 에러 방지: 필요한 ID만 빨리 가져오고 닫습니다.
         if kw_ids:
             target_ids = kw_ids
         else:
@@ -110,7 +109,7 @@ def async_refresh_ranks(app, user_id, search_client_id, search_client_secret, kw
         commerce_token = get_commerce_token(api_key.client_id, api_key.client_secret) if api_key else None
         target_mall_name = api_key.store_name if api_key else "스터디박스"
         
-        db.session.commit() # 🔥 여기서 DB 접속을 닫아서 다른 작업이 막히지 않게 합니다.
+        db.session.commit() # 여기서 DB 접속 해제
 
         if not target_ids: return
 
@@ -118,19 +117,19 @@ def async_refresh_ranks(app, user_id, search_client_id, search_client_secret, kw
         api_headers = {"X-Naver-Client-Id": search_client_id, "X-Naver-Client-Secret": search_client_secret} if search_client_id else {}
 
         for k_id in target_ids:
-            # 작업할 키워드 정보만 딱 0.1초 열어서 가져오고 다시 닫습니다.
             kw = db.session.get(MonitoredKeyword, k_id)
             if not kw: 
                 db.session.commit()
                 continue
                 
             keyword_text = kw.keyword
-            db.session.commit() # 🔥 DB 잠금 즉시 해제
+            db.session.commit() # 정보만 읽고 다시 닫음
 
             new_rank = "500위 밖"
             matched_mall_pid = None
+            kw_clean = re.sub(r'[^a-zA-Z0-9가-힣]', '', keyword_text)
 
-            # [전략 1] 네이버 쇼핑 1~500위 스캔
+            # [전략 1] 네이버 쇼핑 1~500위 정밀 스캔
             if api_headers and search_client_id:
                 try:
                     found_rank = False
@@ -141,14 +140,18 @@ def async_refresh_ranks(app, user_id, search_client_id, search_client_secret, kw
                             for idx, item in enumerate(api_res.json().get('items', [])):
                                 if target_mall_name in item.get('mallName', ''):
                                     new_rank = str(start_idx + idx)
-                                    matched_mall_pid = item.get('mallProductId')
+                                    title_clean = re.sub(r'[^a-zA-Z0-9가-힣]', '', item.get('title', ''))
+                                    
+                                    # 🚨 엉뚱한 책 도배 방지: 이름이 완전히 포함될 때만 매칭!
+                                    if kw_clean in title_clean:
+                                        matched_mall_pid = item.get('mallProductId')
                                     found_rank = True
                                     break
                         if found_rank: break
                         time.sleep(0.1)
                 except: pass
 
-            # [전략 2] 못 찾았으면 네이버 강제 검색 (키워드 + 상점명)
+            # [전략 2] 순위 밖이라면 키워드+상점명 강제 검색
             if not matched_mall_pid and api_headers and search_client_id:
                 try:
                     targeted_query = f"{keyword_text} {target_mall_name}"
@@ -157,11 +160,14 @@ def async_refresh_ranks(app, user_id, search_client_id, search_client_secret, kw
                     if api_res.status_code == 200:
                         for item in api_res.json().get('items', []):
                             if target_mall_name in item.get('mallName', ''):
-                                matched_mall_pid = item.get('mallProductId')
-                                break
+                                title_clean = re.sub(r'[^a-zA-Z0-9가-힣]', '', item.get('title', ''))
+                                
+                                # 🚨 여기서도 확실할 때만 매칭!
+                                if kw_clean in title_clean:
+                                    matched_mall_pid = item.get('mallProductId')
+                                    break
                 except: pass
 
-            # [전략 3] 커머스 API 상세 정보 추출
             updates = {}
             if commerce_token:
                 matched_origin_no = None
@@ -169,6 +175,7 @@ def async_refresh_ranks(app, user_id, search_client_id, search_client_secret, kw
                 matched_sale_price = None
                 matched_c_no = None
 
+                # 1) 고유번호 획득 성공 시 상세 정보 가져오기
                 if matched_mall_pid:
                     cp_url = f"https://api.commerce.naver.com/external/v1/products/channel-products/{matched_mall_pid}"
                     try:
@@ -181,51 +188,38 @@ def async_refresh_ranks(app, user_id, search_client_id, search_client_secret, kw
                             matched_c_no = matched_mall_pid
                     except: pass
 
-                # 네이버 검색망도 못 뚫었다면 커머스 내부 필터링 발동
-                if not matched_origin_no:
-                    kw_clean = re.sub(r'[^a-zA-Z0-9가-힣]', '', keyword_text)
-                    short_kw = kw_clean[:4] if len(kw_clean) >= 4 else kw_clean
+                # 2) 네이버 검색으로 못 찾았다면 커머스 API 내부에서 정규식으로 검색
+                if not matched_origin_no and kw_clean:
+                    short_kw = kw_clean[:3] if len(kw_clean) >= 3 else kw_clean
                     
                     candidate_products = []
-                    if short_kw:
-                        search_url = "https://api.commerce.naver.com/external/v1/products/search"
-                        for page in range(1, 4):
-                            payload = {"page": page, "size": 50, "name": short_kw}
-                            try:
-                                c_res = requests.post(search_url, headers=c_headers, json=payload, timeout=5)
-                                if c_res.status_code == 200:
-                                    contents = c_res.json().get('contents', [])
-                                    candidate_products.extend(contents)
-                                    if len(contents) < 50: break
-                                else: break
-                            except: break
+                    search_url = "https://api.commerce.naver.com/external/v1/products/search"
+                    for page in range(1, 4):
+                        payload = {"page": page, "size": 50, "name": short_kw}
+                        try:
+                            c_res = requests.post(search_url, headers=c_headers, json=payload, timeout=5)
+                            if c_res.status_code == 200:
+                                contents = c_res.json().get('contents', [])
+                                candidate_products.extend(contents)
+                                if len(contents) < 50: break
+                            else: break
+                        except: break
+                    
+                    # 🚨 유사도(difflib) 기능 완전 폐기! 무조건 순서대로 글자가 다 들어있는지 엄격 검사
+                    regex_pattern = '.*'.join(list(kw_clean))
+                    for p in candidate_products:
+                        c_prods = p.get('channelProducts', [])
+                        name = c_prods[0].get('name', '') if c_prods else p.get('name', '')
+                        name_clean = re.sub(r'[^a-zA-Z0-9가-힣]', '', name)
                         
-                        regex_pattern = '.*'.join(list(kw_clean))
-                        best_score = 0
-                        best_p = None
-                        
-                        for p in candidate_products:
-                            c_prods = p.get('channelProducts', [])
-                            name = c_prods[0].get('name', '') if c_prods else p.get('name', '')
-                            name_clean = re.sub(r'[^a-zA-Z0-9가-힣]', '', name)
-                            if not name_clean: continue
-                            
-                            if re.search(regex_pattern, name_clean):
-                                best_p = p
-                                break
-                                
-                            score = difflib.SequenceMatcher(None, kw_clean, name_clean).ratio()
-                            if score > best_score:
-                                best_score = score
-                                best_p = p
-                                
-                        if best_p and (best_p == candidate_products[0] or best_score > 0.45):
-                            c_prods = best_p.get('channelProducts', [])
-                            matched_origin_no = best_p.get('originProductNo')
-                            matched_channel_name = c_prods[0].get('name', '') if c_prods else best_p.get('name', '')
-                            matched_sale_price = c_prods[0].get('salePrice') if c_prods else best_p.get('salePrice')
+                        if name_clean and re.search(regex_pattern, name_clean):
+                            matched_origin_no = p.get('originProductNo')
+                            matched_channel_name = name
+                            matched_sale_price = c_prods[0].get('salePrice') if c_prods else p.get('salePrice')
                             matched_c_no = c_prods[0].get('channelProductNo') if c_prods else None
+                            break
 
+                # 3) 찾은 정보만 업데이트 (기존 엑셀 보존)
                 if matched_origin_no:
                     op_url = f"https://api.commerce.naver.com/external/v2/products/origin-products/{matched_origin_no}"
                     try:
@@ -247,19 +241,18 @@ def async_refresh_ranks(app, user_id, search_client_id, search_client_secret, kw
                                 if book_info.get('isbn'): updates['isbn'] = book_info.get('isbn')
                                 if book_info.get('publisher'): updates['publisher'] = book_info.get('publisher')
 
-                            # 출판사 보험 추출
                             if 'publisher' not in updates:
                                 pub_notice = op_data.get('productInfoProvidedNotice', {}).get('book', {}).get('publisher')
                                 if pub_notice: updates['publisher'] = pub_notice
                     except: pass
 
-            # ✨ 4단계: 업데이트할 데이터가 준비되면 딱 0.1초만 DB를 열어 저장하고 즉시 닫습니다.
+            # ✨ 데이터 저장할 때만 0.1초 잠시 DB 오픈!
             kw = db.session.get(MonitoredKeyword, k_id)
             if kw:
                 kw.store_rank = new_rank
                 for key, val in updates.items():
                     setattr(kw, key, val)
-                db.session.commit() # 🔥 최종 저장 및 DB 잠금 즉시 해제
+                db.session.commit()
 
             time.sleep(0.3)
 
