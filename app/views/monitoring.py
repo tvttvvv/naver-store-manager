@@ -1,6 +1,7 @@
 import os
 import time
 import re
+import difflib
 from threading import Thread
 from flask import Blueprint, render_template, request, jsonify, current_app
 from flask_login import login_required, current_user
@@ -92,13 +93,14 @@ def get_commerce_token(client_id, client_secret):
         url = "https://api.commerce.naver.com/external/v1/oauth2/token"
         data = {"client_id": client_id, "timestamp": timestamp, "client_secret_sign": client_secret_sign, "grant_type": "client_credentials", "type": "SELF"}
         res = requests.post(url, data=data, timeout=5)
-        if res.status_code == 200: return res.json().get("access_token")
-    except: pass
+        if res.status_code == 200: 
+            return res.json().get("access_token")
+    except Exception: pass
     return None
 
 def async_refresh_ranks(app, user_id, search_client_id, search_client_secret, kw_ids=None):
     with app.app_context():
-        # ✨ DB 잠김(Lock) 에러 방지: 필요한 ID만 빨리 가져오고 닫습니다.
+        # 1단계: 아이디 확보 후 DB 잠금 즉시 해제
         if kw_ids:
             target_ids = kw_ids
         else:
@@ -109,7 +111,7 @@ def async_refresh_ranks(app, user_id, search_client_id, search_client_secret, kw
         commerce_token = get_commerce_token(api_key.client_id, api_key.client_secret) if api_key else None
         target_mall_name = api_key.store_name if api_key else "스터디박스"
         
-        db.session.commit() # 여기서 DB 접속 해제
+        db.session.commit() # 잠금 해제
 
         if not target_ids: return
 
@@ -123,13 +125,16 @@ def async_refresh_ranks(app, user_id, search_client_id, search_client_secret, kw
                 continue
                 
             keyword_text = kw.keyword
-            db.session.commit() # 정보만 읽고 다시 닫음
+            db.session.commit()
 
             new_rank = "500위 밖"
             matched_mall_pid = None
             kw_clean = re.sub(r'[^a-zA-Z0-9가-힣]', '', keyword_text)
+            
+            # 여기서부터 모든 상태/에러를 기록합니다.
+            updates = {}
 
-            # [전략 1] 네이버 쇼핑 1~500위 정밀 스캔
+            # [전략 1 & 2] 순위 검색
             if api_headers and search_client_id:
                 try:
                     found_rank = False
@@ -141,41 +146,37 @@ def async_refresh_ranks(app, user_id, search_client_id, search_client_secret, kw
                                 if target_mall_name in item.get('mallName', ''):
                                     new_rank = str(start_idx + idx)
                                     title_clean = re.sub(r'[^a-zA-Z0-9가-힣]', '', item.get('title', ''))
-                                    
-                                    # 🚨 엉뚱한 책 도배 방지: 이름이 완전히 포함될 때만 매칭!
                                     if kw_clean in title_clean:
                                         matched_mall_pid = item.get('mallProductId')
                                     found_rank = True
                                     break
                         if found_rank: break
                         time.sleep(0.1)
-                except: pass
+                        
+                    if not matched_mall_pid:
+                        targeted_query = f"{keyword_text} {target_mall_name}"
+                        api_url = f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(targeted_query)}&display=20&start=1"
+                        api_res = requests.get(api_url, headers=api_headers, timeout=5)
+                        if api_res.status_code == 200:
+                            for item in api_res.json().get('items', []):
+                                if target_mall_name in item.get('mallName', ''):
+                                    title_clean = re.sub(r'[^a-zA-Z0-9가-힣]', '', item.get('title', ''))
+                                    if kw_clean in title_clean:
+                                        matched_mall_pid = item.get('mallProductId')
+                                        break
+                except Exception as e:
+                    new_rank = "검색 API 에러"
+            else:
+                new_rank = "검색 API 키 누락"
 
-            # [전략 2] 순위 밖이라면 키워드+상점명 강제 검색
-            if not matched_mall_pid and api_headers and search_client_id:
-                try:
-                    targeted_query = f"{keyword_text} {target_mall_name}"
-                    api_url = f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(targeted_query)}&display=20&start=1"
-                    api_res = requests.get(api_url, headers=api_headers, timeout=5)
-                    if api_res.status_code == 200:
-                        for item in api_res.json().get('items', []):
-                            if target_mall_name in item.get('mallName', ''):
-                                title_clean = re.sub(r'[^a-zA-Z0-9가-힣]', '', item.get('title', ''))
-                                
-                                # 🚨 여기서도 확실할 때만 매칭!
-                                if kw_clean in title_clean:
-                                    matched_mall_pid = item.get('mallProductId')
-                                    break
-                except: pass
-
-            updates = {}
+            # [전략 3] 커머스 API 상세 정보 추출 및 에러 피드백
             if commerce_token:
                 matched_origin_no = None
                 matched_channel_name = None
                 matched_sale_price = None
                 matched_c_no = None
 
-                # 1) 고유번호 획득 성공 시 상세 정보 가져오기
+                # 1) 쇼핑 API에서 고유번호 획득 성공 시
                 if matched_mall_pid:
                     cp_url = f"https://api.commerce.naver.com/external/v1/products/channel-products/{matched_mall_pid}"
                     try:
@@ -188,38 +189,43 @@ def async_refresh_ranks(app, user_id, search_client_id, search_client_secret, kw
                             matched_c_no = matched_mall_pid
                     except: pass
 
-                # 2) 네이버 검색으로 못 찾았다면 커머스 API 내부에서 정규식으로 검색
-                if not matched_origin_no and kw_clean:
-                    short_kw = kw_clean[:3] if len(kw_clean) >= 3 else kw_clean
-                    
+                # 2) 커머스 API 내부에서 직접 250개 추출해서 100% 매칭
+                if not matched_origin_no:
                     candidate_products = []
                     search_url = "https://api.commerce.naver.com/external/v1/products/search"
-                    for page in range(1, 4):
-                        payload = {"page": page, "size": 50, "name": short_kw}
+                    for page in range(1, 6): # 최신 등록 250개 상품 확보
+                        payload = {"page": page, "size": 50} 
                         try:
                             c_res = requests.post(search_url, headers=c_headers, json=payload, timeout=5)
                             if c_res.status_code == 200:
                                 contents = c_res.json().get('contents', [])
                                 candidate_products.extend(contents)
                                 if len(contents) < 50: break
-                            else: break
-                        except: break
-                    
-                    # 🚨 유사도(difflib) 기능 완전 폐기! 무조건 순서대로 글자가 다 들어있는지 엄격 검사
-                    regex_pattern = '.*'.join(list(kw_clean))
-                    for p in candidate_products:
-                        c_prods = p.get('channelProducts', [])
-                        name = c_prods[0].get('name', '') if c_prods else p.get('name', '')
-                        name_clean = re.sub(r'[^a-zA-Z0-9가-힣]', '', name)
-                        
-                        if name_clean and re.search(regex_pattern, name_clean):
-                            matched_origin_no = p.get('originProductNo')
-                            matched_channel_name = name
-                            matched_sale_price = c_prods[0].get('salePrice') if c_prods else p.get('salePrice')
-                            matched_c_no = c_prods[0].get('channelProductNo') if c_prods else None
+                            else:
+                                updates['book_title'] = f"⚠️ 커머스 에러 ({c_res.status_code})"
+                                break
+                        except Exception as e:
+                            updates['book_title'] = "⚠️ 커머스 통신 타임아웃"
                             break
+                    
+                    if candidate_products and kw_clean:
+                        regex_pattern = '.*'.join(list(kw_clean))
+                        for p in candidate_products:
+                            c_prods = p.get('channelProducts', [])
+                            name = c_prods[0].get('name', '') if c_prods else p.get('name', '')
+                            name_clean = re.sub(r'[^a-zA-Z0-9가-힣]', '', name)
+                            
+                            if name_clean and re.search(regex_pattern, name_clean):
+                                matched_origin_no = p.get('originProductNo')
+                                matched_channel_name = name
+                                matched_sale_price = c_prods[0].get('salePrice') if c_prods else p.get('salePrice')
+                                matched_c_no = c_prods[0].get('channelProductNo') if c_prods else None
+                                break
+                                
+                        if not matched_origin_no and 'book_title' not in updates:
+                            updates['book_title'] = "⚠️ 상점 내 일치상품 없음"
 
-                # 3) 찾은 정보만 업데이트 (기존 엑셀 보존)
+                # 3) 찾은 정보 DB 업데이트 (기존 엑셀 기록 보존)
                 if matched_origin_no:
                     op_url = f"https://api.commerce.naver.com/external/v2/products/origin-products/{matched_origin_no}"
                     try:
@@ -228,7 +234,7 @@ def async_refresh_ranks(app, user_id, search_client_id, search_client_secret, kw
                             op_data = op_res.json()
                             
                             updates['store_name'] = matched_channel_name
-                            updates['book_title'] = "" 
+                            updates['book_title'] = "" # 에러 메시지 초기화 (성공)
                             
                             if matched_c_no: updates['product_link'] = f"https://smartstore.naver.com/main/products/{matched_c_no}"
                             if matched_sale_price is not None: updates['price'] = f"{matched_sale_price:,}원"
@@ -244,9 +250,14 @@ def async_refresh_ranks(app, user_id, search_client_id, search_client_secret, kw
                             if 'publisher' not in updates:
                                 pub_notice = op_data.get('productInfoProvidedNotice', {}).get('book', {}).get('publisher')
                                 if pub_notice: updates['publisher'] = pub_notice
-                    except: pass
+                        else:
+                            updates['book_title'] = "⚠️ 상세정보 로드 실패"
+                    except Exception as e:
+                        updates['book_title'] = "⚠️ 상세정보 통신 에러"
+            else:
+                updates['book_title'] = "⚠️ 커머스 토큰 발급 실패 (API설정 확인)"
 
-            # ✨ 데이터 저장할 때만 0.1초 잠시 DB 오픈!
+            # 데이터 저장할 때만 0.1초 잠시 DB 오픈!
             kw = db.session.get(MonitoredKeyword, k_id)
             if kw:
                 kw.store_rank = new_rank
@@ -273,7 +284,7 @@ def refresh_all_ranks():
     
     thread = Thread(target=async_refresh_ranks, args=(app, user_id, search_id, search_pw, None))
     thread.start()
-    return jsonify({'success': True, 'message': '✅ 전체 갱신이 시작되었습니다. (약 5~10초 뒤 완료됩니다)'})
+    return jsonify({'success': True, 'message': '✅ 전체 갱신이 시작되었습니다. (잠시 후 새로고침 시 에러 원인이 표시됩니다)'})
 
 @monitoring_bp.route('/api/refresh_keyword', methods=['POST'])
 @login_required
