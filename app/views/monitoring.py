@@ -103,8 +103,17 @@ def async_refresh_ranks(app, user_id, search_client_id, search_client_secret):
         if api_key: commerce_token = get_commerce_token(api_key.client_id, api_key.client_secret)
 
         for kw in keywords:
+            # ✨ 알맹이(데이터)만 빈칸으로 싹 비워내는 초기화 작업
             kw.prev_store_rank = kw.store_rank
             kw.store_rank = "500위 밖"
+            kw.book_title = "-"
+            kw.store_name = "-"
+            kw.supply_rate = "-"
+            kw.product_link = "-"
+            kw.price = "-"
+            kw.shipping_fee = "-"
+            kw.isbn = "-"
+            kw.publisher = "-"
             
             # 1. 네이버 쇼핑 일반 API로 순위 검색
             try:
@@ -122,7 +131,7 @@ def async_refresh_ranks(app, user_id, search_client_id, search_client_secret):
                         time.sleep(0.1)
             except: kw.store_rank = "탐색 실패"
 
-            # ✨ 2. 커머스 API 완벽 추출 모드 (이름 빈칸 오류 해결)
+            # 2. 커머스 API로 알맹이를 최신 데이터로 다시 채워넣기
             if commerce_token:
                 try:
                     search_url = "https://api.commerce.naver.com/external/v1/products/search"
@@ -138,17 +147,14 @@ def async_refresh_ranks(app, user_id, search_client_id, search_client_secret):
                             o_no = p.get('originProductNo')
                             if not o_no: continue
                             
-                            # ✨ 숨어있던 스마트스토어(채널) 상품명을 직접 빼옵니다!
                             c_prods = p.get('channelProducts', [])
                             channel_name = c_prods[0].get('name', '') if c_prods else p.get('name', '')
                             clean_channel_name = channel_name.replace(" ", "").lower()
                             
-                            # 키워드가 실제 상품명에 포함되어 있는지 정확히 검사
+                            # 키워드 매칭 시 최신 정보로 꽉 채우기
                             if target_kw_clean in clean_channel_name:
-                                # [기본 정보 채우기]
                                 kw.book_title = channel_name
                                 kw.store_name = api_key.store_name if api_key else "스터디박스"
-                                kw.supply_rate = "-" # 요청하신 대로 공급률은 제외(초기화)합니다.
                                 
                                 c_no = c_prods[0].get('channelProductNo') if c_prods else None
                                 if c_no: kw.product_link = f"https://smartstore.naver.com/main/products/{c_no}"
@@ -156,29 +162,25 @@ def async_refresh_ranks(app, user_id, search_client_id, search_client_secret):
                                 sale_price = c_prods[0].get('salePrice') if c_prods else p.get('salePrice')
                                 if sale_price is not None: kw.price = f"{sale_price:,}원"
                                 
-                                # [상세 정보 채우기: 택배비, ISBN, 출판사]
                                 detail_url = f"https://api.commerce.naver.com/external/v2/products/origin-products/{o_no}"
                                 d_res = requests.get(detail_url, headers=c_headers, timeout=5)
                                 if d_res.status_code == 200:
                                     d_data = d_res.json()
                                     
-                                    # 택배비
                                     base_fee = d_data.get('deliveryInfo', {}).get('deliveryFee', {}).get('baseFee')
                                     if base_fee is not None:
                                         kw.shipping_fee = "무료" if base_fee == 0 else f"{base_fee:,}원"
                                     
-                                    # ISBN, 출판사
                                     book_info = d_data.get('detailAttribute', {}).get('bookInfo', {})
                                     if book_info:
                                         kw.isbn = book_info.get('isbn', '-')
                                         kw.publisher = book_info.get('publisher', '-')
                                 
-                                break # 매칭되는 상품 1개를 완벽하게 찾았으니, 다음 키워드로 넘어갑니다.
+                                break 
                             
                 except Exception as e:
                     pass
 
-            # 데이터가 들어올 때마다 즉시 저장하여 화면 갱신 속도를 높입니다.
             db.session.commit()
             time.sleep(0.2)
 
@@ -191,4 +193,4 @@ def refresh_all_ranks():
     user_id = current_user.id
     thread = Thread(target=async_refresh_ranks, args=(app, user_id, search_id, search_pw))
     thread.start()
-    return jsonify({'success': True, 'message': '✅ 전체 순위 및 상품 정보 동기화가 시작되었습니다!\n잠시 후 화면을 확인해주세요.'})
+    return jsonify({'success': True, 'message': '✅ 전체 순위 및 최신 상품 정보 다시 로드가 시작되었습니다!\n잠시 후 새로고침을 해주세요.'})
