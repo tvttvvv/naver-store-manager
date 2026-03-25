@@ -1,28 +1,40 @@
 {% extends "base.html" %}
 {% block content %}
-<h3 class="mb-4 fw-bold">스터디박스 모니터링 (A등급 수신함)</h3>
+<h3 class="mb-4 fw-bold">스터디박스 모니터링 (A/B/C 등급 수신함)</h3>
+
+<ul class="nav nav-tabs mb-4" id="gradeTabs">
+    <li class="nav-item">
+        <a class="nav-link active fw-bold text-dark" href="#" onclick="changeGradeTab('A', event)" id="tab-A" style="font-size: 1.1rem;">A등급 (최상단)</a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link fw-bold text-secondary" href="#" onclick="changeGradeTab('B', event)" id="tab-B" style="font-size: 1.1rem;">B등급</a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link fw-bold text-secondary" href="#" onclick="changeGradeTab('C', event)" id="tab-C" style="font-size: 1.1rem;">C등급</a>
+    </li>
+</ul>
 
 <div class="row">
     <div class="col-12">
-        <div class="card shadow-sm border-0">
+        <div class="card shadow-sm border-0 border-top border-primary border-3">
             <div class="card-body p-4">
                 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
                     <div>
-                        <h6 class="fw-bold mb-1 text-dark">키워드 및 스터디박스 상점 순위 현황</h6>
+                        <h6 class="fw-bold mb-1 text-primary">체크박스 다중 선택 및 ISBN 업데이트</h6>
                         <span class="text-muted small">
-                            <i class="bi bi-broadcast text-primary"></i> 
-                            수정 버튼을 눌러 ISBN을 입력한 뒤 업데이트를 진행하세요.
+                            <i class="bi bi-info-circle text-primary"></i> 
+                            체크박스를 클릭하고 다른 체크박스를 <b>Shift + 클릭</b>하면 그 사이의 모든 항목이 한 번에 선택됩니다!
                         </span>
                     </div>
                     <div class="d-flex flex-wrap gap-2">
-                        <button class="btn btn-warning fw-bold shadow-sm" onclick="clearAllData()">
-                            <i class="bi bi-eraser"></i> 데이터 초기화
+                        <button class="btn btn-outline-warning fw-bold shadow-sm" onclick="clearSelectedData()">
+                            <i class="bi bi-eraser"></i> 선택 항목 데이터 초기화
                         </button>
                         <button class="btn btn-dark fw-bold shadow-sm" onclick="exportToExcel()">
-                            <i class="bi bi-file-earmark-excel"></i> 엑셀 다운로드
+                            <i class="bi bi-file-earmark-excel"></i> 현재 탭 엑셀 다운로드
                         </button>
-                        <button id="refreshIsbnBtn" class="btn btn-success fw-bold shadow-sm" onclick="refreshByIsbn()">
-                            <i class="bi bi-upc-scan"></i> ISBN 매칭 업데이트
+                        <button id="refreshIsbnBtn" class="btn btn-success fw-bold shadow-sm px-4" onclick="refreshByIsbn()">
+                            <i class="bi bi-upc-scan"></i> 선택 항목 ISBN 업데이트
                         </button>
                     </div>
                 </div>
@@ -52,9 +64,10 @@
                 </div>
                 
                 <div class="table-responsive border rounded" style="max-height: 600px; overflow-y: auto;">
-                    <table class="table table-bordered text-center align-middle mb-0" style="font-size: 0.85rem; white-space: nowrap;">
+                    <table class="table table-hover table-bordered text-center align-middle mb-0" style="font-size: 0.85rem; white-space: nowrap;">
                         <thead class="table-light text-muted" style="position: sticky; top: 0; z-index: 1;">
                             <tr>
+                                <th style="width: 40px;"><input type="checkbox" id="selectAll" class="form-check-input" style="cursor: pointer;" onclick="toggleAll(this)"></th>
                                 <th>순번</th>
                                 <th>키워드</th>
                                 <th>네이버카운트</th>
@@ -71,7 +84,7 @@
                             </tr>
                         </thead>
                         <tbody id="savedKeywordsBody">
-                            <tr><td colspan="13" class="text-center py-5 text-muted">데이터를 가져오는 중입니다...</td></tr>
+                            <tr><td colspan="14" class="text-center py-5 text-muted">데이터를 가져오는 중입니다...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -82,10 +95,13 @@
 
 <style>
     .bg-neon-green { background-color: #00ff00 !important; color: #000 !important; font-weight: 800; }
+    .bg-neon-yellow { background-color: #ffff00 !important; color: #000 !important; font-weight: 800; }
+    .bg-neon-orange { background-color: #ff9900 !important; color: #000 !important; font-weight: 800; }
     .edit-input { min-width: 70px; max-width: 150px; text-align: center; }
     .rank-up { color: #dc3545; font-weight: bold; font-size: 0.8rem; }
     .rank-down { color: #0d6efd; font-weight: bold; font-size: 0.8rem; }
     .rank-same { color: #adb5bd; font-weight: bold; font-size: 0.8rem; }
+    .row-selected { background-color: #e8f4f8 !important; }
 </style>
 
 <script>
@@ -94,6 +110,30 @@
     let searchCategory = 'all';
     let searchQuery = '';
     let currentSort = 'recent';
+    let currentGradeTab = 'A'; // 현재 탭 상태
+
+    // ✨ 2초마다 새로고침 되어도 체크된 항목이 풀리지 않도록 기억하는 마법의 세트
+    let checkedIds = new Set();
+    let lastCheckedCheckbox = null; // Shift 클릭 범위를 위한 기억장치
+
+    function changeGradeTab(grade, event) {
+        if(event) event.preventDefault();
+        currentGradeTab = grade;
+        
+        // 탭 디자인 변경
+        document.querySelectorAll('.nav-link').forEach(el => {
+            el.classList.remove('active', 'text-dark');
+            el.classList.add('text-secondary');
+        });
+        const activeTab = document.getElementById('tab-' + grade);
+        activeTab.classList.add('active', 'text-dark');
+        activeTab.classList.remove('text-secondary');
+        
+        // 탭 이동 시 체크해제 및 전체선택 체크박스 해제
+        checkedIds.clear();
+        document.getElementById('selectAll').checked = false;
+        renderTable();
+    }
 
     document.getElementById('searchInput').addEventListener('input', function(e) {
         searchQuery = e.target.value.toLowerCase();
@@ -127,11 +167,56 @@
         return parseInt(rankStr.replace(/[^0-9]/g, '')) || 9999;
     }
 
+    // ✨ [신규 기능 3] Shift+클릭 기능 및 단일 체크 기능
+    function handleRowCheck(event, checkbox) {
+        if (checkbox.checked) { checkedIds.add(checkbox.value); } 
+        else { checkedIds.delete(checkbox.value); }
+
+        // Shift 키가 눌려있고 이전에 누른 체크박스가 있다면 '범위 선택' 발동!
+        if (event.shiftKey && lastCheckedCheckbox) {
+            const checkboxes = Array.from(document.querySelectorAll('.row-checkbox'));
+            let start = checkboxes.indexOf(checkbox);
+            let end = checkboxes.indexOf(lastCheckedCheckbox);
+            let min = Math.min(start, end);
+            let max = Math.max(start, end);
+            
+            for (let i = min; i <= max; i++) {
+                checkboxes[i].checked = lastCheckedCheckbox.checked;
+                if (checkboxes[i].checked) { checkedIds.add(checkboxes[i].value); } 
+                else { checkedIds.delete(checkboxes[i].value); }
+            }
+        }
+        lastCheckedCheckbox = checkbox;
+        renderTableColors(); // 배경색 업데이트
+    }
+
+    function toggleAll(source) {
+        const checkboxes = document.querySelectorAll('.row-checkbox');
+        checkboxes.forEach(cb => {
+            cb.checked = source.checked;
+            if (source.checked) checkedIds.add(cb.value);
+            else checkedIds.delete(cb.value);
+        });
+        renderTableColors();
+    }
+
+    function renderTableColors() {
+        const trs = document.querySelectorAll('#savedKeywordsBody tr');
+        trs.forEach(tr => {
+            const cb = tr.querySelector('.row-checkbox');
+            if(cb && cb.checked) { tr.classList.add('row-selected'); } 
+            else { tr.classList.remove('row-selected'); }
+        });
+    }
+
     function renderTable() {
         if (isEditing) return;
         const tbody = document.getElementById('savedKeywordsBody');
 
+        // ✨ 현재 선택된 탭(A/B/C)에 해당하는 데이터만 필터링합니다!
         let filteredData = allKeywordsData.filter(k => {
+            if (k.grade !== currentGradeTab) return false;
+
             if (!searchQuery) return true; 
             const kw = (k.keyword || '').toLowerCase();
             const pub = (k.publisher || '').toLowerCase();
@@ -152,6 +237,11 @@
         }
 
         if (filteredData.length > 0) {
+            // 등급별 배경색 지정
+            let kwBgColor = 'bg-neon-green';
+            if(currentGradeTab === 'B') kwBgColor = 'bg-neon-yellow';
+            if(currentGradeTab === 'C') kwBgColor = 'bg-neon-orange';
+
             tbody.innerHTML = filteredData.map((k, index) => {
                 let linkBtn = '<span class="text-muted">-</span>';
                 if (k.product_link !== '-' && k.product_link !== '') {
@@ -174,15 +264,16 @@
                     }
                 }
 
-                // ✨ 에러 메시지는 빨간색으로, 정상 이름은 회색으로 표시하는 로직
                 let storeNameDisplay = k.store_name.includes('⚠️') ? `<span class="text-danger fw-bold">${k.store_name}</span>` : `<span class="text-muted">${k.store_name}</span>`;
+                let isChecked = checkedIds.has(k.id.toString()) ? 'checked' : '';
 
                 return `
-                <tr>
+                <tr class="${isChecked ? 'row-selected' : ''}">
+                    <td class="align-middle bg-light"><input type="checkbox" class="form-check-input row-checkbox" value="${k.id}" onclick="handleRowCheck(event, this)" style="cursor: pointer;" ${isChecked}></td>
                     <td class="align-middle">${index + 1}</td>
-                    <td class="align-middle bg-neon-green">${k.keyword}</td>
-                    <td class="align-middle bg-neon-green fs-6">${k.search_volume.toLocaleString()}</td>
-                    <td class="align-middle bg-neon-green text-dark" id="rank_${k.id}" data-val="${k.store_rank}">${rankDisplay}</td>
+                    <td class="align-middle ${kwBgColor}">${k.keyword}</td>
+                    <td class="align-middle ${kwBgColor} fs-6">${k.search_volume.toLocaleString()}</td>
+                    <td class="align-middle ${kwBgColor} text-dark" id="rank_${k.id}" data-val="${k.store_rank}">${rankDisplay}</td>
                     <td class="align-middle"><a href="${k.link}" target="_blank" class="btn btn-sm btn-outline-secondary py-0 px-2 text-decoration-none"><i class="bi bi-search"></i> 키워드</a></td>
                     <td class="align-middle" id="plink_${k.id}" data-val="${k.product_link}">${linkBtn}</td>
                     <td class="align-middle text-muted" id="pub_${k.id}" data-val="${k.publisher}">${k.publisher}</td>
@@ -190,9 +281,7 @@
                     <td class="align-middle text-dark fw-bold" id="isbn_${k.id}" data-val="${k.isbn}">${k.isbn}</td>
                     <td class="align-middle text-muted" id="price_${k.id}" data-val="${k.price}">${k.price}</td>
                     <td class="align-middle fw-bold text-secondary" id="ship_${k.id}" data-val="${k.shipping_fee}">${k.shipping_fee}</td>
-                    
                     <td class="align-middle" id="store_${k.id}" data-val="${k.store_name}">${storeNameDisplay}</td>
-                    
                     <td class="align-middle" id="action_${k.id}">
                         <button class="btn btn-sm btn-primary py-0 px-2" onclick="editKeyword(${k.id})" title="수정"><i class="bi bi-pencil-square"></i></button>
                         <button class="btn btn-sm btn-danger py-0 px-2" onclick="deleteKeyword(${k.id})" title="삭제"><i class="bi bi-trash"></i></button>
@@ -201,13 +290,13 @@
                 `;
             }).join('');
         } else {
-            tbody.innerHTML = '<tr><td colspan="13" class="text-center py-5 text-danger fw-bold">검색 결과가 없습니다.</td></tr>';
+            tbody.innerHTML = `<tr><td colspan="14" class="text-center py-5 text-muted">${currentGradeTab}등급에 해당하는 키워드가 없습니다.</td></tr>`;
         }
     }
 
     function editKeyword(id) {
         isEditing = true; 
-        const fields = ['rank', 'plink', 'pub', 'sup', 'isbn', 'price', 'ship', 'store']; // title 필드 삭제됨
+        const fields = ['rank', 'plink', 'pub', 'sup', 'isbn', 'price', 'ship', 'store'];
         fields.forEach(f => {
             const td = document.getElementById(`${f}_${id}`);
             const val = td.getAttribute('data-val'); 
@@ -255,40 +344,66 @@
         loadSavedKeywords();
     }
 
+    // ✨ 선택된 항목들만 ISBN 매칭 요청
     async function refreshByIsbn() {
+        if (checkedIds.size === 0) {
+            alert("업데이트할 항목을 왼쪽 체크박스로 먼저 선택해주세요!");
+            return;
+        }
+
         const btn = document.getElementById('refreshIsbnBtn');
         const origText = btn.innerHTML;
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 매칭 요청중...';
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 전송중...';
         btn.disabled = true;
+
+        const fd = new FormData();
+        checkedIds.forEach(id => fd.append('ids[]', id));
+
         try {
-            const res = await fetch("{{ url_for('monitoring.refresh_by_isbn') }}", { method: 'POST' });
+            const res = await fetch("{{ url_for('monitoring.refresh_by_isbn') }}", { method: 'POST', body: fd });
             const result = await res.json();
             alert(result.message);
+            // 요청을 보낸 후 체크를 모두 풀고 싶다면 checkedIds.clear(); 을 넣으면 됩니다.
             loadSavedKeywords();
         } catch(e) { alert('서버 에러가 발생했습니다.'); } 
         finally { btn.innerHTML = origText; btn.disabled = false; }
     }
 
-    async function clearAllData() {
-        if(!confirm("키워드와 ISBN을 제외한 나머지 데이터(가격, 링크, 택배비 등)를 모두 비우시겠습니까?")) return;
+    // ✨ 선택된 항목들만 데이터 초기화 요청 (수동 입력 보호)
+    async function clearSelectedData() {
+        if (checkedIds.size === 0) {
+            alert("초기화할 항목을 왼쪽 체크박스로 먼저 선택해주세요!");
+            return;
+        }
+
+        if(!confirm(`선택한 ${checkedIds.size}개 항목의 검색 데이터(가격, 택배비 등)를 모두 비우시겠습니까? (수동 입력한 키워드, ISBN 등은 안전하게 보존됩니다)`)) return;
+        
+        const fd = new FormData();
+        checkedIds.forEach(id => fd.append('ids[]', id));
+
         try {
-            const res = await fetch("{{ url_for('monitoring.clear_data') }}", { method: 'POST' });
+            const res = await fetch("{{ url_for('monitoring.clear_data') }}", { method: 'POST', body: fd });
             const result = await res.json();
             if(result.success) { alert(result.message); loadSavedKeywords(); }
         } catch(e) { alert('초기화 중 오류가 발생했습니다.'); }
     }
 
+    // ✨ 현재 보고 있는 탭의 항목들을 엑셀로 다운로드
     function exportToExcel() {
-        if(allKeywordsData.length === 0) { alert("다운로드할 데이터가 없습니다."); return; }
+        // 현재 탭의 데이터만 추출
+        let exportData = allKeywordsData.filter(k => k.grade === currentGradeTab);
+        if(exportData.length === 0) { alert("다운로드할 데이터가 없습니다."); return; }
+        
         let csvContent = "\uFEFF순번,키워드,네이버카운트,스터디박스 순위,상품링크,출판사명,공급률,ISBN,가격,택배비,상점 책제목\n";
-        allKeywordsData.forEach((k, index) => {
+        exportData.forEach((k, index) => {
             let row = [ index + 1, k.keyword, k.search_volume, k.store_rank, k.product_link, k.publisher, k.supply_rate, k.isbn, k.price, k.shipping_fee, k.store_name ];
             csvContent += row.map(v => `"${(v || '').toString().replace(/"/g, '""')}"`).join(',') + "\n";
         });
+        
         let blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         let link = document.createElement("a");
         link.href = URL.createObjectURL(blob);
-        link.download = "스터디박스_모니터링.csv";
+        link.download = `스터디박스_모니터링_${currentGradeTab}등급.csv`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
