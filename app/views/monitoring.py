@@ -22,14 +22,17 @@ def index():
 def receive_webhook():
     data = request.get_json()
     if not data: return jsonify({'success': False, 'message': 'No data'})
-    grade_str = data.get('grade', '')
+    
+    # ✨ 대소문자 문제 완벽 해결: 무조건 대문자로 변환해서 검사합니다 (b등급 -> B등급)
+    grade_str = str(data.get('grade', '')).upper()
     keyword = data.get('keyword', '')
     
     grade_char = 'A'
     if 'C' in grade_str: grade_char = 'C'
     elif 'B' in grade_str: grade_char = 'B'
 
-    if ('A' in grade_str or 'B' in grade_str or 'C' in grade_str) and keyword:
+    # 키워드만 있으면 무조건 안전하게 저장합니다.
+    if keyword:
         user = User.query.first()
         if not user: return jsonify({'success': False, 'message': 'No user found'})
         existing = MonitoredKeyword.query.filter_by(user_id=user.id, keyword=keyword).first()
@@ -49,25 +52,14 @@ def receive_webhook():
 @login_required
 def get_saved_keywords():
     keywords = MonitoredKeyword.query.filter_by(user_id=current_user.id).order_by(MonitoredKeyword.id.desc()).all()
-    
-    # ✨ 백엔드 철벽 방어: null 값이 하나라도 있으면 프론트엔드가 뻗으므로 무조건 '-'로 덮어서 보냅니다!
     return jsonify({
         'success': True,
         'data': [{
-            'id': k.id, 
-            'keyword': k.keyword or '-', 
-            'search_volume': k.search_volume or 0, 
+            'id': k.id, 'keyword': k.keyword or '-', 'search_volume': k.search_volume or 0, 
             'grade': 'A' if k.rank_info == '최상단 노출' else (k.rank_info if k.rank_info in ['A', 'B', 'C'] else 'A'),
-            'link': k.link or '#', 
-            'publisher': k.publisher or '-', 
-            'supply_rate': k.supply_rate or '-', 
-            'isbn': k.isbn or '-',
-            'price': k.price or '-', 
-            'shipping_fee': k.shipping_fee or '-', 
-            'store_name': k.store_name or '-',
-            'book_title': k.book_title or '-', 
-            'product_link': k.product_link or '-', 
-            'store_rank': k.store_rank or '-',
+            'link': k.link or '#', 'publisher': k.publisher or '-', 'supply_rate': k.supply_rate or '-', 'isbn': k.isbn or '-',
+            'price': k.price or '-', 'shipping_fee': k.shipping_fee or '-', 'store_name': k.store_name or '-',
+            'book_title': k.book_title or '-', 'product_link': k.product_link or '-', 'store_rank': k.store_rank or '-',
             'prev_store_rank': k.prev_store_rank or '-' 
         } for k in keywords]
     })
@@ -100,6 +92,24 @@ def update_keyword():
         db.session.commit()
         return jsonify({'success': True})
     return jsonify({'success': False, 'message': '데이터를 찾을 수 없습니다.'})
+
+# ✨ [신규 기능] 선택한 항목들을 A, B, C 등급으로 즉시 이동시키는 기능!
+@monitoring_bp.route('/api/change_grade', methods=['POST'])
+@login_required
+def change_grade():
+    user_id = current_user.id
+    selected_ids = request.form.getlist('ids[]')
+    new_grade = request.form.get('grade', 'A')
+    
+    if not selected_ids:
+        return jsonify({'success': False, 'message': '이동할 항목을 선택해주세요.'})
+        
+    keywords = MonitoredKeyword.query.filter(MonitoredKeyword.id.in_(selected_ids), MonitoredKeyword.user_id==user_id).all()
+    for kw in keywords:
+        kw.rank_info = new_grade
+    db.session.commit()
+    
+    return jsonify({'success': True, 'message': f'✅ 선택한 {len(keywords)}개 항목이 {new_grade}등급으로 이동되었습니다.'})
 
 def get_commerce_token(client_id, client_secret):
     try:
