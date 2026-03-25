@@ -1,6 +1,7 @@
 import os
 import time
 import re
+import difflib
 from threading import Thread
 from flask import Blueprint, render_template, request, jsonify, current_app
 from flask_login import login_required, current_user
@@ -128,7 +129,53 @@ def clear_data():
     db.session.commit()
     return jsonify({'success': True, 'message': f'✅ 선택한 {len(keywords)}개 항목의 검색 정보가 초기화되었습니다.'})
 
-# ✨ [완전히 새로운 방식] ISBN 역추적 -> 도서명 추출 -> 상점 정밀 검색 엔진!
+# ✨ [회원님 아이디어 적용] 외부 사이트들을 싹 다 뒤져서 책 이름을 탈취하는 함수!
+def get_real_title_from_external_sites(isbn, api_headers):
+    isbn = isbn.replace('-', '').strip()
+    if not isbn: return ""
+    
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+    
+    # 1. 네이버 도서 API 시도
+    if api_headers:
+        try:
+            url = f"https://openapi.naver.com/v1/search/book.json?query={isbn}"
+            res = requests.get(url, headers=api_headers, timeout=3)
+            if res.status_code == 200 and res.json().get('items'):
+                title = res.json()['items'][0].get('title', '')
+                title = re.sub(r'<[^>]*>', '', title)
+                return re.sub(r'\(.*?\)', '', title).strip()
+        except: pass
+        
+    # 2. 알라딘 검색 시도 (네이버가 차단했을 때)
+    try:
+        url = f"https://www.aladin.co.kr/search/wsearchresult.aspx?SearchTarget=All&SearchWord={isbn}"
+        res = requests.get(url, headers=headers, timeout=3)
+        match = re.search(r'class="bo3".*?<strong>(.*?)</strong>', res.text)
+        if match:
+            title = re.sub(r'<[^>]*>', '', match.group(1))
+            return re.sub(r'\(.*?\)', '', title).strip()
+    except: pass
+    
+    # 3. 교보문고 검색 시도
+    try:
+        url = f"https://search.kyobobook.co.kr/search?keyword={isbn}"
+        res = requests.get(url, headers=headers, timeout=3)
+        match = re.search(r'<span class="prod_name">(.*?)</span>', res.text)
+        if match:
+            return match.group(1).strip()
+    except: pass
+    
+    # 4. 구글 북스 API 시도 (전 세계 도서 DB)
+    try:
+        url = f"https://www.googleapis.com/books/v1/volumes?q=isbn:{isbn}"
+        res = requests.get(url, timeout=3)
+        if res.status_code == 200 and res.json().get('items'):
+            return res.json()['items'][0]['volumeInfo'].get('title', '').strip()
+    except: pass
+    
+    return ""
+
 def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, target_ids):
     with app.app_context():
         api_key = ApiKey.query.filter_by(user_id=user_id).first()
@@ -145,19 +192,17 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                 continue
                 
             keyword_text = kw.keyword
-            # ISBN을 숫자만 깔끔하게 추출합니다.
             target_isbn = str(kw.isbn).strip().replace('-', '') if kw.isbn and kw.isbn != '-' else ""
             db.session.commit()
 
-            if not target_isbn:
-                continue
+            if not target_isbn: continue
 
             new_rank = "500위 밖"
             matched_mall_pid = None
             matched_origin_no = None
             updates = {}
 
-            # 1. 키워드로 내 상점의 현재 '순위'만 확인 (순위는 검색어로만 알 수 있으므로)
+            # [1] 순위 확인 (키워드 기준)
             if api_headers and search_client_id:
                 try:
                     found_rank = False
@@ -173,42 +218,29 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                         if found_rank: break
                 except: pass
 
-            # ✨ 2. [핵심 1] 네이버 도서 API를 찔러서 ISBN에 해당하는 '진짜 책 제목'을 알아냅니다.
-            real_book_title = ""
-            if api_headers and search_client_id:
-                try:
-                    # 네이버 공식 책 검색 API 사용
-                    book_url = f"https://openapi.naver.com/v1/search/book.json?query={target_isbn}"
-                    book_res = requests.get(book_url, headers=api_headers, timeout=5)
-                    if book_res.status_code == 200 and book_res.json().get('items'):
-                        raw_title = book_res.json()['items'][0].get('title', '')
-                        # 제목에서 HTML 태그와 (양장본) 같은 괄호 내용을 깔끔하게 제거합니다.
-                        clean_title = re.sub(r'<[^>]*>', '', raw_title)
-                        clean_title = re.sub(r'\(.*?\)', '', clean_title).strip()
-                        
-                        # 내 상점에서 검색하기 좋게 핵심 단어 2개만 뽑아냅니다. (예: "위버맨쉬 니체" -> "위버맨쉬")
-                        words = clean_title.split()
-                        real_book_title = f"{words[0]} {words[1]}" if len(words) >= 2 else clean_title
-                except: pass
+            # ✨ [2] 외부망을 동원해 진짜 책 이름 탈취!
+            real_book_title = get_real_title_from_external_sites(target_isbn, api_headers)
 
-            # ✨ 3. [핵심 2] 알아낸 진짜 책 제목으로 커머스 창고에서 '정밀 검색'을 돌립니다.
-            if commerce_token:
+            if not real_book_title:
+                updates['book_title'] = "⚠️ ISBN으로 책 이름 찾기 실패 (외부망 전체 차단)"
+            elif commerce_token:
+                # 알아낸 진짜 제목으로 내 상점(커머스) 검색
+                words = real_book_title.split()
+                # 검색 정확도를 높이기 위해 책 제목의 앞 2단어만 사용 (예: "위버맨쉬 니체" -> "위버맨쉬 니체")
+                short_title = f"{words[0]} {words[1]}" if len(words) >= 2 else real_book_title
+                
                 candidate_products = []
                 search_url = "https://api.commerce.naver.com/external/v1/products/search"
                 
-                # API로 책 제목을 알아냈다면 그 제목으로 검색하고, 실패했다면 그냥 내 상점 최신 상품 150개를 가져옵니다.
                 for page in range(1, 4):
-                    payload = {"page": page, "size": 50}
-                    if real_book_title:
-                        payload["name"] = real_book_title
-                        
+                    payload = {"page": page, "size": 50, "name": short_title}
                     try:
                         c_res = requests.post(search_url, headers=c_headers, json=payload, timeout=5)
                         if c_res.status_code == 200:
                             candidate_products.extend(c_res.json().get('contents', []))
                     except: pass
-                
-                # 4. [핵심 3] 가져온 상품들의 속을 까서 '바코드(ISBN)'가 100% 일치하는지 최종 확인합니다.
+
+                # ✨ [3] 가져온 상품들 중 바코드(ISBN)가 정확히 일치하는 놈 체포!
                 for p in candidate_products:
                     o_no = p.get('originProductNo')
                     if not o_no: continue
@@ -221,20 +253,19 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                             book_isbn = op_data.get('detailAttribute', {}).get('bookInfo', {}).get('isbn', '')
                             book_isbn_clean = book_isbn.replace('-', '').strip()
                             
-                            # 타겟 ISBN과 책의 ISBN이 서로 포함관계인지(완벽 일치) 확인!
+                            # 찾았다! 정보 수집 시작
                             if target_isbn in book_isbn_clean or (book_isbn_clean and book_isbn_clean in target_isbn):
                                 matched_origin_no = o_no
                                 c_prods = p.get('channelProducts', [])
                                 if c_prods: matched_mall_pid = c_prods[0].get('channelProductNo')
                                 
                                 updates['store_name'] = op_data.get('name', p.get('name'))
-                                updates['book_title'] = "" # 에러 메시지 삭제
+                                updates['book_title'] = "" # 에러 텍스트 초기화
                                 sale_price = op_data.get('salePrice')
                                 if sale_price is not None: updates['price'] = f"{sale_price:,}원"
                                 fee = op_data.get('deliveryInfo', {}).get('deliveryFee', {}).get('baseFee')
                                 if fee is not None: updates['shipping_fee'] = "무료" if fee == 0 else f"{fee:,}원"
                                 
-                                # 수동입력 출판사가 없을 경우만 채우기
                                 book_info = op_data.get('detailAttribute', {}).get('bookInfo', {})
                                 if book_info and book_info.get('publisher'): 
                                     updates['publisher'] = book_info.get('publisher')
@@ -242,16 +273,15 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                                     pub_notice = op_data.get('productInfoProvidedNotice', {}).get('book', {}).get('publisher')
                                     if pub_notice: updates['publisher'] = pub_notice
                                 
-                                break # 완벽한 책을 찾았으니 검사 종료!
+                                break # 완벽한 일치 상품을 찾았으니 검사 종료
                     except: pass
 
-            # 5. 최종 데이터 정리 및 저장
-            if matched_mall_pid or matched_origin_no:
-                updates['product_link'] = f"https://smartstore.naver.com/main/products/{matched_mall_pid}"
-            else:
-                updates['book_title'] = "⚠️ 상점에 해당 ISBN 없음"
+                if matched_mall_pid or matched_origin_no:
+                    updates['product_link'] = f"https://smartstore.naver.com/main/products/{matched_mall_pid}"
+                else:
+                    updates['book_title'] = f"⚠️ 상점에 상품 없음 (이름: {short_title})"
 
-            # DB에 안전하게 덮어쓰기
+            # DB 안전하게 저장
             kw = db.session.get(MonitoredKeyword, k_id)
             if kw:
                 kw.store_rank = new_rank
@@ -296,4 +326,4 @@ def refresh_by_isbn():
         
     thread = Thread(target=async_refresh_by_isbn, args=(app, user_id, search_id, search_pw, target_ids))
     thread.start()
-    return jsonify({'success': True, 'message': f'✅ 선택하신 {len(target_ids)}개 항목의 강력한 ISBN 역추적 업데이트를 시작합니다.'})
+    return jsonify({'success': True, 'message': f'✅ 선택하신 {len(target_ids)}개 항목에 대해 외부 사이트를 통한 우회 매칭을 시작합니다.'})
