@@ -26,18 +26,24 @@
             <div class="card-body p-4">
                 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
                     <div>
-                        <h6 class="fw-bold mb-1 text-primary">체크박스 다중 선택 및 ISBN 업데이트</h6>
+                        <h6 class="fw-bold mb-1 text-primary">체크박스 다중 선택 및 항목 관리</h6>
                         <span class="text-muted small">
                             <i class="bi bi-info-circle text-primary"></i> 
                             체크박스를 클릭하고 다른 체크박스를 <b>Shift + 클릭</b>하면 그 사이의 모든 항목이 한 번에 선택됩니다!
                         </span>
                     </div>
                     <div class="d-flex flex-wrap gap-2">
+                        <!-- ✨ 새롭게 추가된 등급 이동 버튼 -->
+                        <div class="btn-group shadow-sm" role="group">
+                            <button type="button" class="btn btn-outline-primary fw-bold" onclick="moveSelectedGrade('A')">A로 이동</button>
+                            <button type="button" class="btn btn-outline-dark fw-bold" onclick="moveSelectedGrade('B')">B로 이동</button>
+                            <button type="button" class="btn btn-outline-dark fw-bold" onclick="moveSelectedGrade('C')">C로 이동</button>
+                        </div>
                         <button class="btn btn-outline-warning fw-bold shadow-sm" onclick="clearSelectedData()">
-                            <i class="bi bi-eraser"></i> 선택 항목 데이터 초기화
+                            <i class="bi bi-eraser"></i> 데이터 초기화
                         </button>
                         <button class="btn btn-dark fw-bold shadow-sm" onclick="exportToExcel()">
-                            <i class="bi bi-file-earmark-excel"></i> 현재 탭 엑셀 다운로드
+                            <i class="bi bi-file-earmark-excel"></i> 엑셀 다운로드
                         </button>
                         <button id="refreshIsbnBtn" class="btn btn-success fw-bold shadow-sm px-4" onclick="refreshByIsbn()">
                             <i class="bi bi-upc-scan"></i> 선택 항목 ISBN 업데이트
@@ -167,9 +173,7 @@
                 allKeywordsData = result.data;
                 renderTable(); 
             }
-        } catch (e) {
-            console.error("데이터 로드 중 에러 발생:", e);
-        }
+        } catch (e) {}
     }
 
     function getRankNum(rankStr) {
@@ -354,6 +358,31 @@
         fd.append('id', id);
         await fetch("{{ url_for('monitoring.delete_keyword') }}", { method: 'POST', body: fd });
         loadSavedKeywords();
+    }
+
+    // ✨ [신규 기능] 체크된 항목들을 원하는 등급 탭으로 이사시키는 마법의 버튼!
+    async function moveSelectedGrade(grade) {
+        if (checkedIds.size === 0) {
+            alert("이동할 항목을 왼쪽 체크박스로 먼저 선택해주세요!");
+            return;
+        }
+
+        if(!confirm(`선택한 ${checkedIds.size}개 항목을 [${grade}등급] 탭으로 이동하시겠습니까?`)) return;
+        
+        const fd = new FormData();
+        checkedIds.forEach(id => fd.append('ids[]', id));
+        fd.append('grade', grade);
+
+        try {
+            const res = await fetch("{{ url_for('monitoring.change_grade') }}", { method: 'POST', body: fd });
+            const result = await res.json();
+            if(result.success) { 
+                alert(result.message); 
+                checkedIds.clear();
+                document.getElementById('selectAll').checked = false;
+                loadSavedKeywords(); 
+            }
+        } catch(e) { alert('등급 이동 중 오류가 발생했습니다.'); }
     }
 
     async function refreshByIsbn() {
