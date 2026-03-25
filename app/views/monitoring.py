@@ -25,7 +25,6 @@ def receive_webhook():
     grade_str = data.get('grade', '')
     keyword = data.get('keyword', '')
     
-    # ✨ A, B, C 등급을 정확히 구별하여 저장
     grade_char = 'A'
     if 'C' in grade_str: grade_char = 'C'
     elif 'B' in grade_str: grade_char = 'B'
@@ -37,7 +36,6 @@ def receive_webhook():
         if not existing:
             new_kw = MonitoredKeyword(
                 user_id=user.id, keyword=keyword, search_volume=data.get('search_volume', 0),
-                # ✨ DB 수정을 피하기 위해 안 쓰던 rank_info 칸에 등급(A/B/C)을 몰래 저장합니다!
                 rank_info=grade_char, 
                 link=data.get('link', '#'), shipping_fee='-', 
                 store_rank=data.get('store_rank', '-'), prev_store_rank='-'
@@ -55,7 +53,6 @@ def get_saved_keywords():
         'success': True,
         'data': [{
             'id': k.id, 'keyword': k.keyword, 'search_volume': k.search_volume, 
-            # ✨ 기존 데이터("최상단 노출")는 안전하게 모두 A등급으로 취급합니다!
             'grade': 'A' if k.rank_info == '최상단 노출' else (k.rank_info if k.rank_info in ['A', 'B', 'C'] else 'A'),
             'link': k.link, 'publisher': k.publisher, 'supply_rate': k.supply_rate, 'isbn': k.isbn,
             'price': k.price, 'shipping_fee': k.shipping_fee, 'store_name': k.store_name,
@@ -106,7 +103,6 @@ def get_commerce_token(client_id, client_secret):
     except: pass
     return None
 
-# ✨ [선택 항목 지우개] 체크된 항목들만 깔끔하게 비웁니다!
 @monitoring_bp.route('/api/clear_data', methods=['POST'])
 @login_required
 def clear_data():
@@ -129,7 +125,6 @@ def clear_data():
         kw.shipping_fee = '-'
         kw.store_name = '-'
         kw.book_title = '-'
-        # 🚨 수동 입력(키워드, ISBN, 출판사, 공급률)은 절대 건드리지 않습니다!
     db.session.commit()
     return jsonify({'success': True, 'message': f'✅ 선택한 {len(keywords)}개 항목의 검색 정보가 초기화되었습니다.'})
 
@@ -149,15 +144,16 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                 continue
                 
             keyword_text = kw.keyword
-            target_isbn = kw.isbn
+            # 검색 정확도를 200% 올리기 위해 띄어쓰기나 하이픈(-)을 전부 제거한 순수 ISBN 숫자만 뽑아냅니다.
+            target_isbn = str(kw.isbn).strip().replace('-', '') if kw.isbn and kw.isbn != '-' else ""
             db.session.commit()
 
             new_rank = "500위 밖"
             matched_mall_pid = None
-            matched_origin_no = None
             updates = {}
 
             if api_headers and search_client_id:
+                # 1. 스터디박스 순위 스캔 (키워드 기준)
                 try:
                     found_rank = False
                     for start_idx in [1, 101, 201]:
@@ -172,62 +168,41 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                         if found_rank: break
                 except: pass
 
-                try:
-                    api_url = f"https://openapi.naver.com/v1/search/shop.json?query={target_isbn}&display=100&start=1"
-                    api_res = requests.get(api_url, headers=api_headers, timeout=5)
-                    if api_res.status_code == 200:
-                        for item in api_res.json().get('items', []):
-                            if target_mall_name in item.get('mallName', ''):
-                                matched_mall_pid = item.get('mallProductId')
-                                break
-                except: pass
-
-            if not matched_mall_pid and commerce_token:
-                kw_clean = re.sub(r'[^a-zA-Z0-9가-힣]', '', keyword_text)
-                short_kw = kw_clean[:3] if len(kw_clean) >= 3 else kw_clean
-                
-                candidate_products = []
-                search_url = "https://api.commerce.naver.com/external/v1/products/search"
-                if short_kw:
-                    for page in range(1, 4):
-                        payload = {"page": page, "size": 50, "name": short_kw}
+                # ✨ 2. 네이버 카탈로그 강제 해제 타격! (회원님 아이디어 적용)
+                if target_isbn:
+                    # 네이버 검색엔진에 무조건 내 상점의 상품을 뱉어내도록 조합된 검색어들을 던집니다.
+                    queries = [
+                        f"{target_isbn} {target_mall_name}", # 가장 강력한 조합 (ISBN + 상점명)
+                        target_isbn,                         # 카탈로그에 안 묶인 경우를 대비한 보험
+                        f"{keyword_text} {target_mall_name}" # 만약을 대비한 키워드 + 상점명
+                    ]
+                    
+                    for q in queries:
+                        if matched_mall_pid: break
+                        if not q.strip(): continue
                         try:
-                            c_res = requests.post(search_url, headers=c_headers, json=payload, timeout=5)
-                            if c_res.status_code == 200:
-                                candidate_products.extend(c_res.json().get('contents', []))
+                            api_url = f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(q)}&display=50&start=1"
+                            api_res = requests.get(api_url, headers=api_headers, timeout=5)
+                            if api_res.status_code == 200:
+                                for item in api_res.json().get('items', []):
+                                    if target_mall_name in item.get('mallName', ''):
+                                        matched_mall_pid = item.get('mallProductId')
+                                        break
                         except: pass
-                
-                for p in candidate_products:
-                    o_no = p.get('originProductNo')
-                    if not o_no: continue
-                    op_url = f"https://api.commerce.naver.com/external/v2/products/origin-products/{o_no}"
-                    try:
-                        op_res = requests.get(op_url, headers=c_headers, timeout=5)
-                        if op_res.status_code == 200:
-                            op_data = op_res.json()
-                            book_isbn = op_data.get('detailAttribute', {}).get('bookInfo', {}).get('isbn', '')
-                            
-                            if target_isbn.replace('-','') in book_isbn.replace('-',''):
-                                matched_origin_no = o_no
-                                c_prods = p.get('channelProducts', [])
-                                if c_prods: matched_mall_pid = c_prods[0].get('channelProductNo')
-                                
-                                updates['store_name'] = op_data.get('name', p.get('name'))
-                                sale_price = op_data.get('salePrice')
-                                if sale_price is not None: updates['price'] = f"{sale_price:,}원"
-                                fee = op_data.get('deliveryInfo', {}).get('deliveryFee', {}).get('baseFee')
-                                if fee is not None: updates['shipping_fee'] = "무료" if fee == 0 else f"{fee:,}원"
-                                break
-                    except: pass
 
-            if matched_mall_pid and not matched_origin_no and commerce_token:
+            # 3. 확보해낸 고유상품번호로 커머스 API의 숨겨진 상세 정보(택배비, 출판사 등)를 싹쓸이합니다.
+            if matched_mall_pid and commerce_token:
                 cp_url = f"https://api.commerce.naver.com/external/v1/products/channel-products/{matched_mall_pid}"
                 try:
                     cp_res = requests.get(cp_url, headers=c_headers, timeout=5)
                     if cp_res.status_code == 200:
                         cp_data = cp_res.json()
                         matched_origin_no = cp_data.get('originProductNo')
+                        
                         updates['store_name'] = cp_data.get('name')
+                        updates['book_title'] = "" # 에러 글씨 초기화
+                        updates['product_link'] = f"https://smartstore.naver.com/main/products/{matched_mall_pid}"
+                        
                         sale_price = cp_data.get('salePrice')
                         if sale_price is not None: updates['price'] = f"{sale_price:,}원"
 
@@ -238,16 +213,19 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                                 op_data = op_res.json()
                                 fee = op_data.get('deliveryInfo', {}).get('deliveryFee', {}).get('baseFee')
                                 if fee is not None: updates['shipping_fee'] = "무료" if fee == 0 else f"{fee:,}원"
+                                
                                 book_info = op_data.get('detailAttribute', {}).get('bookInfo', {})
-                                if book_info and book_info.get('publisher'):
+                                if book_info and book_info.get('publisher'): 
                                     updates['publisher'] = book_info.get('publisher')
+                                elif 'publisher' not in updates:
+                                    pub_notice = op_data.get('productInfoProvidedNotice', {}).get('book', {}).get('publisher')
+                                    if pub_notice: updates['publisher'] = pub_notice
                 except: pass
-
-            if matched_mall_pid or matched_origin_no:
-                updates['product_link'] = f"https://smartstore.naver.com/main/products/{matched_mall_pid}"
             else:
-                updates['store_name'] = "⚠️ 상점에 해당 ISBN 없음"
+                if not matched_mall_pid: 
+                    updates['book_title'] = "⚠️ 상점 검색 실패 (API 카탈로그 묶임)"
 
+            # 4. 데이터 안전하게 덮어쓰기 (수동 기록 보호)
             kw = db.session.get(MonitoredKeyword, k_id)
             if kw:
                 kw.store_rank = new_rank
@@ -271,7 +249,6 @@ def refresh_by_isbn():
     app = current_app._get_current_object()
     user_id = current_user.id
     
-    # ✨ 화면에서 체크(선택)된 항목들의 ID만 배열로 받아옵니다!
     selected_ids = request.form.getlist('ids[]')
     if not selected_ids:
         return jsonify({'success': False, 'message': '⚠️ 업데이트할 항목을 먼저 체크박스로 선택해주세요.'})
