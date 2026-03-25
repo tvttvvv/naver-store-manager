@@ -120,7 +120,6 @@
     let checkedIds = new Set();
     let lastCheckedCheckbox = null;
 
-    // ✨ 탭의 숫자 뱃지를 업데이트해주는 기능
     function updateTabCounts() {
         let countA = allKeywordsData.filter(k => k.grade === 'A').length;
         let countB = allKeywordsData.filter(k => k.grade === 'B').length;
@@ -222,7 +221,7 @@
         if (isEditing) return;
         const tbody = document.getElementById('savedKeywordsBody');
 
-        updateTabCounts(); // 화면 갱신될 때마다 탭 숫자 업데이트!
+        updateTabCounts(); 
 
         let filteredData = allKeywordsData.filter(k => {
             if (k.grade !== currentGradeTab) return false;
@@ -405,4 +404,21 @@
         let csvContent = "\uFEFF순번,키워드,네이버카운트,스터디박스 순위,상품링크,출판사명,공급률,ISBN,가격,택배비,상점 책제목\n";
         exportData.forEach((k, index) => {
             let row = [ index + 1, k.keyword || '-', k.search_volume || 0, k.store_rank || '-', k.product_link || '-', k.publisher || '-', k.supply_rate || '-', k.isbn || '-', k.price || '-', k.shipping_fee || '-', k.store_name || '-' ];
-            csv
+            csvContent += row.map(v => `"${(v || '').toString().replace(/"/g, '""')}"`).join(',') + "\n";
+        });
+        
+        let blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        let link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = `스터디박스_모니터링_${currentGradeTab}등급.csv`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+        loadSavedKeywords();
+        setInterval(loadSavedKeywords, 2000); 
+    });
+</script>
+{% endblock %}
