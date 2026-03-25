@@ -4,13 +4,19 @@
 
 <ul class="nav nav-tabs mb-4" id="gradeTabs">
     <li class="nav-item">
-        <a class="nav-link active fw-bold text-dark" href="#" onclick="changeGradeTab('A', event)" id="tab-A" style="font-size: 1.1rem;">A등급 (최상단)</a>
+        <a class="nav-link active fw-bold text-dark" href="#" onclick="changeGradeTab('A', event)" id="tab-A" style="font-size: 1.1rem;">
+            A등급 <span class="badge bg-primary rounded-pill ms-1">0</span>
+        </a>
     </li>
     <li class="nav-item">
-        <a class="nav-link fw-bold text-secondary" href="#" onclick="changeGradeTab('B', event)" id="tab-B" style="font-size: 1.1rem;">B등급</a>
+        <a class="nav-link fw-bold text-secondary" href="#" onclick="changeGradeTab('B', event)" id="tab-B" style="font-size: 1.1rem;">
+            B등급 <span class="badge bg-secondary rounded-pill ms-1">0</span>
+        </a>
     </li>
     <li class="nav-item">
-        <a class="nav-link fw-bold text-secondary" href="#" onclick="changeGradeTab('C', event)" id="tab-C" style="font-size: 1.1rem;">C등급</a>
+        <a class="nav-link fw-bold text-secondary" href="#" onclick="changeGradeTab('C', event)" id="tab-C" style="font-size: 1.1rem;">
+            C등급 <span class="badge bg-secondary rounded-pill ms-1">0</span>
+        </a>
     </li>
 </ul>
 
@@ -110,17 +116,24 @@
     let searchCategory = 'all';
     let searchQuery = '';
     let currentSort = 'recent';
-    let currentGradeTab = 'A'; // 현재 탭 상태
-
-    // ✨ 2초마다 새로고침 되어도 체크된 항목이 풀리지 않도록 기억하는 마법의 세트
+    let currentGradeTab = 'A';
     let checkedIds = new Set();
-    let lastCheckedCheckbox = null; // Shift 클릭 범위를 위한 기억장치
+    let lastCheckedCheckbox = null;
+
+    // ✨ 탭의 숫자 뱃지를 업데이트해주는 기능
+    function updateTabCounts() {
+        let countA = allKeywordsData.filter(k => k.grade === 'A').length;
+        let countB = allKeywordsData.filter(k => k.grade === 'B').length;
+        let countC = allKeywordsData.filter(k => k.grade === 'C').length;
+
+        document.getElementById('tab-A').innerHTML = `A등급 <span class="badge ${currentGradeTab === 'A' ? 'bg-primary' : 'bg-secondary'} rounded-pill ms-1">${countA}</span>`;
+        document.getElementById('tab-B').innerHTML = `B등급 <span class="badge ${currentGradeTab === 'B' ? 'bg-primary' : 'bg-secondary'} rounded-pill ms-1">${countB}</span>`;
+        document.getElementById('tab-C').innerHTML = `C등급 <span class="badge ${currentGradeTab === 'C' ? 'bg-primary' : 'bg-secondary'} rounded-pill ms-1">${countC}</span>`;
+    }
 
     function changeGradeTab(grade, event) {
         if(event) event.preventDefault();
         currentGradeTab = grade;
-        
-        // 탭 디자인 변경
         document.querySelectorAll('.nav-link').forEach(el => {
             el.classList.remove('active', 'text-dark');
             el.classList.add('text-secondary');
@@ -128,8 +141,6 @@
         const activeTab = document.getElementById('tab-' + grade);
         activeTab.classList.add('active', 'text-dark');
         activeTab.classList.remove('text-secondary');
-        
-        // 탭 이동 시 체크해제 및 전체선택 체크박스 해제
         checkedIds.clear();
         document.getElementById('selectAll').checked = false;
         renderTable();
@@ -139,12 +150,10 @@
         searchQuery = e.target.value.toLowerCase();
         renderTable();
     });
-
     document.getElementById('searchCategory').addEventListener('change', function(e) {
         searchCategory = e.target.value;
         renderTable();
     });
-
     document.getElementById('sortOption').addEventListener('change', function(e) {
         currentSort = e.target.value;
         renderTable();
@@ -159,7 +168,9 @@
                 allKeywordsData = result.data;
                 renderTable(); 
             }
-        } catch (e) {}
+        } catch (e) {
+            console.error("데이터 로드 중 에러 발생:", e);
+        }
     }
 
     function getRankNum(rankStr) {
@@ -167,12 +178,10 @@
         return parseInt(rankStr.replace(/[^0-9]/g, '')) || 9999;
     }
 
-    // ✨ [신규 기능 3] Shift+클릭 기능 및 단일 체크 기능
     function handleRowCheck(event, checkbox) {
         if (checkbox.checked) { checkedIds.add(checkbox.value); } 
         else { checkedIds.delete(checkbox.value); }
 
-        // Shift 키가 눌려있고 이전에 누른 체크박스가 있다면 '범위 선택' 발동!
         if (event.shiftKey && lastCheckedCheckbox) {
             const checkboxes = Array.from(document.querySelectorAll('.row-checkbox'));
             let start = checkboxes.indexOf(checkbox);
@@ -187,7 +196,7 @@
             }
         }
         lastCheckedCheckbox = checkbox;
-        renderTableColors(); // 배경색 업데이트
+        renderTableColors();
     }
 
     function toggleAll(source) {
@@ -213,7 +222,8 @@
         if (isEditing) return;
         const tbody = document.getElementById('savedKeywordsBody');
 
-        // ✨ 현재 선택된 탭(A/B/C)에 해당하는 데이터만 필터링합니다!
+        updateTabCounts(); // 화면 갱신될 때마다 탭 숫자 업데이트!
+
         let filteredData = allKeywordsData.filter(k => {
             if (k.grade !== currentGradeTab) return false;
 
@@ -237,7 +247,6 @@
         }
 
         if (filteredData.length > 0) {
-            // 등급별 배경색 지정
             let kwBgColor = 'bg-neon-green';
             if(currentGradeTab === 'B') kwBgColor = 'bg-neon-yellow';
             if(currentGradeTab === 'C') kwBgColor = 'bg-neon-orange';
@@ -249,39 +258,43 @@
                     linkBtn = `<a href="${finalUrl}" target="_blank" class="btn btn-sm btn-outline-primary py-0 px-2 text-decoration-none"><i class="bi bi-link-45deg"></i> 상품</a>`;
                 }
 
-                let rankDisplay = `<span class="fs-6 fw-bold">${k.store_rank}</span>`;
-                if (k.prev_store_rank && k.prev_store_rank !== '-') {
-                    if (k.store_rank !== k.prev_store_rank && !k.store_rank.includes('매칭중') && !k.store_rank.includes('갱신중')) {
-                        let prevNum = getRankNum(k.prev_store_rank);
-                        let currNum = getRankNum(k.store_rank);
+                let safeRank = k.store_rank || '-';
+                let safePrevRank = k.prev_store_rank || '-';
+                let rankDisplay = `<span class="fs-6 fw-bold">${safeRank}</span>`;
+                
+                if (safePrevRank !== '-') {
+                    if (safeRank !== safePrevRank && !safeRank.includes('매칭중') && !safeRank.includes('갱신중')) {
+                        let prevNum = getRankNum(safePrevRank);
+                        let currNum = getRankNum(safeRank);
                         if (prevNum === 9999 && currNum !== 9999) { rankDisplay += `<br><span class="rank-up">▲ 순위권 진입!</span>`; } 
                         else if (prevNum !== 9999 && currNum === 9999) { rankDisplay += `<br><span class="rank-down">▼ 밀려남</span>`; } 
                         else if (currNum < prevNum) { rankDisplay += `<br><span class="rank-up">▲ ${prevNum - currNum}</span>`; } 
                         else if (currNum > prevNum) { rankDisplay += `<br><span class="rank-down">▼ ${currNum - prevNum}</span>`; } 
-                        else { rankDisplay += `<br><span class="text-muted small" style="font-size:0.75rem;">(이전: ${k.prev_store_rank})</span>`; }
-                    } else if (!k.store_rank.includes('매칭중') && !k.store_rank.includes('갱신중')) {
+                        else { rankDisplay += `<br><span class="text-muted small" style="font-size:0.75rem;">(이전: ${safePrevRank})</span>`; }
+                    } else if (!safeRank.includes('매칭중') && !safeRank.includes('갱신중')) {
                         rankDisplay += `<br><span class="rank-same">-</span>`;
                     }
                 }
 
-                let storeNameDisplay = k.store_name.includes('⚠️') ? `<span class="text-danger fw-bold">${k.store_name}</span>` : `<span class="text-muted">${k.store_name}</span>`;
+                let safeStoreName = k.store_name || '-';
+                let storeNameDisplay = safeStoreName.includes('⚠️') ? `<span class="text-danger fw-bold">${safeStoreName}</span>` : `<span class="text-muted">${safeStoreName}</span>`;
                 let isChecked = checkedIds.has(k.id.toString()) ? 'checked' : '';
 
                 return `
                 <tr class="${isChecked ? 'row-selected' : ''}">
                     <td class="align-middle bg-light"><input type="checkbox" class="form-check-input row-checkbox" value="${k.id}" onclick="handleRowCheck(event, this)" style="cursor: pointer;" ${isChecked}></td>
                     <td class="align-middle">${index + 1}</td>
-                    <td class="align-middle ${kwBgColor}">${k.keyword}</td>
-                    <td class="align-middle ${kwBgColor} fs-6">${k.search_volume.toLocaleString()}</td>
-                    <td class="align-middle ${kwBgColor} text-dark" id="rank_${k.id}" data-val="${k.store_rank}">${rankDisplay}</td>
-                    <td class="align-middle"><a href="${k.link}" target="_blank" class="btn btn-sm btn-outline-secondary py-0 px-2 text-decoration-none"><i class="bi bi-search"></i> 키워드</a></td>
-                    <td class="align-middle" id="plink_${k.id}" data-val="${k.product_link}">${linkBtn}</td>
-                    <td class="align-middle text-muted" id="pub_${k.id}" data-val="${k.publisher}">${k.publisher}</td>
-                    <td class="align-middle text-muted" id="sup_${k.id}" data-val="${k.supply_rate}">${k.supply_rate}</td>
-                    <td class="align-middle text-dark fw-bold" id="isbn_${k.id}" data-val="${k.isbn}">${k.isbn}</td>
-                    <td class="align-middle text-muted" id="price_${k.id}" data-val="${k.price}">${k.price}</td>
-                    <td class="align-middle fw-bold text-secondary" id="ship_${k.id}" data-val="${k.shipping_fee}">${k.shipping_fee}</td>
-                    <td class="align-middle" id="store_${k.id}" data-val="${k.store_name}">${storeNameDisplay}</td>
+                    <td class="align-middle ${kwBgColor}">${k.keyword || '-'}</td>
+                    <td class="align-middle ${kwBgColor} fs-6">${(k.search_volume || 0).toLocaleString()}</td>
+                    <td class="align-middle ${kwBgColor} text-dark" id="rank_${k.id}" data-val="${safeRank}">${rankDisplay}</td>
+                    <td class="align-middle"><a href="${k.link || '#'}" target="_blank" class="btn btn-sm btn-outline-secondary py-0 px-2 text-decoration-none"><i class="bi bi-search"></i> 키워드</a></td>
+                    <td class="align-middle" id="plink_${k.id}" data-val="${k.product_link || '-'}">${linkBtn}</td>
+                    <td class="align-middle text-muted" id="pub_${k.id}" data-val="${k.publisher || '-'}">${k.publisher || '-'}</td>
+                    <td class="align-middle text-muted" id="sup_${k.id}" data-val="${k.supply_rate || '-'}">${k.supply_rate || '-'}</td>
+                    <td class="align-middle text-dark fw-bold" id="isbn_${k.id}" data-val="${k.isbn || '-'}">${k.isbn || '-'}</td>
+                    <td class="align-middle text-muted" id="price_${k.id}" data-val="${k.price || '-'}">${k.price || '-'}</td>
+                    <td class="align-middle fw-bold text-secondary" id="ship_${k.id}" data-val="${k.shipping_fee || '-'}">${k.shipping_fee || '-'}</td>
+                    <td class="align-middle" id="store_${k.id}" data-val="${safeStoreName}">${storeNameDisplay}</td>
                     <td class="align-middle" id="action_${k.id}">
                         <button class="btn btn-sm btn-primary py-0 px-2" onclick="editKeyword(${k.id})" title="수정"><i class="bi bi-pencil-square"></i></button>
                         <button class="btn btn-sm btn-danger py-0 px-2" onclick="deleteKeyword(${k.id})" title="삭제"><i class="bi bi-trash"></i></button>
@@ -290,7 +303,7 @@
                 `;
             }).join('');
         } else {
-            tbody.innerHTML = `<tr><td colspan="14" class="text-center py-5 text-muted">${currentGradeTab}등급에 해당하는 키워드가 없습니다.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="14" class="text-center py-5 text-muted">${currentGradeTab}등급에 해당하는 데이터가 없습니다.</td></tr>`;
         }
     }
 
@@ -344,7 +357,6 @@
         loadSavedKeywords();
     }
 
-    // ✨ 선택된 항목들만 ISBN 매칭 요청
     async function refreshByIsbn() {
         if (checkedIds.size === 0) {
             alert("업데이트할 항목을 왼쪽 체크박스로 먼저 선택해주세요!");
@@ -363,13 +375,11 @@
             const res = await fetch("{{ url_for('monitoring.refresh_by_isbn') }}", { method: 'POST', body: fd });
             const result = await res.json();
             alert(result.message);
-            // 요청을 보낸 후 체크를 모두 풀고 싶다면 checkedIds.clear(); 을 넣으면 됩니다.
             loadSavedKeywords();
         } catch(e) { alert('서버 에러가 발생했습니다.'); } 
         finally { btn.innerHTML = origText; btn.disabled = false; }
     }
 
-    // ✨ 선택된 항목들만 데이터 초기화 요청 (수동 입력 보호)
     async function clearSelectedData() {
         if (checkedIds.size === 0) {
             alert("초기화할 항목을 왼쪽 체크박스로 먼저 선택해주세요!");
@@ -388,30 +398,11 @@
         } catch(e) { alert('초기화 중 오류가 발생했습니다.'); }
     }
 
-    // ✨ 현재 보고 있는 탭의 항목들을 엑셀로 다운로드
     function exportToExcel() {
-        // 현재 탭의 데이터만 추출
         let exportData = allKeywordsData.filter(k => k.grade === currentGradeTab);
         if(exportData.length === 0) { alert("다운로드할 데이터가 없습니다."); return; }
         
         let csvContent = "\uFEFF순번,키워드,네이버카운트,스터디박스 순위,상품링크,출판사명,공급률,ISBN,가격,택배비,상점 책제목\n";
         exportData.forEach((k, index) => {
-            let row = [ index + 1, k.keyword, k.search_volume, k.store_rank, k.product_link, k.publisher, k.supply_rate, k.isbn, k.price, k.shipping_fee, k.store_name ];
-            csvContent += row.map(v => `"${(v || '').toString().replace(/"/g, '""')}"`).join(',') + "\n";
-        });
-        
-        let blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        let link = document.createElement("a");
-        link.href = URL.createObjectURL(blob);
-        link.download = `스터디박스_모니터링_${currentGradeTab}등급.csv`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-    }
-
-    document.addEventListener("DOMContentLoaded", () => {
-        loadSavedKeywords();
-        setInterval(loadSavedKeywords, 2000); 
-    });
-</script>
-{% endblock %}
+            let row = [ index + 1, k.keyword || '-', k.search_volume || 0, k.store_rank || '-', k.product_link || '-', k.publisher || '-', k.supply_rate || '-', k.isbn || '-', k.price || '-', k.shipping_fee || '-', k.store_name || '-' ];
+            csv
