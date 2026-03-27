@@ -105,8 +105,9 @@ def clear_data():
     db.session.commit()
     return jsonify({'success': True, 'message': f'✅ 선택한 항목의 검색 정보가 초기화되었습니다.'})
 
+# ✨ 에러 진단을 위한 초정밀 CCTV 모드
 def get_html_with_fake_cookie(url):
-    print(f"\n[CCTV] 🛡️ Initiating FAKE COOKIE Bypass for: {urllib.parse.unquote(url)}", flush=True)
+    print(f"\n[CCTV] 🛡️ Requesting URL: {urllib.parse.unquote(url)}", flush=True)
     session = requests.Session()
     headers = {
         "User-Agent": "Mozilla/5.0 (Linux; Android 13; SM-S918N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.6261.90 Mobile Safari/537.36",
@@ -125,12 +126,17 @@ def get_html_with_fake_cookie(url):
 
     try:
         res = session.get(url, timeout=5)
+        print(f"[CCTV] 🌐 Target Status Code: {res.status_code}", flush=True)
+        print(f"[CCTV] 🌐 Target Headers: {res.headers}", flush=True)
+        print(f"[CCTV] 🌐 HTML Length: {len(res.text)} chars.", flush=True)
+        print(f"[CCTV] 🌐 HTML Preview (first 200 chars): {res.text[:200].replace(chr(10), '')}", flush=True)
+
         if res.status_code == 200:
             html = res.text
             if len(html) > 5000: 
                 return html
     except Exception as e:
-        print(f"[CCTV] Target Access Error: {e}", flush=True)
+        print(f"[CCTV] 🌐 Request Error Exception: {e}", flush=True)
 
     return ""
 
@@ -171,11 +177,11 @@ def get_naver_rank_only(queries, target_mall):
 
 def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, target_ids):
     with app.app_context():
+        print(f"\n========== [CCTV START] DIAGNOSTIC MODE ==========", flush=True)
         try:
             api_key = ApiKey.query.filter_by(user_id=user_id).first()
             target_mall_name = api_key.store_name if api_key else "스터디박스"
             api_headers = {"X-Naver-Client-Id": search_client_id, "X-Naver-Client-Secret": search_client_secret} if search_client_id else {}
-            # ✨ 핵심 픽스 1: DB 값을 읽고 나서 즉시 세션을 커밋하여 DB 잠금(Lock)을 해제합니다!
             db.session.commit()
         except Exception as e:
             db.session.rollback()
@@ -189,8 +195,6 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     
                 keyword_text = str(kw.keyword or "")
                 target_isbn = str(kw.isbn).strip().replace('-', '') if kw.isbn and kw.isbn != '-' else ""
-                
-                # ✨ 핵심 픽스 2: 네이버로 검색을 떠나기 전에 DB 문을 닫아줍니다!
                 db.session.commit()
 
                 updates = {
@@ -222,26 +226,7 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                 if book_rank:
                     updates['store_rank'] = book_rank
                     updates['store_name'] = target_mall_name
-                else:
-                    if api_headers and search_client_id:
-                        try:
-                            found_rank = False
-                            for start_idx in range(1, 402, 100):
-                                if found_rank: break
-                                api_url = f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(keyword_text)}&display=100&start={start_idx}"
-                                api_res = requests.get(api_url, headers=api_headers, timeout=3)
-                                if api_res.status_code == 200:
-                                    items = api_res.json().get('items', [])
-                                    if not items: break
-                                    for idx, item in enumerate(items):
-                                        if target_mall_name in item.get('mallName', ''):
-                                            updates['store_rank'] = str(start_idx + idx)
-                                            updates['store_name'] = item.get('mallName')
-                                            found_rank = True
-                                            break
-                        except: pass
 
-                # ✨ 핵심 픽스 3: 네이버 검색이 다 끝난 뒤에만 잠깐 DB 문을 열어서 값을 씁니다!
                 kw = db.session.get(MonitoredKeyword, k_id)
                 if kw:
                     for key, val in updates.items():
@@ -259,6 +244,7 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     db.session.commit()
             
             time.sleep(0.1)
+        print("========== [CCTV END] ==========\n", flush=True)
 
 @monitoring_bp.route('/api/refresh_all_ranks', methods=['POST'])
 @login_required
@@ -290,4 +276,4 @@ def refresh_by_isbn():
         
     thread = Thread(target=async_refresh_by_isbn, args=(app, user_id, search_id, search_pw, target_ids))
     thread.start()
-    return jsonify({'success': True, 'message': f'✅ 순위 집중 추적을 시작합니다. 잠시 후 새로고침 해주세요.'})
+    return jsonify({'success': True, 'message': f'✅ 진단 모드로 추적을 시작합니다. 잠시 후 새로고침 해주세요.'})
