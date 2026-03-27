@@ -103,118 +103,92 @@ def clear_data():
     db.session.commit()
     return jsonify({'success': True, 'message': f'✅ 선택한 항목의 검색 정보가 초기화되었습니다.'})
 
-def get_real_title_via_proxy(isbn):
-    isbn = isbn.replace('-', '').strip()
-    if not isbn: return ""
-    try:
-        aladin_url = f"https://www.aladin.co.kr/search/wsearchresult.aspx?SearchWord={isbn}"
-        proxy_url = f"https://api.allorigins.win/raw?url={urllib.parse.quote(aladin_url)}"
-        res = requests.get(proxy_url, timeout=8)
-        if res.status_code == 200:
-            html = res.text
-            match = re.search(r'class="bo3".*?<strong>(.*?)</strong>', html)
-            if match:
-                title = re.sub(r'<[^>]*>', '', match.group(1))
-                return re.sub(r'\(.*?\)', '', title).strip()
-    except: pass
-    return ""
-
-def get_html_with_proxy(url):
+# ✨ 418 에러 완벽 회피용: 네이버 메인에서 출입증(NNB 쿠키) 발급받기
+def get_html_with_cookie_bypass(url):
+    print(f"\n[CCTV] 🛡️ Initiating NNB Cookie Bypass for: {urllib.parse.unquote(url)}", flush=True)
+    session = requests.Session()
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
         "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Upgrade-Insecure-Requests": "1"
     }
-    
-    # 1. Direct Try
-    try:
-        print(f"[CCTV] 🌐 Direct requesting...", flush=True)
-        res = requests.get(url, headers=headers, timeout=5)
-        print(f"[CCTV] Direct Status: {res.status_code}", flush=True)
-        if res.status_code == 200 and "captcha" not in res.text.lower():
-            return res.text
-    except Exception as e: print(f"[CCTV] Direct Error: {e}", flush=True)
+    session.headers.update(headers)
 
-    # 2. Proxy 1 (AllOrigins RAW - 12초 타임아웃 넉넉하게)
+    # 1. 네이버 메인 방문해서 사람용 쿠키 얻기
     try:
-        print("[CCTV] 🔄 Trying Proxy 1 (allorigins RAW)...", flush=True)
-        proxy_url = f"https://api.allorigins.win/raw?url={urllib.parse.quote(url)}"
-        res = requests.get(proxy_url, headers=headers, timeout=12)
-        print(f"[CCTV] Proxy 1 Status: {res.status_code}", flush=True)
-        # 사기 서버 필터링: Astro 등 엉뚱한 사이트 제외, 네이버 태그 필수
-        if res.status_code == 200 and "astro-cid" not in res.text and "naver" in res.text.lower():
-            print(f"[CCTV] Proxy 1 SUCCESS! HTML Preview: {res.text[:100].replace(chr(10), '')}...", flush=True)
-            return res.text
-    except Exception as e: print(f"[CCTV] Proxy 1 Error: {e}", flush=True)
+        print("[CCTV] 🍪 Visiting naver.com to get human cookie...", flush=True)
+        session.get("https://naver.com", timeout=3)
+        print(f"[CCTV] 🍪 Cookies acquired: {session.cookies.get_dict()}", flush=True)
+    except Exception as e:
+        print(f"[CCTV] 🍪 Cookie acquisition failed: {e}", flush=True)
 
-    # 3. Proxy 2 (CodeTabs - 12초 타임아웃)
+    # 2. 발급받은 쿠키를 들고 도서 검색창으로 돌진
     try:
-        print("[CCTV] 🔄 Trying Proxy 2 (codetabs)...", flush=True)
-        proxy_url = f"https://api.codetabs.com/v1/proxy?quest={urllib.parse.quote(url)}"
-        res = requests.get(proxy_url, headers=headers, timeout=12)
-        print(f"[CCTV] Proxy 2 Status: {res.status_code}", flush=True)
-        if res.status_code == 200 and "astro-cid" not in res.text and "naver" in res.text.lower():
-            print(f"[CCTV] Proxy 2 SUCCESS! HTML Preview: {res.text[:100].replace(chr(10), '')}...", flush=True)
-            return res.text
-    except Exception as e: print(f"[CCTV] Proxy 2 Error: {e}", flush=True)
+        print(f"[CCTV] 🌐 Accessing Target URL with Session...", flush=True)
+        res = session.get(url, timeout=5)
+        print(f"[CCTV] 🌐 Response Status: {res.status_code}", flush=True)
+
+        if res.status_code == 200:
+            html = res.text
+            print(f"[CCTV] 🌐 HTML Length: {len(html)} chars.", flush=True)
+            if len(html) > 10000: # 정상적인 쇼핑몰 화면은 10,000자가 넘습니다.
+                print("[CCTV] ✅ Valid Naver HTML loaded successfully!", flush=True)
+                return html
+            else:
+                print(f"[CCTV] ⚠️ HTML is too short (Captcha). Preview: {html[:100]}", flush=True)
+    except Exception as e:
+        print(f"[CCTV] 🌐 Target Access Error: {e}", flush=True)
 
     return ""
 
-def get_naver_book_shopping_info(queries, target_mall):
+def get_naver_rank_only(queries, target_mall):
     for q in queries:
         if not q: continue
-        print(f"\n[CCTV] --- Scraping: '{q}' ---", flush=True)
+        print(f"\n[CCTV] --- Scanning Rank For: '{q}' ---", flush=True)
         url = f"https://search.shopping.naver.com/book/search?query={urllib.parse.quote(q)}"
-        html = get_html_with_proxy(url)
+        html = get_html_with_cookie_bypass(url)
         
-        if not html:
-            print("[CCTV] Failed to get valid HTML from any proxy.", flush=True)
-            continue
-            
-        print(f"[CCTV] Valid HTML Length: {len(html)} chars.", flush=True)
+        if not html: continue
         
-        # 방식 1: JSON 파싱
+        # 순위 스캔
         match = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', html, re.DOTALL)
         if match:
-            print("[CCTV] JSON __NEXT_DATA__ Found! Parsing...", flush=True)
+            print("[CCTV] JSON __NEXT_DATA__ Found! Parsing for rank...", flush=True)
             try:
                 data = json.loads(match.group(1))
                 book_list = data.get('props', {}).get('pageProps', {}).get('initialState', {}).get('book', {}).get('list', [])
-                print(f"[CCTV] Found {len(book_list)} items in JSON data.", flush=True)
+                print(f"[CCTV] Found {len(book_list)} items in list.", flush=True)
                 
                 for idx, item in enumerate(book_list):
                     prod = item.get('item', item)
                     mall = prod.get('mallName', '')
-                    print(f"[CCTV] JSON Mall [{idx+1}]: '{mall}'", flush=True)
+                    title = prod.get('bookTitle', '')
+                    print(f"[CCTV] Rank {idx+1} | Mall: '{mall}' | Title: '{title[:15]}...'", flush=True)
                     if target_mall in mall:
                         rank = str(idx + 1)
-                        price = str(prod.get('lowPrice', prod.get('price', 0)))
-                        price_formatted = f"{int(price):,}원" if price.isdigit() else "-"
-                        link = prod.get('mallProductUrl', prod.get('crUrl', '-'))
-                        print(f"[CCTV] 🎯 TARGET FOUND in JSON! Rank: {rank}", flush=True)
-                        return rank, price_formatted, link
+                        print(f"[CCTV] 🎯 EXACT TARGET FOUND! Rank: {rank}", flush=True)
+                        return rank
             except Exception as e:
                 print(f"[CCTV] JSON parsing failed: {e}", flush=True)
                 
-        # 방식 2: 생 HTML 스캔 (JSON 구조 변경 대비 강력한 정규식)
-        print("[CCTV] Scanning raw HTML for mall names...", flush=True)
-        
-        # 이름 추출용 정규식 (mallName 필드 혹은 class="mall_name" 텍스트)
+        # 백업용 HTML 스캔
+        print("[CCTV] Scanning raw HTML tags for mall name...", flush=True)
         mall_tags = re.findall(r'(?:class="[^"]*mall_name[^"]*"[^>]*>|"mallName":")([^<"]+)', html)
         if mall_tags:
-            print(f"[CCTV] Extracted raw mall tags (first 10): {mall_tags[:10]}", flush=True)
             for idx, mall in enumerate(mall_tags):
                 if target_mall in mall:
-                    print(f"[CCTV] 🎯 TARGET FOUND in RAW HTML! Rank: {idx+1}", flush=True)
-                    return str(idx + 1), "-", "-"
-        else:
-            print("[CCTV] No mall names found in HTML.", flush=True)
+                    print(f"[CCTV] 🎯 TARGET FOUND in HTML! Rank: {idx+1}", flush=True)
+                    return str(idx + 1)
 
-    return None, "-", "-"
+    return None
 
 def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, target_ids):
     with app.app_context():
-        print(f"\n========== [CCTV START] ULTIMATE BYPASS ==========", flush=True)
+        print(f"\n========== [CCTV START] RANK FIRST OPERATION ==========", flush=True)
         try:
             api_key = ApiKey.query.filter_by(user_id=user_id).first()
             target_mall_name = api_key.store_name if api_key else "스터디박스"
@@ -233,83 +207,69 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
 
                 print(f"\n[CCTV] ---- Processing: '{keyword_text}' ----", flush=True)
 
+                # 회원님 지시대로 표 채우는 건 나중으로 미루고 '-'로 비웁니다. 오직 '순위'만 조준!
                 updates = {
                     'store_rank': '500위 밖',
                     'price': '-',
                     'product_link': '-',
                     'shipping_fee': '-',
+                    'store_name': '-',
                     'book_title': '⚠️ 매칭 실패'
                 }
 
-                # 1. API로 진짜 이름 추출
+                # 1. API로 진짜 이름 추출 (순위 검색을 더 정확하게 하기 위함)
                 real_book_title = ""
                 if api_headers and search_client_id:
                     search_query = target_isbn if target_isbn else keyword_text
                     try:
                         book_url = f"https://openapi.naver.com/v1/search/book.json?query={urllib.parse.quote(search_query)}"
-                        book_res = requests.get(book_url, headers=api_headers, timeout=5)
+                        book_res = requests.get(book_url, headers=api_headers, timeout=3)
                         if book_res.status_code == 200 and book_res.json().get('items'):
                             item = book_res.json()['items'][0]
-                            title_clean = re.sub(r'<[^>]*>', '', item.get('title', ''))
-                            real_book_title = re.sub(r'\(.*?\)', '', title_clean).strip()
-                            print(f"[CCTV] Open API Title found: {real_book_title}", flush=True)
-                            
-                            if not target_isbn:
-                                raw_isbn = item.get('isbn', '')
-                                for cand in reversed(raw_isbn.split()):
-                                    if cand.startswith('9') or cand.startswith('8'):
-                                        updates['isbn'] = cand
-                                        break
-                            if item.get('publisher'): updates['publisher'] = item.get('publisher')
-                    except Exception as e: print(f"[CCTV] API Error: {e}", flush=True)
+                            real_book_title = re.sub(r'\(.*?\)', '', re.sub(r'<[^>]*>', '', item.get('title', ''))).strip()
+                            updates['book_title'] = real_book_title
+                    except: pass
                 
-                if not real_book_title and target_isbn:
-                    real_book_title = get_real_title_via_proxy(target_isbn)
-                if real_book_title: updates['book_title'] = real_book_title
-
-                # 2. 강력한 우회망을 통한 스크래핑 스캔
+                # 2. 강력한 쿠키 우회로 순위 스캔!
                 book_queries = [keyword_text, real_book_title]
                 if target_isbn: book_queries.insert(0, target_isbn) 
                 
-                book_rank, book_price, book_link = get_naver_book_shopping_info(book_queries, target_mall_name)
+                book_rank = get_naver_rank_only(book_queries, target_mall_name)
                 
                 if book_rank:
                     updates['store_rank'] = book_rank
-                    updates['price'] = book_price if book_price != "-" else updates['price']
-                    updates['product_link'] = book_link if book_link != "-" else updates['product_link']
                     updates['store_name'] = target_mall_name
                 else:
-                    print(f"\n[CCTV] --- Target not found in Book Tab. Scanning Official API (1~500)...", flush=True)
+                    print(f"\n[CCTV] Target not found in Book Tab. Try scanning Official API (1~500)...", flush=True)
                     if api_headers and search_client_id:
                         try:
                             found_rank = False
                             for start_idx in range(1, 402, 100):
                                 if found_rank: break
                                 api_url = f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(keyword_text)}&display=100&start={start_idx}"
-                                api_res = requests.get(api_url, headers=api_headers, timeout=5)
+                                api_res = requests.get(api_url, headers=api_headers, timeout=3)
                                 if api_res.status_code == 200:
                                     items = api_res.json().get('items', [])
                                     if not items: break
                                     for idx, item in enumerate(items):
                                         if target_mall_name in item.get('mallName', ''):
                                             updates['store_rank'] = str(start_idx + idx)
-                                            updates['price'] = f"{int(item.get('lprice', 0)):,}원"
-                                            updates['product_link'] = item.get('link')
                                             updates['store_name'] = item.get('mallName')
                                             print(f"[CCTV] 🎯 TARGET FOUND in Official API! Rank: {updates['store_rank']}", flush=True)
                                             found_rank = True
                                             break
-                        except Exception as e: print(f"[CCTV] Official API Scan Error: {e}", flush=True)
+                        except: pass
 
                 # DB 업데이트
                 kw = db.session.get(MonitoredKeyword, k_id)
                 if kw:
                     for key, val in updates.items():
+                        # ISBN과 출판사는 기존 값 유지
                         if key == 'publisher' and kw.publisher and kw.publisher != '-': continue
                         if key == 'isbn' and kw.isbn and kw.isbn != '-': continue
                         setattr(kw, key, val)
                     db.session.commit()
-                    print(f"[CCTV] Database updated for '{keyword_text}'.", flush=True)
+                    print(f"[CCTV] Database updated for '{keyword_text}'. Rank: {updates['store_rank']}", flush=True)
 
             except Exception as e:
                 traceback.print_exc()
@@ -319,7 +279,7 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     kw.book_title = f"⚠️ 시스템 에러"
                     db.session.commit()
             
-            time.sleep(0.3)
+            time.sleep(0.1)
         print("========== [CCTV END] ==========\n", flush=True)
 
 @monitoring_bp.route('/api/refresh_all_ranks', methods=['POST'])
@@ -344,7 +304,7 @@ def refresh_by_isbn():
     for kw in keywords:
         if "갱신중" not in str(kw.store_rank) and "매칭중" not in str(kw.store_rank):
             kw.prev_store_rank = kw.store_rank
-        kw.store_rank = "⏳ 데이터 수집중..."
+        kw.store_rank = "⏳ 순위 추적중..."
         target_ids.append(kw.id)
             
     db.session.commit()
@@ -352,4 +312,4 @@ def refresh_by_isbn():
         
     thread = Thread(target=async_refresh_by_isbn, args=(app, user_id, search_id, search_pw, target_ids))
     thread.start()
-    return jsonify({'success': True, 'message': f'✅ 디버그 로그 기록 모드로 매칭을 시작합니다. 잠시 후 새로고침 해주세요.'})
+    return jsonify({'success': True, 'message': f'✅ 순위 집중 추적을 시작합니다. 잠시 후 새로고침 해주세요.'})
