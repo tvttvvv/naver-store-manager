@@ -2,72 +2,68 @@
 
 {% block content %}
 <div class="container-fluid py-4">
-    <!-- 헤더 및 뱃지 영역 -->
     <h3 class="mb-4 fw-bold">스터디박스 모니터링 (A/B/C/MAIN 등급 수신함)</h3>
-    <div class="d-flex gap-2 mb-4">
-        <span class="badge rounded-pill bg-primary fs-6 py-2 px-3">A등급 <span id="count-A">0</span></span>
-        <span class="badge rounded-pill bg-secondary fs-6 py-2 px-3">B등급 <span id="count-B">0</span></span>
-        <span class="badge rounded-pill bg-secondary fs-6 py-2 px-3">C등급 <span id="count-C">0</span></span>
-        <!-- ✨ 새로 추가된 MAIN 탭 뱃지 -->
-        <span class="badge rounded-pill bg-danger fs-6 py-2 px-3">MAIN <span id="count-MAIN">0</span></span>
+    
+    <!-- 오리지널 상단 탭 버튼 디자인 완벽 복구 + MAIN 탭 추가 -->
+    <div class="d-flex align-items-center mb-4 border-bottom pb-2">
+        <button class="btn btn-light fw-bold me-2 px-4 py-2 border tab-btn active" data-grade="A">A등급 <span class="badge bg-primary ms-1" id="count-A">0</span></button>
+        <button class="btn btn-light fw-bold me-2 px-4 py-2 border tab-btn" data-grade="B">B등급 <span class="badge bg-secondary ms-1" id="count-B">0</span></button>
+        <button class="btn btn-light fw-bold me-2 px-4 py-2 border tab-btn" data-grade="C">C등급 <span class="badge bg-secondary ms-1" id="count-C">0</span></button>
+        <!-- ✨ 새로 추가된 MAIN 탭 -->
+        <button class="btn btn-light fw-bold me-2 px-4 py-2 border tab-btn text-danger" data-grade="MAIN">MAIN <span class="badge bg-danger ms-1" id="count-MAIN">0</span></button>
     </div>
 
-    <!-- 컨트롤 패널 (버튼 영역) -->
-    <div class="card shadow-sm mb-4 border-primary">
-        <div class="card-body">
+    <!-- 컨트롤 패널 -->
+    <div class="card shadow-sm mb-3 border-primary">
+        <div class="card-body py-2 px-3">
             <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
                 <div>
-                    <h6 class="mb-1 text-primary fw-bold">체크박스 다중 선택 및 항목 관리</h6>
-                    <small class="text-muted">ⓘ 체크박스를 클릭하고 다른 체크박스를 Shift + 클릭하면 그 사이의 모든 항목이 한 번에 선택됩니다!</small>
+                    <h6 class="mb-1 text-primary fw-bold" style="font-size: 0.95rem;">체크박스 다중 선택 및 항목 관리</h6>
+                    <small class="text-muted" style="font-size: 0.8rem;">ⓘ 체크박스를 클릭하고 다른 체크박스를 Shift + 클릭하면 그 사이의 모든 항목이 한 번에 선택됩니다!</small>
                 </div>
                 <div class="d-flex gap-2 align-items-center">
-                    <!-- 검색 및 정렬 -->
-                    <div class="input-group" style="width: 250px;">
-                        <select class="form-select" id="search-type" style="max-width: 100px;">
-                            <option value="all">전체 검색</option>
-                        </select>
-                        <input type="text" class="form-control" id="search-input" placeholder="검색어를 입력하세요...">
-                    </div>
-                    <select class="form-select" id="sort-type" style="width: 130px;">
-                        <option value="recent">최근 등록순</option>
-                    </select>
-
-                    <!-- ✨ 탭 이동 버튼 영역 (MAIN 추가됨) -->
-                    <div class="btn-group border rounded border-primary p-1">
-                        <button class="btn btn-sm btn-outline-primary border-0 fw-bold" onclick="moveGrade('A')">A로 이동</button>
-                        <button class="btn btn-sm btn-outline-dark border-0 fw-bold" onclick="moveGrade('B')">B로 이동</button>
-                        <button class="btn btn-sm btn-outline-secondary border-0 fw-bold" onclick="moveGrade('C')">C로 이동</button>
-                        <button class="btn btn-sm btn-outline-danger border-0 fw-bold" onclick="moveGrade('MAIN')">MAIN 이동</button>
-                    </div>
-
-                    <!-- 기능 버튼들 -->
-                    <button class="btn btn-sm btn-outline-warning text-dark fw-bold border-2" onclick="clearData()">◇ 데이터 초기화</button>
+                    <button class="btn btn-sm btn-outline-primary fw-bold" onclick="moveGrade('A')">A로 이동</button>
+                    <button class="btn btn-sm btn-outline-dark fw-bold" onclick="moveGrade('B')">B로 이동</button>
+                    <button class="btn btn-sm btn-outline-secondary fw-bold" onclick="moveGrade('C')">C로 이동</button>
+                    <!-- ✨ MAIN 이동 버튼 추가 -->
+                    <button class="btn btn-sm btn-outline-danger fw-bold" onclick="moveGrade('MAIN')">MAIN 이동</button>
+                    
+                    <button class="btn btn-sm btn-outline-warning text-dark fw-bold ms-2" onclick="clearData()">◇ 데이터 초기화</button>
                     <button class="btn btn-sm btn-dark fw-bold" onclick="downloadExcel()">☒ 엑셀 다운로드</button>
                     <button class="btn btn-sm btn-success fw-bold" onclick="refreshIsbn()">[ ] 선택 항목 ISBN 업데이트</button>
                 </div>
             </div>
+            
+            <div class="d-flex gap-2 mt-2 align-items-center bg-light p-2 rounded">
+                <select class="form-select form-select-sm border-secondary" id="search-type" style="width: 110px;">
+                    <option value="all">전체 검색</option>
+                </select>
+                <input type="text" class="form-control form-control-sm border-secondary" id="search-input" placeholder="검색어를 입력하세요..." style="max-width: 250px;">
+                <select class="form-select form-select-sm border-secondary ms-auto" id="sort-type" style="width: 130px;">
+                    <option value="recent">최근 등록순</option>
+                </select>
+            </div>
         </div>
     </div>
 
-    <!-- 데이터 테이블 -->
-    <div class="table-responsive bg-white shadow-sm rounded border">
-        <table class="table table-bordered table-hover align-middle text-center mb-0" id="dataTable" style="font-size: 0.9rem;">
-            <thead class="table-light align-middle">
+    <!-- 데이터 테이블 (지저분한 입력칸 제거, 오리지널의 깔끔한 텍스트 형식으로 원복) -->
+    <div class="table-responsive bg-white shadow-sm rounded border" style="max-height: 700px; overflow-y: auto;">
+        <table class="table table-bordered table-hover align-middle text-center mb-0" id="dataTable" style="font-size: 0.85rem; white-space: nowrap;">
+            <thead class="table-light sticky-top shadow-sm" style="z-index: 10;">
                 <tr>
                     <th style="width: 40px;"><input class="form-check-input" type="checkbox" id="selectAll"></th>
                     <th style="width: 60px;">순번</th>
-                    <th style="width: 15%;">키워드</th>
-                    <th style="width: 80px;">네이버카운트</th>
-                    <th style="width: 100px;">스터디박스 순위</th>
+                    <th>키워드</th>
+                    <th style="width: 100px;">네이버카운트</th>
+                    <th style="width: 120px;">스터디박스 순위</th>
                     <th style="width: 90px;">키워드링크</th>
                     <th style="width: 90px;">상품링크</th>
-                    <th style="width: 10%;">출판사명</th>
-                    <th style="width: 70px;">공급률</th>
-                    <th style="width: 120px;">ISBN</th>
-                    <th style="width: 90px;">가격</th>
-                    <th style="width: 80px;">택배비</th>
-                    <th style="width: 15%;">상점 책제목</th>
-                    <th style="width: 60px;">저장</th>
+                    <th>출판사명</th>
+                    <th>공급률</th>
+                    <th>ISBN (더블클릭 수정)</th>
+                    <th>가격</th>
+                    <th>택배비</th>
+                    <th>상점 책제목</th>
                 </tr>
             </thead>
             <tbody id="tableBody">
@@ -77,16 +73,29 @@
     </div>
 </div>
 
-<!-- 스크립트 영역 -->
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script>
     let tableData = [];
     let lastChecked = null;
+    let currentTab = 'A'; // 오리지널 탭 로직 복원
 
     $(document).ready(function() {
         loadData();
 
-        // Shift + 클릭 다중 선택 로직
+        // 탭 버튼 클릭 이벤트
+        $('.tab-btn').click(function() {
+            $('.tab-btn').removeClass('active');
+            $(this).addClass('active');
+            currentTab = $(this).data('grade');
+            renderTable();
+        });
+
+        // 실시간 검색
+        $('#search-input').on('input', function() {
+            renderTable();
+        });
+
+        // Shift 다중 선택
         $(document).on('click', '.row-checkbox', function(e) {
             if (!lastChecked) {
                 lastChecked = this;
@@ -109,15 +118,15 @@
         $.get('/monitoring/api/saved_keywords', function(res) {
             if (res.success) {
                 tableData = res.data;
-                renderTable(tableData);
-                updateBadges(tableData);
+                updateBadges();
+                renderTable();
             }
         });
     }
 
-    function updateBadges(data) {
+    function updateBadges() {
         let counts = { 'A': 0, 'B': 0, 'C': 0, 'MAIN': 0 };
-        data.forEach(item => {
+        tableData.forEach(item => {
             if (counts[item.grade] !== undefined) counts[item.grade]++;
         });
         $('#count-A').text(counts['A']);
@@ -126,61 +135,136 @@
         $('#count-MAIN').text(counts['MAIN']);
     }
 
-    function renderTable(data) {
+    function renderTable() {
         const tbody = $('#tableBody');
         tbody.empty();
-        data.forEach(item => {
-            // 등급별 형광펜 효과 (A등급 초록색, MAIN등급 붉은색)
+
+        // 현재 선택된 탭(A, B, C, MAIN)의 데이터만 필터링
+        let filteredData = tableData.filter(item => item.grade === currentTab);
+        
+        const keyword = $('#search-input').val().toLowerCase();
+        if (keyword) {
+            filteredData = filteredData.filter(item => 
+                String(item.keyword).toLowerCase().includes(keyword) ||
+                String(item.isbn).toLowerCase().includes(keyword) ||
+                String(item.book_title).toLowerCase().includes(keyword)
+            );
+        }
+
+        filteredData.forEach(item => {
+            // 오리지널 초록색 형광펜 효과 복원
             let bgColor = '';
-            if (item.grade === 'A') bgColor = 'background-color: #00ff00; font-weight: bold;';
-            else if (item.grade === 'MAIN') bgColor = 'background-color: #ffcccc; font-weight: bold; color: #cc0000;';
+            if (currentTab === 'A' || currentTab === 'MAIN') bgColor = 'background-color: #00ff00; font-weight: bold;';
             
+            let rankHtml = item.store_rank;
+            if (item.prev_store_rank && item.prev_store_rank !== '-') {
+                rankHtml += `<br><span style="font-size: 0.75rem; font-weight: normal;">(이전: ${item.prev_store_rank})</span>`;
+            }
+
             let tr = `
                 <tr data-id="${item.id}">
                     <td><input class="form-check-input row-checkbox" type="checkbox" value="${item.id}"></td>
                     <td>${item.id}</td>
                     <td style="${bgColor}">${item.keyword}</td>
                     <td class="fw-bold">${item.search_volume.toLocaleString()}</td>
-                    <td class="fw-bold text-success">${item.store_rank}</td>
-                    <td><a href="https://search.shopping.naver.com/search/all?query=${encodeURIComponent(item.keyword)}" target="_blank" class="btn btn-sm btn-light border">🔍 키워드</a></td>
-                    <td>${item.product_link !== '-' ? `<a href="${item.product_link}" target="_blank" class="btn btn-sm btn-light border">🔗 상품</a>` : '-'}</td>
-                    <td><input type="text" class="form-control form-control-sm pub-input text-center" value="${item.publisher}"></td>
-                    <td><input type="text" class="form-control form-control-sm sup-input text-center" value="${item.supply_rate}"></td>
-                    <td><input type="text" class="form-control form-control-sm isbn-input text-center fw-bold" value="${item.isbn}"></td>
+                    <td style="${bgColor}">${rankHtml}</td>
+                    <td><button class="btn btn-sm btn-light border" onclick="window.open('https://search.shopping.naver.com/search/all?query=${encodeURIComponent(item.keyword)}')"><i class="bi bi-search"></i> 키워드</button></td>
+                    <td>${item.product_link !== '-' ? `<button class="btn btn-sm btn-light border" onclick="window.open('${item.product_link}')">상품</button>` : '-'}</td>
+                    
+                    <!-- 더블클릭으로 깔끔하게 수정할 수 있도록 로직 추가 -->
+                    <td ondblclick="editField(${item.id}, 'publisher', this)" title="더블클릭하여 수정">${item.publisher !== '-' ? item.publisher : '-'}</td>
+                    <td ondblclick="editField(${item.id}, 'supply_rate', this)" title="더블클릭하여 수정">${item.supply_rate !== '-' ? item.supply_rate : '-'}</td>
+                    
+                    <!-- ✨ 핵심: ISBN 더블클릭 시 중복 방지 로직 실행 -->
+                    <td class="text-primary fw-bold" ondblclick="editIsbn(${item.id}, this)" title="더블클릭하여 수정" style="cursor: pointer; text-decoration: underline dashed;">${item.isbn !== '-' ? item.isbn : '-'}</td>
+                    
                     <td class="price-val">${item.price}</td>
                     <td class="shipping-val">${item.shipping_fee}</td>
                     <td class="text-start title-val">${item.book_title}</td>
-                    <td><button class="btn btn-sm btn-primary" onclick="saveRow(${item.id})">저장</button></td>
                 </tr>
             `;
             tbody.append(tr);
         });
     }
 
-    function saveRow(id) {
-        const tr = $(`tr[data-id='${id}']`);
-        const data = {
-            id: id,
-            publisher: tr.find('.pub-input').val(),
-            supply_rate: tr.find('.sup-input').val(),
-            isbn: tr.find('.isbn-input').val(),
-            price: tr.find('.price-val').text().trim(),
-            shipping_fee: tr.find('.shipping-val').text().trim(),
-            book_title: tr.find('.title-val').text().trim(),
-            product_link: tr.find('td:eq(6) a').length ? tr.find('td:eq(6) a').attr('href') : '-'
-        };
+    // ✨ UI를 해치지 않는 깔끔한 인라인 에디터 (ISBN 중복 체크 탑재)
+    function editIsbn(id, tdElement) {
+        if ($(tdElement).find('input').length > 0) return; // 이미 수정 중이면 무시
+        
+        let currentVal = $(tdElement).text() === '-' ? '' : $(tdElement).text();
+        let input = $(`<input type="text" class="form-control form-control-sm text-center fw-bold" value="${currentVal}" placeholder="엔터키로 저장">`);
+        
+        $(tdElement).empty().append(input);
+        input.focus();
 
-        $.post('/monitoring/api/update_keyword', data, function(res) {
-            if (res.success) {
-                alert('✅ 저장되었습니다.');
-                loadData();
-            } else {
-                // ✨ 핵심: ISBN 중복 시 백엔드에서 보낸 에러 메시지를 강력한 경고창으로 띄웁니다!
-                alert(res.message);
-                loadData(); // 잘못 입력된 ISBN을 원래 상태로 복구
+        input.on('blur keypress', function(e) {
+            // 엔터키를 치거나 바깥을 클릭했을 때 저장 시도
+            if (e.type === 'keypress' && e.which !== 13) return; 
+            
+            let newVal = input.val().trim();
+            if (newVal === currentVal) {
+                $(tdElement).text(newVal || '-');
+                return;
             }
-        }).fail(function() {
-            alert('🚨 서버 통신 에러가 발생했습니다.');
+            
+            let item = tableData.find(i => i.id === id);
+            
+            // 파이썬 서버로 수정 요청
+            $.post('/monitoring/api/update_keyword', {
+                id: id,
+                isbn: newVal || '-',
+                publisher: item.publisher,
+                supply_rate: item.supply_rate,
+                price: item.price,
+                shipping_fee: item.shipping_fee,
+                store_name: item.store_name,
+                book_title: item.book_title,
+                product_link: item.product_link,
+                store_rank: item.store_rank
+            }, function(res) {
+                if (res.success) {
+                    item.isbn = newVal || '-';
+                    $(tdElement).text(item.isbn);
+                } else {
+                    // ✨ 팝업 경고창 출력 및 입력값 원상복구
+                    alert(res.message); 
+                    $(tdElement).text(currentVal || '-');
+                }
+            }).fail(function() {
+                alert('🚨 서버 통신 에러가 발생했습니다.');
+                $(tdElement).text(currentVal || '-');
+            });
+        });
+    }
+
+    // (보너스) 출판사, 공급률도 더블클릭으로 쉽게 수정 가능하게 지원
+    function editField(id, field, tdElement) {
+        if ($(tdElement).find('input').length > 0) return; 
+        let currentVal = $(tdElement).text() === '-' ? '' : $(tdElement).text();
+        let input = $(`<input type="text" class="form-control form-control-sm text-center" value="${currentVal}" placeholder="엔터키로 저장">`);
+        
+        $(tdElement).empty().append(input);
+        input.focus();
+        
+        input.on('blur keypress', function(e) {
+            if (e.type === 'keypress' && e.which !== 13) return;
+            let newVal = input.val().trim();
+            let item = tableData.find(i => i.id === id);
+            item[field] = newVal || '-';
+            $(tdElement).text(item[field]);
+            
+            $.post('/monitoring/api/update_keyword', {
+                id: id,
+                isbn: item.isbn,
+                publisher: item.publisher,
+                supply_rate: item.supply_rate,
+                price: item.price,
+                shipping_fee: item.shipping_fee,
+                store_name: item.store_name,
+                book_title: item.book_title,
+                product_link: item.product_link,
+                store_rank: item.store_rank
+            });
         });
     }
 
@@ -219,6 +303,11 @@
             alert(res.message);
             if (res.success) setTimeout(() => location.reload(), 1500);
         });
+    }
+
+    // 기존 엑셀 다운로드 함수 (라우터가 설정되어 있는 경우를 대비)
+    function downloadExcel() {
+        window.location.href = '/monitoring/api/export_excel';
     }
 </script>
 {% endblock %}
