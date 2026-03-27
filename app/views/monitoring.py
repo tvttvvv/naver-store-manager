@@ -143,7 +143,7 @@ def get_html_with_bot_spoofing(url):
         except Exception: pass
     return ""
 
-# ✨ 순위 뿐만 아니라 가격, 링크, 택배비까지 모두 쓸어담는 싹쓸이 함수!
+# ✨ 오직 '네이버 도서검색' 탭만을 타겟으로 순위 및 정보 스크래핑
 def get_naver_shopping_info(queries, target_mall):
     for q in queries:
         if not q: continue
@@ -178,7 +178,6 @@ def get_naver_shopping_info(queries, target_mall):
                         return rank, price_formatted, str(delivery_fee), link
             except: pass
                 
-        # 백업 로직 (HTML 날것 스캔 - 순위라도 가져오기 위함)
         mall_tags = re.findall(r'(?:class="[^"]*mall_name[^"]*"[^>]*>|"mallName":")([^<"]+)', html)
         if mall_tags:
             for idx, mall in enumerate(mall_tags):
@@ -237,7 +236,7 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                 book_queries = [keyword_text, real_book_title]
                 if target_isbn: book_queries.insert(0, target_isbn) 
                 
-                # ✨ 봇 위장 패스로 순위, 가격, 택배비, 링크 전부 가져옴!
+                # ✨ 오직 도서검색 전용 로직으로만 순위 판별 및 정보 취합
                 book_rank, book_price, book_shipping, book_link = get_naver_shopping_info(book_queries, target_mall_name)
                 
                 if book_rank:
@@ -246,28 +245,6 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     updates['shipping_fee'] = book_shipping
                     updates['product_link'] = book_link
                     updates['store_name'] = target_mall_name
-                else:
-                    # 도서 탭에서 못 찾으면 일반 쇼핑 API(1~500위) 뒤지기
-                    if api_headers and search_client_id:
-                        try:
-                            found_rank = False
-                            for start_idx in range(1, 402, 100):
-                                if found_rank: break
-                                api_url = f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(keyword_text)}&display=100&start={start_idx}"
-                                api_res = requests.get(api_url, headers=api_headers, timeout=3)
-                                if api_res.status_code == 200:
-                                    items = api_res.json().get('items', [])
-                                    if not items: break
-                                    for idx, item in enumerate(items):
-                                        if target_mall_name in item.get('mallName', ''):
-                                            updates['store_rank'] = str(start_idx + idx)
-                                            updates['store_name'] = item.get('mallName')
-                                            updates['price'] = f"{int(item.get('lprice', 0)):,}원"
-                                            updates['product_link'] = item.get('link')
-                                            # 공식 API는 택배비를 잘 안 주므로 기본값 '-' 유지
-                                            found_rank = True
-                                            break
-                        except: pass
 
                 kw = db.session.get(MonitoredKeyword, k_id)
                 if kw:
@@ -315,4 +292,4 @@ def refresh_by_isbn():
         
     thread = Thread(target=async_refresh_by_isbn, args=(app, user_id, search_id, search_pw, target_ids))
     thread.start()
-    return jsonify({'success': True, 'message': f'✅ 순위 및 상품 정보 업데이트를 시작합니다. 잠시 후 새로고침 해주세요.'})
+    return jsonify({'success': True, 'message': f'✅ 도서검색 탭 기준 데이터 수집을 시작합니다. 잠시 후 새로고침 해주세요.'})
