@@ -2,7 +2,6 @@
 {% block content %}
 <h3 class="mb-4 fw-bold">스터디박스 모니터링 (A/B/C/MAIN 등급 수신함)</h3>
 
-<!-- ✨ 오리지널 UI 유지 + MAIN 탭 추가 -->
 <ul class="nav nav-tabs mb-4" id="gradeTabs">
     <li class="nav-item">
         <a class="nav-link active fw-bold text-dark" href="#" onclick="changeGradeTab('A', event)" id="tab-A" style="font-size: 1.1rem;">
@@ -20,8 +19,8 @@
         </a>
     </li>
     <li class="nav-item">
-        <a class="nav-link fw-bold text-secondary text-danger" href="#" onclick="changeGradeTab('MAIN', event)" id="tab-MAIN" style="font-size: 1.1rem;">
-            MAIN <span class="badge bg-secondary rounded-pill ms-1">0</span>
+        <a class="nav-link fw-bold text-danger" href="#" onclick="changeGradeTab('MAIN', event)" id="tab-MAIN" style="font-size: 1.1rem;">
+            MAIN <span class="badge bg-danger rounded-pill ms-1">0</span>
         </a>
     </li>
 </ul>
@@ -39,7 +38,7 @@
                         </span>
                     </div>
                     <div class="d-flex flex-wrap gap-2 align-items-center">
-                        <!-- ✨ 등급(탭) 이동 컨트롤 추가 -->
+                        
                         <div class="input-group shadow-sm me-2" style="width: auto;">
                             <select id="moveGradeSelect" class="form-select fw-bold border-primary text-primary" style="cursor: pointer;">
                                 <option value="MAIN">MAIN 이동</option>
@@ -53,10 +52,10 @@
                         </div>
 
                         <button class="btn btn-outline-warning fw-bold shadow-sm" onclick="clearSelectedData()">
-                            <i class="bi bi-eraser"></i> 선택 항목 데이터 초기화
+                            <i class="bi bi-eraser"></i> 데이터 초기화
                         </button>
                         <button class="btn btn-dark fw-bold shadow-sm" onclick="exportToExcel()">
-                            <i class="bi bi-file-earmark-excel"></i> 현재 탭 엑셀 다운로드
+                            <i class="bi bi-file-earmark-excel"></i> 엑셀 다운로드
                         </button>
                         <button id="refreshIsbnBtn" class="btn btn-success fw-bold shadow-sm px-4" onclick="refreshByIsbn()">
                             <i class="bi bi-upc-scan"></i> 선택 항목 ISBN 업데이트
@@ -99,12 +98,12 @@
                                 <th>스터디박스 순위</th>
                                 <th>키워드링크</th>
                                 <th>상품링크</th>
-                                <th>출판사명</th>
+                                <th>출판사명<br><small class="text-muted">(제조사명)</small></th>
                                 <th>공급률</th>
-                                <th>ISBN</th>
+                                <th>ISBN<br><small class="text-muted">(판매자 상품코드)</small></th>
                                 <th>가격</th>
                                 <th>택배비</th>
-                                <th>상점 책제목</th>
+                                <th class="text-primary fw-bold">상품명</th>
                                 <th>관리</th>
                             </tr>
                         </thead>
@@ -122,9 +121,7 @@
     .bg-neon-green { background-color: #00ff00 !important; color: #000 !important; font-weight: 800; }
     .bg-neon-yellow { background-color: #ffff00 !important; color: #000 !important; font-weight: 800; }
     .bg-neon-orange { background-color: #ff9900 !important; color: #000 !important; font-weight: 800; }
-    /* ✨ MAIN 탭 전용 형광 핑크색 추가 */
     .bg-neon-pink { background-color: #ffb6c1 !important; color: #000 !important; font-weight: 800; }
-    
     .edit-input { min-width: 70px; max-width: 150px; text-align: center; }
     .rank-up { color: #dc3545; font-weight: bold; font-size: 0.8rem; }
     .rank-down { color: #0d6efd; font-weight: bold; font-size: 0.8rem; }
@@ -158,12 +155,15 @@
         if(event) event.preventDefault();
         currentGradeTab = grade;
         document.querySelectorAll('.nav-link').forEach(el => {
-            el.classList.remove('active', 'text-dark');
+            el.classList.remove('active', 'text-dark', 'text-danger');
             el.classList.add('text-secondary');
         });
         const activeTab = document.getElementById('tab-' + grade);
-        activeTab.classList.add('active', 'text-dark');
+        activeTab.classList.add('active');
         activeTab.classList.remove('text-secondary');
+        if(grade === 'MAIN') activeTab.classList.add('text-danger');
+        else activeTab.classList.add('text-dark');
+        
         checkedIds.clear();
         document.getElementById('selectAll').checked = false;
         renderTable();
@@ -300,8 +300,8 @@
                     }
                 }
 
-                let safeStoreName = k.store_name || '-';
-                let storeNameDisplay = safeStoreName.includes('⚠️') ? `<span class="text-danger fw-bold">${safeStoreName}</span>` : `<span class="text-muted">${safeStoreName}</span>`;
+                let safeTitleName = k.book_title || '-';
+                let titleNameDisplay = safeTitleName.includes('⚠️') ? `<span class="text-danger fw-bold">${safeTitleName}</span>` : `<span class="text-dark fw-bold">${safeTitleName}</span>`;
                 let isChecked = checkedIds.has(k.id.toString()) ? 'checked' : '';
 
                 return `
@@ -311,14 +311,16 @@
                     <td class="align-middle ${kwBgColor}">${k.keyword || '-'}</td>
                     <td class="align-middle ${kwBgColor} fs-6">${(k.search_volume || 0).toLocaleString()}</td>
                     <td class="align-middle ${kwBgColor} text-dark" id="rank_${k.id}" data-val="${safeRank}">${rankDisplay}</td>
-                    <td class="align-middle"><a href="${k.link || '#'}" target="_blank" class="btn btn-sm btn-outline-secondary py-0 px-2 text-decoration-none"><i class="bi bi-search"></i> 키워드</a></td>
+                    <td class="align-middle"><a href="https://search.shopping.naver.com/search/all?query=${encodeURIComponent(k.keyword || '')}" target="_blank" class="btn btn-sm btn-outline-secondary py-0 px-2 text-decoration-none"><i class="bi bi-search"></i> 키워드</a></td>
                     <td class="align-middle" id="plink_${k.id}" data-val="${k.product_link || '-'}">${linkBtn}</td>
-                    <td class="align-middle text-muted" id="pub_${k.id}" data-val="${k.publisher || '-'}">${k.publisher || '-'}</td>
-                    <td class="align-middle text-muted" id="sup_${k.id}" data-val="${k.supply_rate || '-'}">${k.supply_rate || '-'}</td>
-                    <td class="align-middle text-dark fw-bold" id="isbn_${k.id}" data-val="${k.isbn || '-'}">${k.isbn || '-'}</td>
+                    
+                    <td class="align-middle text-muted" id="pub_${k.id}" data-val="${k.publisher || '-'}" ondblclick="editSingleField(${k.id}, 'publisher', this)" title="더블클릭하여 수정" style="cursor:pointer;">${k.publisher || '-'}</td>
+                    <td class="align-middle text-muted" id="sup_${k.id}" data-val="${k.supply_rate || '-'}" ondblclick="editSingleField(${k.id}, 'supply_rate', this)" title="더블클릭하여 수정" style="cursor:pointer;">${k.supply_rate || '-'}</td>
+                    <td class="align-middle text-primary fw-bold" id="isbn_${k.id}" data-val="${k.isbn || '-'}" ondblclick="editSingleIsbn(${k.id}, this)" title="더블클릭하여 수정" style="cursor:pointer; text-decoration:underline dashed;">${k.isbn || '-'}</td>
+                    
                     <td class="align-middle text-muted" id="price_${k.id}" data-val="${k.price || '-'}">${k.price || '-'}</td>
                     <td class="align-middle fw-bold text-secondary" id="ship_${k.id}" data-val="${k.shipping_fee || '-'}">${k.shipping_fee || '-'}</td>
-                    <td class="align-middle" id="store_${k.id}" data-val="${safeStoreName}">${storeNameDisplay}</td>
+                    <td class="align-middle text-start" id="store_${k.id}" data-val="${safeTitleName}">${titleNameDisplay}</td>
                     <td class="align-middle" id="action_${k.id}">
                         <button class="btn btn-sm btn-primary py-0 px-2" onclick="editKeyword(${k.id})" title="수정"><i class="bi bi-pencil-square"></i></button>
                         <button class="btn btn-sm btn-danger py-0 px-2" onclick="deleteKeyword(${k.id})" title="삭제"><i class="bi bi-trash"></i></button>
@@ -330,6 +332,106 @@
             tbody.innerHTML = `<tr><td colspan="14" class="text-center py-5 text-muted">${currentGradeTab}등급에 해당하는 데이터가 없습니다.</td></tr>`;
         }
     }
+
+    // ✨ 더블클릭 인라인 에디터 (ISBN 전용: 중복 검사 로직 포함)
+    function editSingleIsbn(id, tdElement) {
+        if (isEditing) return;
+        if ($(tdElement).find('input').length > 0) return;
+        
+        let currentVal = $(tdElement).text() === '-' ? '' : $(tdElement).text();
+        let input = $(`<input type="text" class="form-control form-control-sm text-center fw-bold text-primary" value="${currentVal}" placeholder="엔터키로 저장">`);
+        $(tdElement).empty().append(input);
+        input.focus();
+
+        input.on('blur keypress', async function(e) {
+            if (e.type === 'keypress' && e.which !== 13) return;
+            let newVal = input.val().trim();
+            if (newVal === currentVal) {
+                $(tdElement).text(newVal || '-');
+                return;
+            }
+            
+            let item = allKeywordsData.find(i => i.id === id);
+            const fd = new FormData();
+            fd.append('id', id);
+            fd.append('store_rank', item.store_rank || '-');
+            fd.append('product_link', item.product_link || '-');
+            fd.append('publisher', item.publisher || '-');
+            fd.append('supply_rate', item.supply_rate || '-');
+            fd.append('isbn', newVal || '-');
+            fd.append('price', item.price || '-');
+            fd.append('shipping_fee', item.shipping_fee || '-');
+            fd.append('store_name', item.store_name || '-');
+            fd.append('book_title', item.book_title || '-');
+
+            try {
+                const res = await fetch("{{ url_for('monitoring.update_keyword') }}", { method: 'POST', body: fd });
+                const result = await res.json();
+                if (result.success) {
+                    item.isbn = newVal || '-';
+                    $(tdElement).text(item.isbn);
+                } else {
+                    alert(result.message); // 중복 방지 경고 팝업
+                    $(tdElement).text(currentVal || '-');
+                }
+            } catch(e) {
+                alert('저장 중 오류가 발생했습니다.');
+                $(tdElement).text(currentVal || '-');
+            }
+        });
+    }
+
+    // ✨ 더블클릭 인라인 에디터 (출판사, 공급률 등 일반 필드용)
+    function editSingleField(id, field, tdElement) {
+        if (isEditing) return;
+        if ($(tdElement).find('input').length > 0) return;
+        
+        let currentVal = $(tdElement).text() === '-' ? '' : $(tdElement).text();
+        let input = $(`<input type="text" class="form-control form-control-sm text-center" value="${currentVal}" placeholder="엔터키로 저장">`);
+        $(tdElement).empty().append(input);
+        input.focus();
+
+        input.on('blur keypress', async function(e) {
+            if (e.type === 'keypress' && e.which !== 13) return;
+            let newVal = input.val().trim();
+            if (newVal === currentVal) {
+                $(tdElement).text(newVal || '-');
+                return;
+            }
+
+            let item = allKeywordsData.find(i => i.id === id);
+            const fd = new FormData();
+            fd.append('id', id);
+            fd.append('store_rank', item.store_rank || '-');
+            fd.append('product_link', item.product_link || '-');
+            fd.append('publisher', field === 'publisher' ? newVal : (item.publisher || '-'));
+            fd.append('supply_rate', field === 'supply_rate' ? newVal : (item.supply_rate || '-'));
+            fd.append('isbn', item.isbn || '-');
+            fd.append('price', item.price || '-');
+            fd.append('shipping_fee', item.shipping_fee || '-');
+            fd.append('store_name', item.store_name || '-');
+            fd.append('book_title', item.book_title || '-');
+
+            try {
+                const res = await fetch("{{ url_for('monitoring.update_keyword') }}", { method: 'POST', body: fd });
+                const result = await res.json();
+                if (result.success) {
+                    item[field] = newVal || '-';
+                    $(tdElement).text(item[field]);
+                } else {
+                    alert(result.message);
+                    $(tdElement).text(currentVal || '-');
+                }
+            } catch(e) {
+                alert('저장 중 오류가 발생했습니다.');
+                $(tdElement).text(currentVal || '-');
+            }
+        });
+    }
+
+    // ----------------------------------------------------
+    // 아래는 기존의 로우 전체 수정/삭제 및 기타 기능들입니다.
+    // ----------------------------------------------------
 
     function editKeyword(id) {
         isEditing = true; 
@@ -354,7 +456,6 @@
         isEditing = false; renderTable(); 
     }
 
-    // ✨ 핵심: ISBN 중복 시 경고창 띄우기 기능 탑재
     async function saveKeyword(id) {
         const fd = new FormData();
         fd.append('id', id);
@@ -365,18 +466,16 @@
         fd.append('isbn', document.getElementById(`in_isbn_${id}`).value || '-');
         fd.append('price', document.getElementById(`in_price_${id}`).value || '-');
         fd.append('shipping_fee', document.getElementById(`in_ship_${id}`).value || '-');
-        fd.append('store_name', document.getElementById(`in_store_${id}`).value || '-');
+        fd.append('book_title', document.getElementById(`in_store_${id}`).value || '-'); // 폼매핑 유지
 
         try {
             const res = await fetch("{{ url_for('monitoring.update_keyword') }}", { method: 'POST', body: fd });
             const result = await res.json();
-            
             if (result.success) {
                 isEditing = false;
                 loadSavedKeywords(); 
             } else {
-                // 백엔드에서 날아온 🚨중복 경고 팝업🚨 띄우기!
-                alert(result.message);
+                alert(result.message); // 중복 방지 경고
             }
         } catch(e) { alert('저장 중 오류가 발생했습니다.'); }
     }
@@ -389,7 +488,7 @@
         loadSavedKeywords();
     }
 
-    // ✨ 핵심: 등급을 MAIN(또는 다른 등급)으로 옮기는 기능!
+    // ✨ 등급(MAIN 포함) 이동 기능
     async function moveSelectedGrade() {
         if (checkedIds.size === 0) return alert('이동할 항목을 왼쪽 체크박스로 먼저 선택해주세요!');
         
@@ -457,9 +556,10 @@
         let exportData = allKeywordsData.filter(k => k.grade === currentGradeTab);
         if(exportData.length === 0) { alert("다운로드할 데이터가 없습니다."); return; }
         
-        let csvContent = "\uFEFF순번,키워드,네이버카운트,스터디박스 순위,상품링크,출판사명,공급률,ISBN,가격,택배비,상점 책제목\n";
+        // 다운로드 항목명에도 반영 완료
+        let csvContent = "\uFEFF순번,키워드,네이버카운트,스터디박스 순위,상품링크,출판사명(제조사명),공급률,ISBN(판매자상품코드),가격,택배비,상품명\n";
         exportData.forEach((k, index) => {
-            let row = [ index + 1, k.keyword || '-', k.search_volume || 0, k.store_rank || '-', k.product_link || '-', k.publisher || '-', k.supply_rate || '-', k.isbn || '-', k.price || '-', k.shipping_fee || '-', k.store_name || '-' ];
+            let row = [ index + 1, k.keyword || '-', k.search_volume || 0, k.store_rank || '-', k.product_link || '-', k.publisher || '-', k.supply_rate || '-', k.isbn || '-', k.price || '-', k.shipping_fee || '-', k.book_title || '-' ];
             csvContent += row.map(v => `"${(v || '').toString().replace(/"/g, '""')}"`).join(',') + "\n";
         });
         
