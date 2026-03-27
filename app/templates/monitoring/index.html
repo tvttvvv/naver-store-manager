@@ -1,453 +1,224 @@
 {% extends "base.html" %}
+
 {% block content %}
-<h3 class="mb-4 fw-bold">스터디박스 모니터링 (A/B/C 등급 수신함)</h3>
+<div class="container-fluid py-4">
+    <!-- 헤더 및 뱃지 영역 -->
+    <h3 class="mb-4 fw-bold">스터디박스 모니터링 (A/B/C/MAIN 등급 수신함)</h3>
+    <div class="d-flex gap-2 mb-4">
+        <span class="badge rounded-pill bg-primary fs-6 py-2 px-3">A등급 <span id="count-A">0</span></span>
+        <span class="badge rounded-pill bg-secondary fs-6 py-2 px-3">B등급 <span id="count-B">0</span></span>
+        <span class="badge rounded-pill bg-secondary fs-6 py-2 px-3">C등급 <span id="count-C">0</span></span>
+        <!-- ✨ 새로 추가된 MAIN 탭 뱃지 -->
+        <span class="badge rounded-pill bg-danger fs-6 py-2 px-3">MAIN <span id="count-MAIN">0</span></span>
+    </div>
 
-<ul class="nav nav-tabs mb-4" id="gradeTabs">
-    <li class="nav-item">
-        <a class="nav-link active fw-bold text-dark" href="#" onclick="changeGradeTab('A', event)" id="tab-A" style="font-size: 1.1rem;">
-            A등급 <span class="badge bg-primary rounded-pill ms-1">0</span>
-        </a>
-    </li>
-    <li class="nav-item">
-        <a class="nav-link fw-bold text-secondary" href="#" onclick="changeGradeTab('B', event)" id="tab-B" style="font-size: 1.1rem;">
-            B등급 <span class="badge bg-secondary rounded-pill ms-1">0</span>
-        </a>
-    </li>
-    <li class="nav-item">
-        <a class="nav-link fw-bold text-secondary" href="#" onclick="changeGradeTab('C', event)" id="tab-C" style="font-size: 1.1rem;">
-            C등급 <span class="badge bg-secondary rounded-pill ms-1">0</span>
-        </a>
-    </li>
-</ul>
-
-<div class="row">
-    <div class="col-12">
-        <div class="card shadow-sm border-0 border-top border-primary border-3">
-            <div class="card-body p-4">
-                <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-                    <div>
-                        <h6 class="fw-bold mb-1 text-primary">체크박스 다중 선택 및 항목 관리</h6>
-                        <span class="text-muted small">
-                            <i class="bi bi-info-circle text-primary"></i> 
-                            체크박스를 클릭하고 다른 체크박스를 <b>Shift + 클릭</b>하면 그 사이의 모든 항목이 한 번에 선택됩니다!
-                        </span>
-                    </div>
-                    <div class="d-flex flex-wrap gap-2">
-                        <!-- ✨ 새롭게 추가된 등급 이동 버튼 -->
-                        <div class="btn-group shadow-sm" role="group">
-                            <button type="button" class="btn btn-outline-primary fw-bold" onclick="moveSelectedGrade('A')">A로 이동</button>
-                            <button type="button" class="btn btn-outline-dark fw-bold" onclick="moveSelectedGrade('B')">B로 이동</button>
-                            <button type="button" class="btn btn-outline-dark fw-bold" onclick="moveSelectedGrade('C')">C로 이동</button>
-                        </div>
-                        <button class="btn btn-outline-warning fw-bold shadow-sm" onclick="clearSelectedData()">
-                            <i class="bi bi-eraser"></i> 데이터 초기화
-                        </button>
-                        <button class="btn btn-dark fw-bold shadow-sm" onclick="exportToExcel()">
-                            <i class="bi bi-file-earmark-excel"></i> 엑셀 다운로드
-                        </button>
-                        <button id="refreshIsbnBtn" class="btn btn-success fw-bold shadow-sm px-4" onclick="refreshByIsbn()">
-                            <i class="bi bi-upc-scan"></i> 선택 항목 ISBN 업데이트
-                        </button>
-                    </div>
+    <!-- 컨트롤 패널 (버튼 영역) -->
+    <div class="card shadow-sm mb-4 border-primary">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div>
+                    <h6 class="mb-1 text-primary fw-bold">체크박스 다중 선택 및 항목 관리</h6>
+                    <small class="text-muted">ⓘ 체크박스를 클릭하고 다른 체크박스를 Shift + 클릭하면 그 사이의 모든 항목이 한 번에 선택됩니다!</small>
                 </div>
-
-                <div class="d-flex align-items-center mb-3 p-2 bg-light rounded border flex-wrap gap-2">
-                    <div class="d-flex align-items-center">
-                        <i class="bi bi-search text-secondary ms-1 me-2"></i>
-                        <select id="searchCategory" class="form-select form-select-sm w-auto me-2 fw-bold" style="cursor: pointer;">
+                <div class="d-flex gap-2 align-items-center">
+                    <!-- 검색 및 정렬 -->
+                    <div class="input-group" style="width: 250px;">
+                        <select class="form-select" id="search-type" style="max-width: 100px;">
                             <option value="all">전체 검색</option>
-                            <option value="keyword">키워드</option>
-                            <option value="publisher">출판사명</option>
-                            <option value="isbn">ISBN</option>
                         </select>
-                        <input type="text" id="searchInput" class="form-control form-control-sm" style="width: 200px;" placeholder="검색어를 입력하세요...">
+                        <input type="text" class="form-control" id="search-input" placeholder="검색어를 입력하세요...">
                     </div>
-                    
-                    <div class="vr mx-2 d-none d-md-block"></div>
-                    
-                    <div class="d-flex align-items-center">
-                        <i class="bi bi-sort-down text-secondary me-2"></i>
-                        <select id="sortOption" class="form-select form-select-sm w-auto fw-bold text-primary" style="cursor: pointer; border-color: #0d6efd;">
-                            <option value="recent">최근 등록순</option>
-                            <option value="vol_desc">네이버 검색량 높은순</option>
-                            <option value="vol_asc">네이버 검색량 낮은순</option>
-                        </select>
+                    <select class="form-select" id="sort-type" style="width: 130px;">
+                        <option value="recent">최근 등록순</option>
+                    </select>
+
+                    <!-- ✨ 탭 이동 버튼 영역 (MAIN 추가됨) -->
+                    <div class="btn-group border rounded border-primary p-1">
+                        <button class="btn btn-sm btn-outline-primary border-0 fw-bold" onclick="moveGrade('A')">A로 이동</button>
+                        <button class="btn btn-sm btn-outline-dark border-0 fw-bold" onclick="moveGrade('B')">B로 이동</button>
+                        <button class="btn btn-sm btn-outline-secondary border-0 fw-bold" onclick="moveGrade('C')">C로 이동</button>
+                        <button class="btn btn-sm btn-outline-danger border-0 fw-bold" onclick="moveGrade('MAIN')">MAIN 이동</button>
                     </div>
-                </div>
-                
-                <div class="table-responsive border rounded" style="max-height: 600px; overflow-y: auto;">
-                    <table class="table table-hover table-bordered text-center align-middle mb-0" style="font-size: 0.85rem; white-space: nowrap;">
-                        <thead class="table-light text-muted" style="position: sticky; top: 0; z-index: 1;">
-                            <tr>
-                                <th style="width: 40px;"><input type="checkbox" id="selectAll" class="form-check-input" style="cursor: pointer;" onclick="toggleAll(this)"></th>
-                                <th>순번</th>
-                                <th>키워드</th>
-                                <th>네이버카운트</th>
-                                <th>스터디박스 순위</th>
-                                <th>키워드링크</th>
-                                <th>상품링크</th>
-                                <th>출판사명</th>
-                                <th>공급률</th>
-                                <th>ISBN</th>
-                                <th>가격</th>
-                                <th>택배비</th>
-                                <th>상점 책제목</th>
-                                <th>관리</th>
-                            </tr>
-                        </thead>
-                        <tbody id="savedKeywordsBody">
-                            <tr><td colspan="14" class="text-center py-5 text-muted">데이터를 가져오는 중입니다...</td></tr>
-                        </tbody>
-                    </table>
+
+                    <!-- 기능 버튼들 -->
+                    <button class="btn btn-sm btn-outline-warning text-dark fw-bold border-2" onclick="clearData()">◇ 데이터 초기화</button>
+                    <button class="btn btn-sm btn-dark fw-bold" onclick="downloadExcel()">☒ 엑셀 다운로드</button>
+                    <button class="btn btn-sm btn-success fw-bold" onclick="refreshIsbn()">[ ] 선택 항목 ISBN 업데이트</button>
                 </div>
             </div>
         </div>
     </div>
+
+    <!-- 데이터 테이블 -->
+    <div class="table-responsive bg-white shadow-sm rounded border">
+        <table class="table table-bordered table-hover align-middle text-center mb-0" id="dataTable" style="font-size: 0.9rem;">
+            <thead class="table-light align-middle">
+                <tr>
+                    <th style="width: 40px;"><input class="form-check-input" type="checkbox" id="selectAll"></th>
+                    <th style="width: 60px;">순번</th>
+                    <th style="width: 15%;">키워드</th>
+                    <th style="width: 80px;">네이버카운트</th>
+                    <th style="width: 100px;">스터디박스 순위</th>
+                    <th style="width: 90px;">키워드링크</th>
+                    <th style="width: 90px;">상품링크</th>
+                    <th style="width: 10%;">출판사명</th>
+                    <th style="width: 70px;">공급률</th>
+                    <th style="width: 120px;">ISBN</th>
+                    <th style="width: 90px;">가격</th>
+                    <th style="width: 80px;">택배비</th>
+                    <th style="width: 15%;">상점 책제목</th>
+                    <th style="width: 60px;">저장</th>
+                </tr>
+            </thead>
+            <tbody id="tableBody">
+                <!-- JavaScript 렌더링 영역 -->
+            </tbody>
+        </table>
+    </div>
 </div>
 
-<style>
-    .bg-neon-green { background-color: #00ff00 !important; color: #000 !important; font-weight: 800; }
-    .bg-neon-yellow { background-color: #ffff00 !important; color: #000 !important; font-weight: 800; }
-    .bg-neon-orange { background-color: #ff9900 !important; color: #000 !important; font-weight: 800; }
-    .edit-input { min-width: 70px; max-width: 150px; text-align: center; }
-    .rank-up { color: #dc3545; font-weight: bold; font-size: 0.8rem; }
-    .rank-down { color: #0d6efd; font-weight: bold; font-size: 0.8rem; }
-    .rank-same { color: #adb5bd; font-weight: bold; font-size: 0.8rem; }
-    .row-selected { background-color: #e8f4f8 !important; }
-</style>
-
+<!-- 스크립트 영역 -->
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script>
-    let isEditing = false; 
-    let allKeywordsData = []; 
-    let searchCategory = 'all';
-    let searchQuery = '';
-    let currentSort = 'recent';
-    let currentGradeTab = 'A';
-    let checkedIds = new Set();
-    let lastCheckedCheckbox = null;
+    let tableData = [];
+    let lastChecked = null;
 
-    function updateTabCounts() {
-        let countA = allKeywordsData.filter(k => k.grade === 'A').length;
-        let countB = allKeywordsData.filter(k => k.grade === 'B').length;
-        let countC = allKeywordsData.filter(k => k.grade === 'C').length;
+    $(document).ready(function() {
+        loadData();
 
-        document.getElementById('tab-A').innerHTML = `A등급 <span class="badge ${currentGradeTab === 'A' ? 'bg-primary' : 'bg-secondary'} rounded-pill ms-1">${countA}</span>`;
-        document.getElementById('tab-B').innerHTML = `B등급 <span class="badge ${currentGradeTab === 'B' ? 'bg-primary' : 'bg-secondary'} rounded-pill ms-1">${countB}</span>`;
-        document.getElementById('tab-C').innerHTML = `C등급 <span class="badge ${currentGradeTab === 'C' ? 'bg-primary' : 'bg-secondary'} rounded-pill ms-1">${countC}</span>`;
-    }
-
-    function changeGradeTab(grade, event) {
-        if(event) event.preventDefault();
-        currentGradeTab = grade;
-        document.querySelectorAll('.nav-link').forEach(el => {
-            el.classList.remove('active', 'text-dark');
-            el.classList.add('text-secondary');
-        });
-        const activeTab = document.getElementById('tab-' + grade);
-        activeTab.classList.add('active', 'text-dark');
-        activeTab.classList.remove('text-secondary');
-        checkedIds.clear();
-        document.getElementById('selectAll').checked = false;
-        renderTable();
-    }
-
-    document.getElementById('searchInput').addEventListener('input', function(e) {
-        searchQuery = e.target.value.toLowerCase();
-        renderTable();
-    });
-    document.getElementById('searchCategory').addEventListener('change', function(e) {
-        searchCategory = e.target.value;
-        renderTable();
-    });
-    document.getElementById('sortOption').addEventListener('change', function(e) {
-        currentSort = e.target.value;
-        renderTable();
-    });
-
-    async function loadSavedKeywords() {
-        if (isEditing) return; 
-        try {
-            const res = await fetch("{{ url_for('monitoring.get_saved_keywords') }}");
-            const result = await res.json();
-            if (result.success) {
-                allKeywordsData = result.data;
-                renderTable(); 
+        // Shift + 클릭 다중 선택 로직
+        $(document).on('click', '.row-checkbox', function(e) {
+            if (!lastChecked) {
+                lastChecked = this;
+                return;
             }
-        } catch (e) {}
+            if (e.shiftKey) {
+                let start = $('.row-checkbox').index(this);
+                let end = $('.row-checkbox').index(lastChecked);
+                $('.row-checkbox').slice(Math.min(start, end), Math.max(start, end) + 1).prop('checked', lastChecked.checked);
+            }
+            lastChecked = this;
+        });
+
+        $('#selectAll').click(function() {
+            $('.row-checkbox').prop('checked', this.checked);
+        });
+    });
+
+    function loadData() {
+        $.get('/monitoring/api/saved_keywords', function(res) {
+            if (res.success) {
+                tableData = res.data;
+                renderTable(tableData);
+                updateBadges(tableData);
+            }
+        });
     }
 
-    function getRankNum(rankStr) {
-        if (!rankStr || rankStr === '-' || rankStr.includes('밖') || rankStr.includes('에러') || rankStr.includes('실패') || rankStr.includes('갱신중') || rankStr.includes('매칭중')) return 9999;
-        return parseInt(rankStr.replace(/[^0-9]/g, '')) || 9999;
+    function updateBadges(data) {
+        let counts = { 'A': 0, 'B': 0, 'C': 0, 'MAIN': 0 };
+        data.forEach(item => {
+            if (counts[item.grade] !== undefined) counts[item.grade]++;
+        });
+        $('#count-A').text(counts['A']);
+        $('#count-B').text(counts['B']);
+        $('#count-C').text(counts['C']);
+        $('#count-MAIN').text(counts['MAIN']);
     }
 
-    function handleRowCheck(event, checkbox) {
-        if (checkbox.checked) { checkedIds.add(checkbox.value); } 
-        else { checkedIds.delete(checkbox.value); }
-
-        if (event.shiftKey && lastCheckedCheckbox) {
-            const checkboxes = Array.from(document.querySelectorAll('.row-checkbox'));
-            let start = checkboxes.indexOf(checkbox);
-            let end = checkboxes.indexOf(lastCheckedCheckbox);
-            let min = Math.min(start, end);
-            let max = Math.max(start, end);
+    function renderTable(data) {
+        const tbody = $('#tableBody');
+        tbody.empty();
+        data.forEach(item => {
+            // 등급별 형광펜 효과 (A등급 초록색, MAIN등급 붉은색)
+            let bgColor = '';
+            if (item.grade === 'A') bgColor = 'background-color: #00ff00; font-weight: bold;';
+            else if (item.grade === 'MAIN') bgColor = 'background-color: #ffcccc; font-weight: bold; color: #cc0000;';
             
-            for (let i = min; i <= max; i++) {
-                checkboxes[i].checked = lastCheckedCheckbox.checked;
-                if (checkboxes[i].checked) { checkedIds.add(checkboxes[i].value); } 
-                else { checkedIds.delete(checkboxes[i].value); }
-            }
-        }
-        lastCheckedCheckbox = checkbox;
-        renderTableColors();
-    }
-
-    function toggleAll(source) {
-        const checkboxes = document.querySelectorAll('.row-checkbox');
-        checkboxes.forEach(cb => {
-            cb.checked = source.checked;
-            if (source.checked) checkedIds.add(cb.value);
-            else checkedIds.delete(cb.value);
-        });
-        renderTableColors();
-    }
-
-    function renderTableColors() {
-        const trs = document.querySelectorAll('#savedKeywordsBody tr');
-        trs.forEach(tr => {
-            const cb = tr.querySelector('.row-checkbox');
-            if(cb && cb.checked) { tr.classList.add('row-selected'); } 
-            else { tr.classList.remove('row-selected'); }
-        });
-    }
-
-    function renderTable() {
-        if (isEditing) return;
-        const tbody = document.getElementById('savedKeywordsBody');
-
-        updateTabCounts(); 
-
-        let filteredData = allKeywordsData.filter(k => {
-            if (k.grade !== currentGradeTab) return false;
-
-            if (!searchQuery) return true; 
-            const kw = (k.keyword || '').toLowerCase();
-            const pub = (k.publisher || '').toLowerCase();
-            const isbn = (k.isbn || '').toLowerCase();
-            if (searchCategory === 'keyword') return kw.includes(searchQuery);
-            if (searchCategory === 'publisher') return pub.includes(searchQuery);
-            if (searchCategory === 'isbn') return isbn.includes(searchQuery);
-            if (searchCategory === 'all') return kw.includes(searchQuery) || pub.includes(searchQuery) || isbn.includes(searchQuery);
-            return true;
-        });
-
-        if (currentSort === 'vol_desc') {
-            filteredData.sort((a, b) => b.search_volume - a.search_volume);
-        } else if (currentSort === 'vol_asc') {
-            filteredData.sort((a, b) => a.search_volume - b.search_volume);
-        } else {
-            filteredData.sort((a, b) => b.id - a.id);
-        }
-
-        if (filteredData.length > 0) {
-            let kwBgColor = 'bg-neon-green';
-            if(currentGradeTab === 'B') kwBgColor = 'bg-neon-yellow';
-            if(currentGradeTab === 'C') kwBgColor = 'bg-neon-orange';
-
-            tbody.innerHTML = filteredData.map((k, index) => {
-                let linkBtn = '<span class="text-muted">-</span>';
-                if (k.product_link !== '-' && k.product_link !== '') {
-                    let finalUrl = k.product_link.startsWith('http') ? k.product_link : 'http://' + k.product_link;
-                    linkBtn = `<a href="${finalUrl}" target="_blank" class="btn btn-sm btn-outline-primary py-0 px-2 text-decoration-none"><i class="bi bi-link-45deg"></i> 상품</a>`;
-                }
-
-                let safeRank = k.store_rank || '-';
-                let safePrevRank = k.prev_store_rank || '-';
-                let rankDisplay = `<span class="fs-6 fw-bold">${safeRank}</span>`;
-                
-                if (safePrevRank !== '-') {
-                    if (safeRank !== safePrevRank && !safeRank.includes('매칭중') && !safeRank.includes('갱신중')) {
-                        let prevNum = getRankNum(safePrevRank);
-                        let currNum = getRankNum(safeRank);
-                        if (prevNum === 9999 && currNum !== 9999) { rankDisplay += `<br><span class="rank-up">▲ 순위권 진입!</span>`; } 
-                        else if (prevNum !== 9999 && currNum === 9999) { rankDisplay += `<br><span class="rank-down">▼ 밀려남</span>`; } 
-                        else if (currNum < prevNum) { rankDisplay += `<br><span class="rank-up">▲ ${prevNum - currNum}</span>`; } 
-                        else if (currNum > prevNum) { rankDisplay += `<br><span class="rank-down">▼ ${currNum - prevNum}</span>`; } 
-                        else { rankDisplay += `<br><span class="text-muted small" style="font-size:0.75rem;">(이전: ${safePrevRank})</span>`; }
-                    } else if (!safeRank.includes('매칭중') && !safeRank.includes('갱신중')) {
-                        rankDisplay += `<br><span class="rank-same">-</span>`;
-                    }
-                }
-
-                let safeStoreName = k.store_name || '-';
-                let storeNameDisplay = safeStoreName.includes('⚠️') ? `<span class="text-danger fw-bold">${safeStoreName}</span>` : `<span class="text-muted">${safeStoreName}</span>`;
-                let isChecked = checkedIds.has(k.id.toString()) ? 'checked' : '';
-
-                return `
-                <tr class="${isChecked ? 'row-selected' : ''}">
-                    <td class="align-middle bg-light"><input type="checkbox" class="form-check-input row-checkbox" value="${k.id}" onclick="handleRowCheck(event, this)" style="cursor: pointer;" ${isChecked}></td>
-                    <td class="align-middle">${index + 1}</td>
-                    <td class="align-middle ${kwBgColor}">${k.keyword || '-'}</td>
-                    <td class="align-middle ${kwBgColor} fs-6">${(k.search_volume || 0).toLocaleString()}</td>
-                    <td class="align-middle ${kwBgColor} text-dark" id="rank_${k.id}" data-val="${safeRank}">${rankDisplay}</td>
-                    <td class="align-middle"><a href="${k.link || '#'}" target="_blank" class="btn btn-sm btn-outline-secondary py-0 px-2 text-decoration-none"><i class="bi bi-search"></i> 키워드</a></td>
-                    <td class="align-middle" id="plink_${k.id}" data-val="${k.product_link || '-'}">${linkBtn}</td>
-                    <td class="align-middle text-muted" id="pub_${k.id}" data-val="${k.publisher || '-'}">${k.publisher || '-'}</td>
-                    <td class="align-middle text-muted" id="sup_${k.id}" data-val="${k.supply_rate || '-'}">${k.supply_rate || '-'}</td>
-                    <td class="align-middle text-dark fw-bold" id="isbn_${k.id}" data-val="${k.isbn || '-'}">${k.isbn || '-'}</td>
-                    <td class="align-middle text-muted" id="price_${k.id}" data-val="${k.price || '-'}">${k.price || '-'}</td>
-                    <td class="align-middle fw-bold text-secondary" id="ship_${k.id}" data-val="${k.shipping_fee || '-'}">${k.shipping_fee || '-'}</td>
-                    <td class="align-middle" id="store_${k.id}" data-val="${safeStoreName}">${storeNameDisplay}</td>
-                    <td class="align-middle" id="action_${k.id}">
-                        <button class="btn btn-sm btn-primary py-0 px-2" onclick="editKeyword(${k.id})" title="수정"><i class="bi bi-pencil-square"></i></button>
-                        <button class="btn btn-sm btn-danger py-0 px-2" onclick="deleteKeyword(${k.id})" title="삭제"><i class="bi bi-trash"></i></button>
-                    </td>
+            let tr = `
+                <tr data-id="${item.id}">
+                    <td><input class="form-check-input row-checkbox" type="checkbox" value="${item.id}"></td>
+                    <td>${item.id}</td>
+                    <td style="${bgColor}">${item.keyword}</td>
+                    <td class="fw-bold">${item.search_volume.toLocaleString()}</td>
+                    <td class="fw-bold text-success">${item.store_rank}</td>
+                    <td><a href="https://search.shopping.naver.com/search/all?query=${encodeURIComponent(item.keyword)}" target="_blank" class="btn btn-sm btn-light border">🔍 키워드</a></td>
+                    <td>${item.product_link !== '-' ? `<a href="${item.product_link}" target="_blank" class="btn btn-sm btn-light border">🔗 상품</a>` : '-'}</td>
+                    <td><input type="text" class="form-control form-control-sm pub-input text-center" value="${item.publisher}"></td>
+                    <td><input type="text" class="form-control form-control-sm sup-input text-center" value="${item.supply_rate}"></td>
+                    <td><input type="text" class="form-control form-control-sm isbn-input text-center fw-bold" value="${item.isbn}"></td>
+                    <td class="price-val">${item.price}</td>
+                    <td class="shipping-val">${item.shipping_fee}</td>
+                    <td class="text-start title-val">${item.book_title}</td>
+                    <td><button class="btn btn-sm btn-primary" onclick="saveRow(${item.id})">저장</button></td>
                 </tr>
-                `;
-            }).join('');
-        } else {
-            tbody.innerHTML = `<tr><td colspan="14" class="text-center py-5 text-muted">${currentGradeTab}등급에 해당하는 데이터가 없습니다.</td></tr>`;
-        }
-    }
-
-    function editKeyword(id) {
-        isEditing = true; 
-        const fields = ['rank', 'plink', 'pub', 'sup', 'isbn', 'price', 'ship', 'store'];
-        fields.forEach(f => {
-            const td = document.getElementById(`${f}_${id}`);
-            const val = td.getAttribute('data-val'); 
-            const cleanVal = (val !== '-') ? val : '';
-            const extraClass = (f === 'plink' || f === 'store') ? 'w-100' : 'edit-input';
-            let style = (f === 'isbn') ? "background-color: #fff3cd; font-weight: bold;" : "";
-            td.innerHTML = `<input type="text" id="in_${f}_${id}" class="form-control form-control-sm px-1 py-0 ${extraClass}" value="${cleanVal}" style="${style}" placeholder="${f==='isbn'?'ISBN 입력':''}">`;
+            `;
+            tbody.append(tr);
         });
-        
-        const actionTd = document.getElementById(`action_${id}`);
-        actionTd.innerHTML = `
-            <button class="btn btn-sm btn-success py-0 px-2" onclick="saveKeyword(${id})" title="저장"><i class="bi bi-check-lg"></i></button>
-            <button class="btn btn-sm btn-secondary py-0 px-2" onclick="cancelEdit(${id})" title="취소"><i class="bi bi-x-lg"></i></button>
-        `;
     }
 
-    function cancelEdit(id) {
-        isEditing = false; renderTable(); 
-    }
+    function saveRow(id) {
+        const tr = $(`tr[data-id='${id}']`);
+        const data = {
+            id: id,
+            publisher: tr.find('.pub-input').val(),
+            supply_rate: tr.find('.sup-input').val(),
+            isbn: tr.find('.isbn-input').val(),
+            price: tr.find('.price-val').text().trim(),
+            shipping_fee: tr.find('.shipping-val').text().trim(),
+            book_title: tr.find('.title-val').text().trim(),
+            product_link: tr.find('td:eq(6) a').length ? tr.find('td:eq(6) a').attr('href') : '-'
+        };
 
-    async function saveKeyword(id) {
-        const fd = new FormData();
-        fd.append('id', id);
-        fd.append('store_rank', document.getElementById(`in_rank_${id}`).value || '-');
-        fd.append('product_link', document.getElementById(`in_plink_${id}`).value || '-');
-        fd.append('publisher', document.getElementById(`in_pub_${id}`).value || '-');
-        fd.append('supply_rate', document.getElementById(`in_sup_${id}`).value || '-');
-        fd.append('isbn', document.getElementById(`in_isbn_${id}`).value || '-');
-        fd.append('price', document.getElementById(`in_price_${id}`).value || '-');
-        fd.append('shipping_fee', document.getElementById(`in_ship_${id}`).value || '-');
-        fd.append('store_name', document.getElementById(`in_store_${id}`).value || '-');
-
-        try {
-            await fetch("{{ url_for('monitoring.update_keyword') }}", { method: 'POST', body: fd });
-            isEditing = false;
-            loadSavedKeywords(); 
-        } catch(e) { alert('저장 중 오류가 발생했습니다.'); }
-    }
-
-    async function deleteKeyword(id) {
-        if (!confirm('이 키워드를 완전히 삭제하시겠습니까?')) return;
-        const fd = new FormData();
-        fd.append('id', id);
-        await fetch("{{ url_for('monitoring.delete_keyword') }}", { method: 'POST', body: fd });
-        loadSavedKeywords();
-    }
-
-    // ✨ [신규 기능] 체크된 항목들을 원하는 등급 탭으로 이사시키는 마법의 버튼!
-    async function moveSelectedGrade(grade) {
-        if (checkedIds.size === 0) {
-            alert("이동할 항목을 왼쪽 체크박스로 먼저 선택해주세요!");
-            return;
-        }
-
-        if(!confirm(`선택한 ${checkedIds.size}개 항목을 [${grade}등급] 탭으로 이동하시겠습니까?`)) return;
-        
-        const fd = new FormData();
-        checkedIds.forEach(id => fd.append('ids[]', id));
-        fd.append('grade', grade);
-
-        try {
-            const res = await fetch("{{ url_for('monitoring.change_grade') }}", { method: 'POST', body: fd });
-            const result = await res.json();
-            if(result.success) { 
-                alert(result.message); 
-                checkedIds.clear();
-                document.getElementById('selectAll').checked = false;
-                loadSavedKeywords(); 
+        $.post('/monitoring/api/update_keyword', data, function(res) {
+            if (res.success) {
+                alert('✅ 저장되었습니다.');
+                loadData();
+            } else {
+                // ✨ 핵심: ISBN 중복 시 백엔드에서 보낸 에러 메시지를 강력한 경고창으로 띄웁니다!
+                alert(res.message);
+                loadData(); // 잘못 입력된 ISBN을 원래 상태로 복구
             }
-        } catch(e) { alert('등급 이동 중 오류가 발생했습니다.'); }
-    }
-
-    async function refreshByIsbn() {
-        if (checkedIds.size === 0) {
-            alert("업데이트할 항목을 왼쪽 체크박스로 먼저 선택해주세요!");
-            return;
-        }
-
-        const btn = document.getElementById('refreshIsbnBtn');
-        const origText = btn.innerHTML;
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 전송중...';
-        btn.disabled = true;
-
-        const fd = new FormData();
-        checkedIds.forEach(id => fd.append('ids[]', id));
-
-        try {
-            const res = await fetch("{{ url_for('monitoring.refresh_by_isbn') }}", { method: 'POST', body: fd });
-            const result = await res.json();
-            alert(result.message);
-            loadSavedKeywords();
-        } catch(e) { alert('서버 에러가 발생했습니다.'); } 
-        finally { btn.innerHTML = origText; btn.disabled = false; }
-    }
-
-    async function clearSelectedData() {
-        if (checkedIds.size === 0) {
-            alert("초기화할 항목을 왼쪽 체크박스로 먼저 선택해주세요!");
-            return;
-        }
-
-        if(!confirm(`선택한 ${checkedIds.size}개 항목의 검색 데이터(가격, 택배비 등)를 모두 비우시겠습니까? (수동 입력한 키워드, ISBN 등은 안전하게 보존됩니다)`)) return;
-        
-        const fd = new FormData();
-        checkedIds.forEach(id => fd.append('ids[]', id));
-
-        try {
-            const res = await fetch("{{ url_for('monitoring.clear_data') }}", { method: 'POST', body: fd });
-            const result = await res.json();
-            if(result.success) { alert(result.message); loadSavedKeywords(); }
-        } catch(e) { alert('초기화 중 오류가 발생했습니다.'); }
-    }
-
-    function exportToExcel() {
-        let exportData = allKeywordsData.filter(k => k.grade === currentGradeTab);
-        if(exportData.length === 0) { alert("다운로드할 데이터가 없습니다."); return; }
-        
-        let csvContent = "\uFEFF순번,키워드,네이버카운트,스터디박스 순위,상품링크,출판사명,공급률,ISBN,가격,택배비,상점 책제목\n";
-        exportData.forEach((k, index) => {
-            let row = [ index + 1, k.keyword || '-', k.search_volume || 0, k.store_rank || '-', k.product_link || '-', k.publisher || '-', k.supply_rate || '-', k.isbn || '-', k.price || '-', k.shipping_fee || '-', k.store_name || '-' ];
-            csvContent += row.map(v => `"${(v || '').toString().replace(/"/g, '""')}"`).join(',') + "\n";
+        }).fail(function() {
+            alert('🚨 서버 통신 에러가 발생했습니다.');
         });
-        
-        let blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        let link = document.createElement("a");
-        link.href = URL.createObjectURL(blob);
-        link.download = `스터디박스_모니터링_${currentGradeTab}등급.csv`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
     }
 
-    document.addEventListener("DOMContentLoaded", () => {
-        loadSavedKeywords();
-        setInterval(loadSavedKeywords, 2000); 
-    });
+    function moveGrade(grade) {
+        let ids = [];
+        $('.row-checkbox:checked').each(function() { ids.push($(this).val()); });
+        if (ids.length === 0) return alert('이동할 항목을 선택해주세요.');
+
+        $.post('/monitoring/api/change_grade', { 'ids[]': ids, grade: grade }, function(res) {
+            if (res.success) {
+                alert(res.message);
+                loadData();
+            }
+        });
+    }
+
+    function clearData() {
+        let ids = [];
+        $('.row-checkbox:checked').each(function() { ids.push($(this).val()); });
+        if (ids.length === 0 && !confirm('선택된 항목이 없습니다. 전체 데이터를 초기화하시겠습니까?')) return;
+        
+        $.post('/monitoring/api/clear_data', { 'ids[]': ids }, function(res) {
+            if (res.success) {
+                alert(res.message);
+                loadData();
+            }
+        });
+    }
+
+    function refreshIsbn() {
+        let ids = [];
+        $('.row-checkbox:checked').each(function() { ids.push($(this).val()); });
+        if (ids.length === 0) return alert('업데이트할 항목을 선택해주세요.');
+
+        $.post('/monitoring/api/refresh_by_isbn', { 'ids[]': ids }, function(res) {
+            alert(res.message);
+            if (res.success) setTimeout(() => location.reload(), 1500);
+        });
+    }
 </script>
 {% endblock %}
