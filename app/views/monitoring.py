@@ -211,7 +211,7 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     except: pass
                 if not real_book_title: real_book_title = get_real_title_via_proxy(target_isbn)
 
-                # [2] 순위 검색 (3중 탐색: ISBN -> 키워드 -> 진짜이름)
+                # [2] 순위 검색 (도서 탭 3중 탐색)
                 new_rank = "500위 밖"
                 book_queries = [target_isbn, keyword_text, real_book_title]
                 book_tab_rank = get_naver_book_shopping_rank(book_queries, target_mall_name)
@@ -272,16 +272,25 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     fallback_match = None
 
                     for p in candidate_products:
+                        # ✨ 핵심 픽스: V2 채널 상품 번호를 가져와서, 포장지를 뜯어내는 통로로 사용합니다!
+                        c_no = p.get('channelProducts', [{}])[0].get('channelProductNo')
                         o_no = p.get('originProductNo')
-                        if not o_no: continue
+                        target_no = c_no if c_no else o_no
+                        if not target_no: continue
+                        
                         try:
-                            # 원본 상품 정보 가져오기
-                            op_res = requests.get(f"https://api.commerce.naver.com/external/v2/products/origin-products/{o_no}", headers=c_headers, timeout=5)
+                            # V2 상품 조회 (포장지째 가져옴)
+                            op_res = requests.get(f"https://api.commerce.naver.com/external/v2/products/{target_no}", headers=c_headers, timeout=5)
                             if op_res.status_code == 200:
-                                op_data = op_res.json()
+                                full_data = op_res.json()
+                                
+                                # ✨ 포장지 뜯기 완료! 진짜 알맹이(originProduct)를 꺼냅니다!
+                                op_data = full_data.get('originProduct', full_data)
+                                
                                 book_isbn = str(op_data.get('detailAttribute', {}).get('bookInfo', {}).get('isbn', '')).replace('-', '').strip()
-                                p_name = str(op_data.get('name', ''))
-                                print(f"[DEBUG] Inspecting OriginNo: {o_no} | Name: '{p_name}' | ISBN: '{book_isbn}'", flush=True)
+                                p_name = str(op_data.get('name') or p.get('name', ''))
+                                
+                                print(f"[DEBUG] Inspecting No: {target_no} | Name: '{p_name}' | ISBN: '{book_isbn}'", flush=True)
                                 
                                 if target_isbn and book_isbn and (target_isbn in book_isbn or book_isbn in target_isbn):
                                     best_match = (p, op_data)
@@ -293,6 +302,8 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                                 r_name_clean = re.sub(r'[^a-zA-Z0-9가-힣]', '', real_book_title)
                                 if (k_name_clean and k_name_clean in p_name_clean) or (r_name_clean and r_name_clean in p_name_clean):
                                     if not fallback_match: fallback_match = (p, op_data)
+                            else:
+                                print(f"[DEBUG] Detail Fetch Failed with status {op_res.status_code}", flush=True)
                         except Exception as e: print(f"[DEBUG] Detail Fetch Error: {e}", flush=True)
 
                     matched_data = best_match or fallback_match
