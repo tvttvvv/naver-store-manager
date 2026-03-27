@@ -211,7 +211,7 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     except: pass
                 if not real_book_title: real_book_title = get_real_title_via_proxy(target_isbn)
 
-                # [2] 순위 검색 (도서 탭 3중 탐색)
+                # [2] 순위 검색
                 new_rank = "500위 밖"
                 book_queries = [target_isbn, keyword_text, real_book_title]
                 book_tab_rank = get_naver_book_shopping_rank(book_queries, target_mall_name)
@@ -242,32 +242,23 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                 
                 if commerce_token:
                     candidate_products = []
-                    try:
-                        # ✨ 핵심 수정: 변수명을 "searchKeyword"로 정확하게 고쳤습니다!
-                        payload = {"page": 1, "size": 20, "searchKeywordType": "SELLER_MANAGEMENT_CODE", "searchKeyword": target_isbn}
-                        c_res = requests.post("https://api.commerce.naver.com/external/v1/products/search", headers=c_headers, json=payload, timeout=5)
-                        if c_res.status_code == 200:
-                            contents = c_res.json().get('contents', [])
-                            print(f"[DEBUG] Commerce Search by ISBN returned {len(contents)} items.", flush=True)
-                            candidate_products.extend(contents)
-                    except Exception as e: print(f"[DEBUG] Commerce ISBN Search Error: {e}", flush=True)
-
-                    if not candidate_products:
-                        search_terms = []
-                        if keyword_text: search_terms.append(keyword_text)
-                        if real_book_title:
-                            words = real_book_title.split()
-                            search_terms.append(f"{words[0]} {words[1]}" if len(words) >= 2 else real_book_title)
-                        for term in search_terms:
-                            if candidate_products: break
-                            try:
-                                payload = {"page": 1, "size": 20, "searchKeywordType": "NAME", "searchKeyword": term}
-                                c_res = requests.post("https://api.commerce.naver.com/external/v1/products/search", headers=c_headers, json=payload, timeout=5)
-                                if c_res.status_code == 200:
-                                    contents = c_res.json().get('contents', [])
-                                    print(f"[DEBUG] Commerce Search by NAME '{term}' returned {len(contents)} items.", flush=True)
-                                    candidate_products.extend(contents)
-                            except: pass
+                    
+                    # ✨ 핵심 픽스: 쓰레기값 20개를 뱉어내는 망가진 ISBN 검색을 버리고, 오직 '이름(NAME)'으로만 검색합니다!
+                    search_terms = []
+                    if keyword_text: search_terms.append(keyword_text)
+                    if real_book_title and real_book_title.replace(" ", "") != keyword_text.replace(" ", ""):
+                        search_terms.append(real_book_title)
+                        
+                    for term in search_terms:
+                        if candidate_products: break
+                        try:
+                            payload = {"page": 1, "size": 20, "searchKeywordType": "NAME", "searchKeyword": term}
+                            c_res = requests.post("https://api.commerce.naver.com/external/v1/products/search", headers=c_headers, json=payload, timeout=5)
+                            if c_res.status_code == 200:
+                                contents = c_res.json().get('contents', [])
+                                print(f"[DEBUG] Commerce Search by EXACT NAME '{term}' returned {len(contents)} items.", flush=True)
+                                candidate_products.extend(contents)
+                        except: pass
 
                     best_match = None
                     fallback_match = None
@@ -327,7 +318,7 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                         updates['book_title'] = "" 
                         print(f"[DEBUG] Extracted Data: {updates}", flush=True)
                     else:
-                        updates['book_title'] = "⚠️ 상점 매칭 실패"
+                        updates['book_title'] = "⚠️ 상점 매칭 실패 (이름 검색 불가)"
                 else:
                     updates['book_title'] = "⚠️ 커머스 토큰 에러"
 
