@@ -28,7 +28,7 @@ def receive_webhook():
     grade_char = 'A'
     if 'C' in grade_str: grade_char = 'C'
     elif 'B' in grade_str: grade_char = 'B'
-    elif 'MAIN' in grade_str: grade_char = 'MAIN' # 메인 탭 지원
+    elif 'MAIN' in grade_str: grade_char = 'MAIN'
     
     if keyword:
         user = User.query.first()
@@ -45,7 +45,6 @@ def receive_webhook():
 @login_required
 def get_saved_keywords():
     keywords = MonitoredKeyword.query.filter_by(user_id=current_user.id).order_by(MonitoredKeyword.id.desc()).all()
-    # ✨ 'MAIN' 탭 데이터를 정상적으로 불러오도록 허용 목록에 추가
     return jsonify({'success': True, 'data': [{'id': k.id, 'keyword': k.keyword or '-', 'search_volume': k.search_volume or 0, 'grade': 'A' if k.rank_info == '최상단 노출' else (k.rank_info if k.rank_info in ['A', 'B', 'C', 'MAIN'] else 'A'), 'link': k.link or '#', 'publisher': k.publisher or '-', 'supply_rate': k.supply_rate or '-', 'isbn': k.isbn or '-', 'price': k.price or '-', 'shipping_fee': k.shipping_fee or '-', 'store_name': k.store_name or '-', 'book_title': k.book_title or '-', 'product_link': k.product_link or '-', 'store_rank': k.store_rank or '-', 'prev_store_rank': k.prev_store_rank or '-'} for k in keywords]})
 
 @monitoring_bp.route('/api/delete_keyword', methods=['POST'])
@@ -66,20 +65,17 @@ def update_keyword():
     if kw:
         new_isbn = request.form.get('isbn', '-').strip()
         
-        # ✨ [핵심 기능] ISBN 중복 검사 로직!
         if new_isbn and new_isbn != '-':
-            # 현재 수정 중인 상품이 아니면서(id != kw.id), 동일한 ISBN을 가진 상품이 있는지 검색
             duplicate = MonitoredKeyword.query.filter(
                 MonitoredKeyword.user_id == current_user.id,
                 MonitoredKeyword.isbn == new_isbn,
                 MonitoredKeyword.id != kw.id
             ).first()
             
-            # 중복 발견 시 즉시 에러 메시지와 함께 튕겨냄 (저장 안 됨)
             if duplicate:
                 return jsonify({
                     'success': False, 
-                    'message': f'🚨 경고: 이미 등록된 ISBN입니다!\n\n입력하신 ISBN은 이미 [{duplicate.keyword}] 상품에 등록되어 있습니다. 추가가 차단되었습니다.'
+                    'message': f'🚨 경고: 이미 등록된 ISBN입니다!\n\n입력하신 ISBN은 이미 [{duplicate.keyword}] 항목에 등록되어 있습니다.'
                 })
 
         kw.publisher = request.form.get('publisher', '-')
@@ -100,7 +96,7 @@ def update_keyword():
 def change_grade():
     user_id = current_user.id
     selected_ids = request.form.getlist('ids[]')
-    new_grade = request.form.get('grade', 'A') # 여기서 'MAIN' 도 정상적으로 들어옵니다.
+    new_grade = request.form.get('grade', 'A')
     if not selected_ids: return jsonify({'success': False, 'message': '이동할 항목을 선택해주세요.'})
     keywords = MonitoredKeyword.query.filter(MonitoredKeyword.id.in_(selected_ids), MonitoredKeyword.user_id==user_id).all()
     for kw in keywords: kw.rank_info = new_grade
@@ -147,12 +143,15 @@ def get_html_with_bot_spoofing(url):
         except Exception: pass
     return ""
 
-def get_naver_rank_only(queries, target_mall):
+# ✨ 순위 뿐만 아니라 가격, 링크, 택배비까지 모두 쓸어담는 싹쓸이 함수!
+def get_naver_shopping_info(queries, target_mall):
     for q in queries:
         if not q: continue
         url = f"https://search.shopping.naver.com/book/search?query={urllib.parse.quote(q)}"
         html = get_html_with_bot_spoofing(url)
+        
         if not html: continue
+        
         match = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', html, re.DOTALL)
         if match:
             try:
@@ -160,18 +159,40 @@ def get_naver_rank_only(queries, target_mall):
                 book_list = data.get('props', {}).get('pageProps', {}).get('initialState', {}).get('book', {}).get('list', [])
                 for idx, item in enumerate(book_list):
                     prod = item.get('item', item)
-                    if target_mall in prod.get('mallName', ''): return str(idx + 1)
+                    mall = prod.get('mallName', '')
+                    
+                    if target_mall in mall:
+                        rank = str(idx + 1)
+                        # 가격 파싱
+                        price = str(prod.get('lowPrice', prod.get('price', 0)))
+                        price_formatted = f"{int(price):,}원" if price.isdigit() else "-"
+                        
+                        # 택배비 파싱
+                        delivery_fee = prod.get('deliveryFeeContent', prod.get('deliveryFee', '-'))
+                        if str(delivery_fee) == '0': delivery_fee = '무료'
+                        elif str(delivery_fee).isdigit(): delivery_fee = f"{int(delivery_fee):,}원"
+                        
+                        # 상품 링크
+                        link = prod.get('mallProductUrl', prod.get('crUrl', '-'))
+                        
+                        return rank, price_formatted, str(delivery_fee), link
             except: pass
+                
+        # 백업 로직 (HTML 날것 스캔 - 순위라도 가져오기 위함)
         mall_tags = re.findall(r'(?:class="[^"]*mall_name[^"]*"[^>]*>|"mallName":")([^<"]+)', html)
         if mall_tags:
             for idx, mall in enumerate(mall_tags):
-                if target_mall in mall: return str(idx + 1)
+                if target_mall in mall:
+                    return str(idx + 1), "-", "-", "-"
+                    
         if target_mall in html:
             blocks = re.split(r'class="[^"]*bookListItem[^"]*"', html)
             if len(blocks) > 1:
                 for idx, block in enumerate(blocks[1:]):
-                    if target_mall in block: return str(idx + 1)
-    return None
+                    if target_mall in block:
+                        return str(idx + 1), "-", "-", "-"
+                        
+    return None, "-", "-", "-"
 
 def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, target_ids):
     with app.app_context():
@@ -193,7 +214,14 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                 target_isbn = str(kw.isbn).strip().replace('-', '') if kw.isbn and kw.isbn != '-' else ""
                 db.session.commit()
 
-                updates = {'store_rank': '500위 밖', 'price': '-', 'product_link': '-', 'shipping_fee': '-', 'store_name': '-', 'book_title': '⚠️ 매칭 실패'}
+                updates = {
+                    'store_rank': '500위 밖',
+                    'price': '-',
+                    'product_link': '-',
+                    'shipping_fee': '-',
+                    'store_name': '-',
+                    'book_title': '⚠️ 매칭 실패'
+                }
 
                 real_book_title = ""
                 if api_headers and search_client_id:
@@ -209,18 +237,24 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                 book_queries = [keyword_text, real_book_title]
                 if target_isbn: book_queries.insert(0, target_isbn) 
                 
-                book_rank = get_naver_rank_only(book_queries, target_mall_name)
+                # ✨ 봇 위장 패스로 순위, 가격, 택배비, 링크 전부 가져옴!
+                book_rank, book_price, book_shipping, book_link = get_naver_shopping_info(book_queries, target_mall_name)
                 
                 if book_rank:
                     updates['store_rank'] = book_rank
+                    updates['price'] = book_price
+                    updates['shipping_fee'] = book_shipping
+                    updates['product_link'] = book_link
                     updates['store_name'] = target_mall_name
                 else:
+                    # 도서 탭에서 못 찾으면 일반 쇼핑 API(1~500위) 뒤지기
                     if api_headers and search_client_id:
                         try:
                             found_rank = False
                             for start_idx in range(1, 402, 100):
                                 if found_rank: break
-                                api_res = requests.get(f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(keyword_text)}&display=100&start={start_idx}", headers=api_headers, timeout=3)
+                                api_url = f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(keyword_text)}&display=100&start={start_idx}"
+                                api_res = requests.get(api_url, headers=api_headers, timeout=3)
                                 if api_res.status_code == 200:
                                     items = api_res.json().get('items', [])
                                     if not items: break
@@ -228,6 +262,9 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                                         if target_mall_name in item.get('mallName', ''):
                                             updates['store_rank'] = str(start_idx + idx)
                                             updates['store_name'] = item.get('mallName')
+                                            updates['price'] = f"{int(item.get('lprice', 0)):,}원"
+                                            updates['product_link'] = item.get('link')
+                                            # 공식 API는 택배비를 잘 안 주므로 기본값 '-' 유지
                                             found_rank = True
                                             break
                         except: pass
@@ -270,7 +307,7 @@ def refresh_by_isbn():
     for kw in keywords:
         if "갱신중" not in str(kw.store_rank) and "매칭중" not in str(kw.store_rank):
             kw.prev_store_rank = kw.store_rank
-        kw.store_rank = "⏳ 순위 추적중..."
+        kw.store_rank = "⏳ 데이터 수집중..."
         target_ids.append(kw.id)
             
     db.session.commit()
@@ -278,4 +315,4 @@ def refresh_by_isbn():
         
     thread = Thread(target=async_refresh_by_isbn, args=(app, user_id, search_id, search_pw, target_ids))
     thread.start()
-    return jsonify({'success': True, 'message': f'✅ 순위 집중 추적을 시작합니다. 잠시 후 새로고침 해주세요.'})
+    return jsonify({'success': True, 'message': f'✅ 순위 및 상품 정보 업데이트를 시작합니다. 잠시 후 새로고침 해주세요.'})
