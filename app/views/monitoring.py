@@ -272,25 +272,22 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     fallback_match = None
 
                     for p in candidate_products:
-                        # ✨ 핵심 픽스: V2 채널 상품 번호를 가져와서, 포장지를 뜯어내는 통로로 사용합니다!
-                        c_no = p.get('channelProducts', [{}])[0].get('channelProductNo')
                         o_no = p.get('originProductNo')
-                        target_no = c_no if c_no else o_no
-                        if not target_no: continue
+                        if not o_no: continue
                         
                         try:
-                            # V2 상품 조회 (포장지째 가져옴)
-                            op_res = requests.get(f"https://api.commerce.naver.com/external/v2/products/{target_no}", headers=c_headers, timeout=5)
+                            # ✨ 404 에러의 주범이었던 주소를 완벽하게 수정했습니다! (origin-products 추가)
+                            op_res = requests.get(f"https://api.commerce.naver.com/external/v2/products/origin-products/{o_no}", headers=c_headers, timeout=5)
+                            
                             if op_res.status_code == 200:
                                 full_data = op_res.json()
-                                
-                                # ✨ 포장지 뜯기 완료! 진짜 알맹이(originProduct)를 꺼냅니다!
+                                # 포장지를 뜯어내고 알맹이(originProduct)를 가져옵니다.
                                 op_data = full_data.get('originProduct', full_data)
                                 
                                 book_isbn = str(op_data.get('detailAttribute', {}).get('bookInfo', {}).get('isbn', '')).replace('-', '').strip()
                                 p_name = str(op_data.get('name') or p.get('name', ''))
                                 
-                                print(f"[DEBUG] Inspecting No: {target_no} | Name: '{p_name}' | ISBN: '{book_isbn}'", flush=True)
+                                print(f"[DEBUG] Inspecting OriginNo: {o_no} | Name: '{p_name}' | ISBN: '{book_isbn}'", flush=True)
                                 
                                 if target_isbn and book_isbn and (target_isbn in book_isbn or book_isbn in target_isbn):
                                     best_match = (p, op_data)
@@ -310,10 +307,10 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
 
                     if matched_data:
                         fp, fop = matched_data
-                        c_no = fp.get('channelProducts', [{}])[0].get('channelProductNo')
-                        if not c_no: c_no = fp.get('originProductNo')
+                        c_prods = fp.get('channelProducts', [{}])
+                        c_no = c_prods[0].get('channelProductNo') if c_prods else fp.get('originProductNo')
                         
-                        updates['store_name'] = str(fop.get('name', '-'))
+                        updates['store_name'] = str(fop.get('name') or fp.get('name', '-'))
                         updates['product_link'] = f"https://smartstore.naver.com/main/products/{c_no}" if c_no else "-"
                         
                         sale_price = fop.get('salePrice')
