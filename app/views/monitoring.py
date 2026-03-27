@@ -113,7 +113,7 @@ def get_commerce_token(client_id, client_secret):
         client_secret_sign = base64.urlsafe_b64encode(hashed_pw).decode('utf-8')
         url = "https://api.commerce.naver.com/external/v1/oauth2/token"
         data = {"client_id": client_id, "timestamp": timestamp, "client_secret_sign": client_secret_sign, "grant_type": "client_credentials", "type": "SELF"}
-        res = requests.post(url, data=data, timeout=3)
+        res = requests.post(url, data=data, timeout=5)
         if res.status_code == 200: return res.json().get("access_token")
     except: pass
     return None
@@ -124,7 +124,7 @@ def get_real_title_via_proxy(isbn):
     try:
         aladin_url = f"https://www.aladin.co.kr/search/wsearchresult.aspx?SearchWord={isbn}"
         proxy_url = f"https://api.allorigins.win/get?url={urllib.parse.quote(aladin_url)}"
-        res = requests.get(proxy_url, timeout=3)
+        res = requests.get(proxy_url, timeout=5)
         if res.status_code == 200:
             html = res.json().get('contents', '')
             match = re.search(r'class="bo3".*?<strong>(.*?)</strong>', html)
@@ -134,57 +134,22 @@ def get_real_title_via_proxy(isbn):
     except: pass
     return ""
 
-def get_html_with_proxy(url):
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-    try:
-        res = requests.get(url, headers=headers, timeout=2.5)
-        if res.status_code == 200 and "captcha" not in res.text.lower():
-            return res.text
-    except: pass
-    try:
-        proxy_url = f"https://api.allorigins.win/get?url={urllib.parse.quote(url)}"
-        res = requests.get(proxy_url, timeout=4)
-        if res.status_code == 200:
-            return res.json().get('contents', '')
-    except: pass
-    return ""
-
-def get_naver_book_shopping_rank(queries, target_mall):
-    for q in queries:
-        if not q: continue
-        url = f"https://search.shopping.naver.com/book/search?query={urllib.parse.quote(q)}"
-        html = get_html_with_proxy(url)
-        if not html: continue
-        
-        match = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', html, re.DOTALL)
-        if match:
-            try:
-                data = json.loads(match.group(1))
-                book_list = data.get('props', {}).get('pageProps', {}).get('initialState', {}).get('book', {}).get('list', [])
-                if book_list:
-                    for idx, item in enumerate(book_list):
-                        prod = item.get('item', item)
-                        mall = prod.get('mallName', '')
-                        if target_mall in mall: return str(idx + 1)
-            except: pass
-        
-        mall_tags = re.findall(r'class="[^"]*mall_name[^"]*">([^<]+)<', html)
-        if mall_tags:
-            for idx, mall in enumerate(mall_tags):
-                if target_mall in mall: return str(idx + 1)
-    return None
-
 def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, target_ids):
     with app.app_context():
-        print(f"\n========== [DEBUG START] FAST & PRECISE UPDATE ==========", flush=True)
+        print(f"\n========== [CCTV START] DETAILED LOGGING (User: {user_id}) ==========", flush=True)
         try:
             api_key = ApiKey.query.filter_by(user_id=user_id).first()
             commerce_token = get_commerce_token(api_key.client_id, api_key.client_secret) if api_key else None
             target_mall_name = api_key.store_name if api_key else "스터디박스"
             c_headers = {"Authorization": f"Bearer {commerce_token}", "Content-Type": "application/json"} if commerce_token else {}
             api_headers = {"X-Naver-Client-Id": search_client_id, "X-Naver-Client-Secret": search_client_secret} if search_client_id else {}
+            
+            print(f"[CCTV] Commerce Token Exists: {bool(commerce_token)}", flush=True)
+            print(f"[CCTV] Naver API Key Exists: {bool(search_client_id)}", flush=True)
+            print(f"[CCTV] Target Mall Name: {target_mall_name}", flush=True)
+
         except Exception as e:
-            print(f"[DEBUG ERROR] Setup Failed: {e}", flush=True)
+            print(f"[CCTV ERROR] Setup Failed: {e}", flush=True)
 
         for k_id in target_ids:
             try:
@@ -195,6 +160,8 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                 target_isbn = str(kw.isbn).strip().replace('-', '') if kw.isbn and kw.isbn != '-' else ""
                 db.session.commit()
 
+                print(f"\n[CCTV] Processing Keyword: '{keyword_text}' | ISBN: '{target_isbn}'", flush=True)
+
                 updates = {
                     'store_rank': '500위 밖',
                     'price': '-',
@@ -203,103 +170,107 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     'book_title': '⚠️ 매칭 실패'
                 }
 
-                # ✨ [1] 초고속 도서 API (이름, 출판사 추출 - 정상 작동 확인됨)
+                # 1. Book API Test
                 real_book_title = ""
                 if api_headers and search_client_id:
                     search_query = target_isbn if target_isbn else keyword_text
-                    try:
-                        book_url = f"https://openapi.naver.com/v1/search/book.json?query={urllib.parse.quote(search_query)}"
-                        book_res = requests.get(book_url, headers=api_headers, timeout=3)
-                        if book_res.status_code == 200 and book_res.json().get('items'):
-                            item = book_res.json()['items'][0]
-                            
-                            raw_title = item.get('title', '')
-                            title_clean = re.sub(r'<[^>]*>', '', raw_title)
-                            real_book_title = re.sub(r'\(.*?\)', '', title_clean).strip()
-                            
-                            if not target_isbn:
-                                raw_isbn = item.get('isbn', '')
-                                for cand in reversed(raw_isbn.split()):
-                                    if cand.startswith('9') or cand.startswith('8'):
-                                        updates['isbn'] = cand
-                                        break
-                            
-                            if item.get('publisher'): 
-                                updates['publisher'] = item.get('publisher')
-                    except: pass
-                
-                if not real_book_title and target_isbn:
-                    real_book_title = get_real_title_via_proxy(target_isbn)
-                if real_book_title: updates['book_title'] = real_book_title
-
-                # ✨ [2] 커머스 API 이름 검색의 부활 (가격, 링크, 택배비 추출)
-                if commerce_token:
-                    search_terms = []
-                    if real_book_title: search_terms.append(real_book_title)
-                    if keyword_text and keyword_text not in search_terms: search_terms.append(keyword_text)
+                    print(f"[CCTV] 1. Requesting Book API with query: {search_query}", flush=True)
+                    book_url = f"https://openapi.naver.com/v1/search/book.json?query={urllib.parse.quote(search_query)}"
+                    book_res = requests.get(book_url, headers=api_headers, timeout=5)
+                    print(f"[CCTV] 1. Book API Status: {book_res.status_code}", flush=True)
                     
-                    found_commerce = False
-                    for term in search_terms:
-                        if found_commerce: break
-                        try:
-                            payload = {"page": 1, "size": 20, "searchKeywordType": "NAME", "searchKeyword": term}
-                            c_res = requests.post("https://api.commerce.naver.com/external/v1/products/search", headers=c_headers, json=payload, timeout=5)
-                            if c_res.status_code == 200:
-                                contents = c_res.json().get('contents', [])
-                                for p in contents:
-                                    o_no = p.get('originProductNo')
-                                    if not o_no: continue
-                                    
-                                    op_res = requests.get(f"https://api.commerce.naver.com/external/v2/products/origin-products/{o_no}", headers=c_headers, timeout=5)
-                                    if op_res.status_code == 200:
-                                        op_data = op_res.json().get('originProduct', op_res.json())
-                                        p_name = str(op_data.get('name', ''))
-                                        p_name_clean = re.sub(r'[^a-zA-Z0-9가-힣]', '', p_name)
-                                        term_clean = re.sub(r'[^a-zA-Z0-9가-힣]', '', term)
-                                        
-                                        if term_clean and term_clean in p_name_clean:
-                                            c_prods = p.get('channelProducts', [{}])
-                                            c_no = c_prods[0].get('channelProductNo') if c_prods else o_no
-                                            
-                                            updates['store_name'] = str(op_data.get('name') or p.get('name', '-'))
-                                            updates['product_link'] = f"https://smartstore.naver.com/main/products/{c_no}" if c_no else "-"
-                                            updates['book_title'] = str(op_data.get('name', updates['book_title']))
-                                            
-                                            sale_price = op_data.get('salePrice')
-                                            if sale_price is not None: updates['price'] = f"{sale_price:,}원"
-                                            
-                                            fee = op_data.get('deliveryInfo', {}).get('deliveryFee', {}).get('baseFee')
-                                            if fee is not None: updates['shipping_fee'] = "무료" if fee == 0 else f"{fee:,}원"
-                                            
-                                            found_commerce = True
-                                            break
-                        except: pass
+                    if book_res.status_code == 200 and book_res.json().get('items'):
+                        item = book_res.json()['items'][0]
+                        raw_title = item.get('title', '')
+                        title_clean = re.sub(r'<[^>]*>', '', raw_title)
+                        real_book_title = re.sub(r'\(.*?\)', '', title_clean).strip()
+                        print(f"[CCTV] 1. Found Real Title: {real_book_title}", flush=True)
+                        updates['book_title'] = real_book_title
+                        
+                        if item.get('publisher'): updates['publisher'] = item.get('publisher')
 
-                # ✨ [3] 순위 스캔 (도서 탭 화면 스캔 후 최대 500위까지 쇼핑 API 스캔)
-                book_queries = [target_isbn, keyword_text, real_book_title]
-                book_tab_rank = get_naver_book_shopping_rank(book_queries, target_mall_name)
+                # 2. Shop API Targeting Test
+                matched_mall_pid = None
+                print(f"[CCTV] 2. Requesting Shop API Targeting...", flush=True)
+                if api_headers and search_client_id:
+                    search_queries = [f"{keyword_text} {target_mall_name}", f"{real_book_title} {target_mall_name}"]
+                    for q in search_queries:
+                        if matched_mall_pid or not q.strip() or q == f" {target_mall_name}": continue
+                        print(f"[CCTV] 2. Querying Shop API: '{q}'", flush=True)
+                        url = f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(q)}&display=10"
+                        res = requests.get(url, headers=api_headers, timeout=5)
+                        print(f"[CCTV] 2. Shop API Status: {res.status_code}", flush=True)
+                        if res.status_code == 200:
+                            items = res.json().get('items', [])
+                            print(f"[CCTV] 2. Shop API returned {len(items)} items", flush=True)
+                            for item in items:
+                                print(f"[CCTV] 2. Inspecting Item Mall: '{item.get('mallName')}'", flush=True)
+                                if target_mall_name in item.get('mallName', ''):
+                                    matched_mall_pid = item.get('mallProductId')
+                                    updates['product_link'] = item.get('link')
+                                    updates['price'] = f"{int(item.get('lprice', 0)):,}원"
+                                    updates['store_name'] = item.get('mallName')
+                                    print(f"[CCTV] 2. -> MATCHED! PID: {matched_mall_pid}", flush=True)
+                                    break
                 
-                if book_tab_rank:
-                    updates['store_rank'] = book_tab_rank
-                else:
-                    if api_headers and search_client_id:
-                        try:
-                            found_rank = False
-                            for start_idx in range(1, 402, 100): # 1~500위 스캔
-                                if found_rank: break
-                                api_url = f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(keyword_text)}&display=100&start={start_idx}"
-                                api_res = requests.get(api_url, headers=api_headers, timeout=3)
-                                if api_res.status_code == 200:
-                                    items = api_res.json().get('items', [])
-                                    if not items: break
-                                    for idx, item in enumerate(items):
-                                        if target_mall_name in item.get('mallName', ''):
-                                            updates['store_rank'] = str(start_idx + idx)
-                                            found_rank = True
-                                            break
-                        except: pass
+                # 3. Commerce API Search Fallback
+                if not matched_mall_pid and commerce_token:
+                    print(f"[CCTV] 3. Shop API Targeting failed. Trying Commerce API NAME Search...", flush=True)
+                    term = real_book_title if real_book_title else keyword_text
+                    payload = {"page": 1, "size": 20, "searchKeywordType": "NAME", "searchKeyword": term}
+                    c_res = requests.post("https://api.commerce.naver.com/external/v1/products/search", headers=c_headers, json=payload, timeout=5)
+                    print(f"[CCTV] 3. Commerce Search Status: {c_res.status_code}", flush=True)
+                    if c_res.status_code == 200:
+                        contents = c_res.json().get('contents', [])
+                        print(f"[CCTV] 3. Commerce Search found {len(contents)} items.", flush=True)
+                        for p in contents:
+                            o_no = p.get('originProductNo')
+                            print(f"[CCTV] 3. Inspecting OriginNo: {o_no}", flush=True)
+                            if o_no:
+                                op_res = requests.get(f"https://api.commerce.naver.com/external/v2/products/origin-products/{o_no}", headers=c_headers, timeout=5)
+                                if op_res.status_code == 200:
+                                    op_data = op_res.json().get('originProduct', op_res.json())
+                                    p_name = str(op_data.get('name', ''))
+                                    print(f"[CCTV] 3. -> Name: '{p_name}'", flush=True)
+                                    if term.replace(" ","") in p_name.replace(" ","") or keyword_text.replace(" ","") in p_name.replace(" ",""):
+                                        c_prods = p.get('channelProducts', [{}])
+                                        c_no = c_prods[0].get('channelProductNo') if c_prods else o_no
+                                        matched_mall_pid = c_no
+                                        updates['price'] = f"{op_data.get('salePrice', 0):,}원"
+                                        updates['store_name'] = target_mall_name
+                                        updates['product_link'] = f"https://smartstore.naver.com/main/products/{c_no}"
+                                        print(f"[CCTV] 3. -> EXACT MATCH BY NAME! Link Set.", flush=True)
+                                        break
 
-                # DB 업데이트
+                # 4. Commerce Details Fetch (Shipping Fee)
+                if commerce_token and matched_mall_pid:
+                    print(f"[CCTV] 4. Fetching Details for Shipping Fee using PID {matched_mall_pid}...", flush=True)
+                    op_res = requests.get(f"https://api.commerce.naver.com/external/v2/products/{matched_mall_pid}", headers=c_headers, timeout=5)
+                    print(f"[CCTV] 4. Details Fetch Status: {op_res.status_code}", flush=True)
+                    if op_res.status_code == 200:
+                        op_data = op_res.json().get('originProduct', op_res.json())
+                        fee = op_data.get('deliveryInfo', {}).get('deliveryFee', {}).get('baseFee')
+                        updates['shipping_fee'] = "무료" if fee == 0 else (f"{fee:,}원" if fee else "-")
+                        print(f"[CCTV] 4. Extracted Shipping Fee: {updates['shipping_fee']}", flush=True)
+
+                # 5. Rank Scan
+                print(f"[CCTV] 5. Scanning for Rank...", flush=True)
+                if api_headers and search_client_id:
+                    found_rank = False
+                    for start_idx in range(1, 402, 100):
+                        if found_rank: break
+                        api_url = f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(keyword_text)}&display=100&start={start_idx}"
+                        api_res = requests.get(api_url, headers=api_headers, timeout=5)
+                        if api_res.status_code == 200:
+                            items = api_res.json().get('items', [])
+                            for idx, item in enumerate(items):
+                                if target_mall_name in item.get('mallName', ''):
+                                    updates['store_rank'] = str(start_idx + idx)
+                                    print(f"[CCTV] 5. -> Rank Found: {updates['store_rank']}위", flush=True)
+                                    found_rank = True
+                                    break
+
+                # DB Save
                 kw = db.session.get(MonitoredKeyword, k_id)
                 if kw:
                     for key, val in updates.items():
@@ -307,17 +278,15 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                         if key == 'isbn' and kw.isbn and kw.isbn != '-': continue
                         setattr(kw, key, val)
                     db.session.commit()
+                    print(f"[CCTV] Finished Processing '{keyword_text}'. Status saved.", flush=True)
 
             except Exception as e:
+                print(f"[CCTV ERROR] Exception during processing '{k_id}': {e}", flush=True)
                 traceback.print_exc()
-                kw = db.session.get(MonitoredKeyword, k_id)
-                if kw:
-                    kw.store_rank = "에러"
-                    kw.book_title = f"⚠️ 시스템 에러"
-                    db.session.commit()
             
-            time.sleep(0.1)
-        print("========== [DEBUG END] ==========\n", flush=True)
+            time.sleep(0.3)
+            
+        print("========== [CCTV END] ==========\n", flush=True)
 
 @monitoring_bp.route('/api/refresh_all_ranks', methods=['POST'])
 @login_required
@@ -349,4 +318,4 @@ def refresh_by_isbn():
         
     thread = Thread(target=async_refresh_by_isbn, args=(app, user_id, search_id, search_pw, target_ids))
     thread.start()
-    return jsonify({'success': True, 'message': f'✅ 500위 초고속 매칭을 시작합니다. 잠시 후 새로고침 해주세요.'})
+    return jsonify({'success': True, 'message': f'✅ 디버그 로그 기록 모드로 매칭을 시작합니다. 잠시 후 새로고침 해주세요.'})
