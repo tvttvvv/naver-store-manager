@@ -243,7 +243,8 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                 if commerce_token:
                     candidate_products = []
                     try:
-                        payload = {"page": 1, "size": 20, "searchKeywordType": "SELLER_MANAGEMENT_CODE", "sellerManagementCode": target_isbn}
+                        # ✨ 핵심 수정: 변수명을 "searchKeyword"로 정확하게 고쳤습니다!
+                        payload = {"page": 1, "size": 20, "searchKeywordType": "SELLER_MANAGEMENT_CODE", "searchKeyword": target_isbn}
                         c_res = requests.post("https://api.commerce.naver.com/external/v1/products/search", headers=c_headers, json=payload, timeout=5)
                         if c_res.status_code == 200:
                             contents = c_res.json().get('contents', [])
@@ -272,16 +273,16 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     fallback_match = None
 
                     for p in candidate_products:
+                        c_no = p.get('channelProducts', [{}])[0].get('channelProductNo')
                         o_no = p.get('originProductNo')
-                        if not o_no: continue
+                        target_no = c_no if c_no else o_no
+                        if not target_no: continue
                         
                         try:
-                            # ✨ 404 에러의 주범이었던 주소를 완벽하게 수정했습니다! (origin-products 추가)
                             op_res = requests.get(f"https://api.commerce.naver.com/external/v2/products/origin-products/{o_no}", headers=c_headers, timeout=5)
                             
                             if op_res.status_code == 200:
                                 full_data = op_res.json()
-                                # 포장지를 뜯어내고 알맹이(originProduct)를 가져옵니다.
                                 op_data = full_data.get('originProduct', full_data)
                                 
                                 book_isbn = str(op_data.get('detailAttribute', {}).get('bookInfo', {}).get('isbn', '')).replace('-', '').strip()
