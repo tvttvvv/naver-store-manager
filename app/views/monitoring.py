@@ -2,6 +2,8 @@ import os
 import time
 import re
 import traceback
+import random
+import string
 from threading import Thread
 from flask import Blueprint, render_template, request, jsonify, current_app
 from flask_login import login_required, current_user
@@ -103,43 +105,42 @@ def clear_data():
     db.session.commit()
     return jsonify({'success': True, 'message': f'✅ 선택한 항목의 검색 정보가 초기화되었습니다.'})
 
-# ✨ 418 에러 완벽 회피용: 네이버 메인에서 출입증(NNB 쿠키) 발급받기
-def get_html_with_cookie_bypass(url):
-    print(f"\n[CCTV] 🛡️ Initiating NNB Cookie Bypass for: {urllib.parse.unquote(url)}", flush=True)
+# ✨ 핵심: NNB 쿠키를 우리가 직접 위조해서 네이버 시스템을 완벽하게 속입니다!
+def get_html_with_fake_cookie(url):
+    print(f"\n[CCTV] 🛡️ Initiating FAKE COOKIE Bypass for: {urllib.parse.unquote(url)}", flush=True)
     session = requests.Session()
+    
+    # 완벽한 모바일(안드로이드) 사용자 위장
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Linux; Android 13; SM-S918N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.6261.90 Mobile Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
         "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Referer": "https://m.naver.com/",
         "Sec-Fetch-Dest": "document",
         "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-Site": "cross-site",
         "Upgrade-Insecure-Requests": "1"
     }
     session.headers.update(headers)
 
-    # 1. 네이버 메인 방문해서 사람용 쿠키 얻기
-    try:
-        print("[CCTV] 🍪 Visiting naver.com to get human cookie...", flush=True)
-        session.get("https://naver.com", timeout=3)
-        print(f"[CCTV] 🍪 Cookies acquired: {session.cookies.get_dict()}", flush=True)
-    except Exception as e:
-        print(f"[CCTV] 🍪 Cookie acquisition failed: {e}", flush=True)
+    # NNB 쿠키 위조 (13자리 랜덤 문자열)
+    fake_nnb = ''.join(random.choices(string.ascii_uppercase + string.digits, k=13))
+    session.cookies.set('NNB', fake_nnb, domain='.naver.com')
+    print(f"[CCTV] 🍪 Fake NNB Cookie Injected: {fake_nnb}", flush=True)
 
-    # 2. 발급받은 쿠키를 들고 도서 검색창으로 돌진
     try:
-        print(f"[CCTV] 🌐 Accessing Target URL with Session...", flush=True)
+        print(f"[CCTV] 🌐 Accessing Target URL...", flush=True)
         res = session.get(url, timeout=5)
         print(f"[CCTV] 🌐 Response Status: {res.status_code}", flush=True)
 
         if res.status_code == 200:
             html = res.text
             print(f"[CCTV] 🌐 HTML Length: {len(html)} chars.", flush=True)
-            if len(html) > 10000: # 정상적인 쇼핑몰 화면은 10,000자가 넘습니다.
-                print("[CCTV] ✅ Valid Naver HTML loaded successfully!", flush=True)
+            if len(html) > 5000: 
+                print("[CCTV] ✅ Valid Mobile HTML loaded successfully!", flush=True)
                 return html
             else:
-                print(f"[CCTV] ⚠️ HTML is too short (Captcha). Preview: {html[:100]}", flush=True)
+                print(f"[CCTV] ⚠️ HTML is too short. Preview: {html[:100]}", flush=True)
     except Exception as e:
         print(f"[CCTV] 🌐 Target Access Error: {e}", flush=True)
 
@@ -148,13 +149,14 @@ def get_html_with_cookie_bypass(url):
 def get_naver_rank_only(queries, target_mall):
     for q in queries:
         if not q: continue
-        print(f"\n[CCTV] --- Scanning Rank For: '{q}' ---", flush=True)
-        url = f"https://search.shopping.naver.com/book/search?query={urllib.parse.quote(q)}"
-        html = get_html_with_cookie_bypass(url)
+        print(f"\n[CCTV] --- Scanning Mobile Rank For: '{q}' ---", flush=True)
+        # 모바일 전용 도서 쇼핑 URL로 타격!
+        url = f"https://msearch.shopping.naver.com/book/search?query={urllib.parse.quote(q)}"
+        html = get_html_with_fake_cookie(url)
         
         if not html: continue
         
-        # 순위 스캔
+        # 1. JSON 스캔
         match = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', html, re.DOTALL)
         if match:
             print("[CCTV] JSON __NEXT_DATA__ Found! Parsing for rank...", flush=True)
@@ -175,7 +177,7 @@ def get_naver_rank_only(queries, target_mall):
             except Exception as e:
                 print(f"[CCTV] JSON parsing failed: {e}", flush=True)
                 
-        # 백업용 HTML 스캔
+        # 2. 백업용 HTML 스캔 (모바일 클래스명 대비)
         print("[CCTV] Scanning raw HTML tags for mall name...", flush=True)
         mall_tags = re.findall(r'(?:class="[^"]*mall_name[^"]*"[^>]*>|"mallName":")([^<"]+)', html)
         if mall_tags:
@@ -183,12 +185,23 @@ def get_naver_rank_only(queries, target_mall):
                 if target_mall in mall:
                     print(f"[CCTV] 🎯 TARGET FOUND in HTML! Rank: {idx+1}", flush=True)
                     return str(idx + 1)
+                    
+        # 3. 최후의 수단: 단순히 HTML 텍스트 내 스터디박스 여부 확인
+        if target_mall in html:
+            print("[CCTV] 🎯 Target Mall Name physically exists in HTML! Searching blocks...", flush=True)
+            blocks = re.split(r'class="[^"]*bookListItem[^"]*"', html)
+            if len(blocks) > 1:
+                for idx, block in enumerate(blocks[1:]):
+                    if target_mall in block:
+                        rank = str(idx + 1)
+                        print(f"[CCTV] 🎯 FOUND via Block Parsing! Rank: {rank}", flush=True)
+                        return rank
 
     return None
 
 def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, target_ids):
     with app.app_context():
-        print(f"\n========== [CCTV START] RANK FIRST OPERATION ==========", flush=True)
+        print(f"\n========== [CCTV START] MOBILE RANK FOCUS ==========", flush=True)
         try:
             api_key = ApiKey.query.filter_by(user_id=user_id).first()
             target_mall_name = api_key.store_name if api_key else "스터디박스"
@@ -207,7 +220,6 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
 
                 print(f"\n[CCTV] ---- Processing: '{keyword_text}' ----", flush=True)
 
-                # 회원님 지시대로 표 채우는 건 나중으로 미루고 '-'로 비웁니다. 오직 '순위'만 조준!
                 updates = {
                     'store_rank': '500위 밖',
                     'price': '-',
@@ -217,7 +229,7 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     'book_title': '⚠️ 매칭 실패'
                 }
 
-                # 1. API로 진짜 이름 추출 (순위 검색을 더 정확하게 하기 위함)
+                # 1. API로 진짜 이름 추출
                 real_book_title = ""
                 if api_headers and search_client_id:
                     search_query = target_isbn if target_isbn else keyword_text
@@ -230,7 +242,7 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                             updates['book_title'] = real_book_title
                     except: pass
                 
-                # 2. 강력한 쿠키 우회로 순위 스캔!
+                # 2. 강력한 NNB 위조 + 모바일 URL 침투로 순위 스캔!
                 book_queries = [keyword_text, real_book_title]
                 if target_isbn: book_queries.insert(0, target_isbn) 
                 
@@ -264,7 +276,6 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                 kw = db.session.get(MonitoredKeyword, k_id)
                 if kw:
                     for key, val in updates.items():
-                        # ISBN과 출판사는 기존 값 유지
                         if key == 'publisher' and kw.publisher and kw.publisher != '-': continue
                         if key == 'isbn' and kw.isbn and kw.isbn != '-': continue
                         setattr(kw, key, val)
