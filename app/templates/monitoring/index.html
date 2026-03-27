@@ -127,6 +127,9 @@
     .editable-cell:hover { background-color: #f8f9fa; }
 </style>
 
+<!-- ✨ 무한 로딩의 범인이었던 누락된 jQuery 스크립트! 안전하게 추가 완료! -->
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+
 <script>
     let isEditing = false; 
     let allKeywordsData = []; 
@@ -301,7 +304,7 @@
                 let titleNameDisplay = safeTitleName.includes('⚠️') ? `<span class="text-danger fw-bold">${safeTitleName}</span>` : `<span class="text-dark fw-bold">${safeTitleName}</span>`;
                 let isChecked = checkedIds.has(k.id.toString()) ? 'checked' : '';
                 
-                // ✨ 도서검색 링크로 완벽 교체 완료
+                // 네이버 도서검색 전용 링크
                 let searchLink = `https://search.shopping.naver.com/book/search?query=${encodeURIComponent(k.keyword || '')}`;
 
                 return `
@@ -333,11 +336,10 @@
         }
     }
 
-    // ✨ 완벽한 이벤트 위임(Event Delegation)을 통한 더블클릭 로직
-    // 테이블이 100번 지워지고 다시 그려져도 이 로직은 절대 죽지 않습니다!
+    // ✨ 완벽한 이벤트 위임을 통한 더블클릭 로직
     $(document).on('dblclick', '.editable-cell', function() {
         if (isEditing) return;
-        isEditing = true; // 수정 모드 진입 (새로고침 차단)
+        isEditing = true; 
         
         let td = $(this);
         let id = td.data('id');
@@ -355,9 +357,8 @@
 
         let isSaved = false;
         input.on('blur keypress', async function(e) {
-            // 엔터키(13)가 아니면 무시 (blur 이벤트는 통과)
             if (e.type === 'keypress' && e.which !== 13) return;
-            if (isSaved) return; // 중복 실행 방지
+            if (isSaved) return; 
             isSaved = true;
 
             let newVal = input.val().trim();
@@ -387,18 +388,17 @@
                     item[field] = newVal || '-';
                     td.text(item[field]);
                 } else {
-                    alert(result.message); // ISBN 중복 방지 경고
+                    alert(result.message); 
                     td.text(currentVal || '-');
                 }
             } catch(e) {
                 alert('저장 중 오류가 발생했습니다.');
                 td.text(currentVal || '-');
             }
-            isEditing = false; // 수정 모드 해제 (새로고침 다시 허용)
+            isEditing = false; 
         });
     });
 
-    // 전체 행 우측 버튼 편집 기능
     function editKeyword(id) {
         isEditing = true; 
         const fields = ['rank', 'plink', 'pub', 'sup', 'isbn', 'price', 'ship', 'store'];
