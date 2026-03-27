@@ -122,7 +122,7 @@ def clear_data():
         kw.store_name = '-'
         kw.book_title = '-'
     db.session.commit()
-    return jsonify({'success': True, 'message': f'✅ 선택한 {len(keywords)}개 항목의 검색 정보가 초기화되었습니다.'})
+    return jsonify({'success': True, 'message': f'✅ 선택한 항목의 검색 정보가 초기화되었습니다.'})
 
 def get_commerce_token(client_id, client_secret):
     try:
@@ -170,7 +170,6 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
 
         for k_id in target_ids:
             try:
-                # 1. 정보 가져오기 및 DB 연결 해제
                 kw = db.session.get(MonitoredKeyword, k_id)
                 if not kw: continue
                     
@@ -232,42 +231,35 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                                         print(f"[DEBUG] -> FOUND DIRECT MATCH! Rank: {new_rank}, MallPID: {matched_mall_pid}", flush=True)
                                         break
                                     
-                                    # 2순위 (보험): 카탈로그(도서 카드/가격비교)로 묶여있는 경우, 포장지 뜯어서 검색!
-                                    elif item.get('mallProductId') and item.get('productType', '') == '2': # productType 2가 가격비교 묶음입니다.
+                                    # 2순위 (보험): 카탈로그(도서 카드/가격비교)로 묶여있는 경우
+                                    elif item.get('mallProductId') and item.get('productType', '') == '2': 
                                         possible_o_no = item.get('mallProductId')
-                                        # 카탈로그 번호로 커머스 API에 해당 카탈로그 내 판매처 목록을 물어봅니다.
-                                        # (주의: 이건 커머스 토큰이 필요합니다. 아래 커머스 파트에서 처리하는 게 맞습니다.)
                                         pass
                                         
                                 item_type = str(item.get('productType', ''))
-                                # productType 3 (네이버 도서 카드)의 경우도 특별 탐지
                                 if not found_rank and item_type == '3' and item.get('mallProductId'):
                                     book_possible_mall_pid = item.get('mallProductId')
-                                    # 이 번호로 커머스 V2 API를 찔러보면 스터디박스가 나옵니다! 아래에서 처리합니다.
                                     pass
 
                             if found_rank: break
-                            time.sleep(0.1) # 안전한 통신을 위해 잠깐 대기
+                            time.sleep(0.1) 
                     except Exception as e:
                         print(f"[DEBUG] Shop Search Exception: {e}", flush=True)
 
                 # ✨ [3] 커머스 API 내부 스캔 (카탈로그 묶음 1위 탈취 완료)
                 matched_data = None
                 if commerce_token:
-                    # 1순위: 앞서 찾은 상점 전용 고유번호로 꽂기
                     if matched_mall_pid:
                         try:
-                            # V2 API는 상품 정보를 'originProduct'라는 폴더 안에 감싸서 줍니다.
                             cp_url = f"https://api.commerce.naver.com/external/v2/products/{matched_mall_pid}"
                             cp_res = requests.get(cp_url, headers=c_headers, timeout=5)
                             print(f"[DEBUG] V2 Direct Get Status: {cp_res.status_code}", flush=True)
                             if cp_res.status_code == 200:
                                 full_data = cp_res.json()
-                                matched_data = (full_data.get('originProduct', full_data), full_data.get('originProduct', full_data)) # originProduct 데이터만 꺼냅니다.
-                        exceptException as e:
+                                matched_data = (full_data.get('originProduct', full_data), full_data.get('originProduct', full_data))
+                        except Exception as e:
                             print(f"[DEBUG] V2 Direct Get Exception: {e}", flush=True)
 
-                    # ✨ 핵심 보험 로직: 1000위 스캔에서 실패했지만, 카탈로그 묶음 1위가 우리 상품일 확률이 높음!
                     if not matched_data and real_book_title:
                         candidate_products = []
                         print(f"[DEBUG] Attempt 2: Commerce API Targeted search by SELLER_MANAGEMENT_CODE (ISBN) in Catalogue", flush=True)
@@ -278,7 +270,6 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                                 contents = c_res.json().get('contents', [])
                                 print(f"[DEBUG] Commerce API Found {len(contents)} items by ISBN code in targeted search.", flush=True)
                                 if contents:
-                                    # 이 경우, 이 상품이 통합검색에서 도서 카드/가격비교로 묶여있다면 그 카탈로그가 1위일 확률이 높음!
                                     new_rank = "1 (도서 카드)"
                                     fp = contents[0]
                                     o_no = fp.get('originProductNo')
@@ -286,9 +277,8 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                                     if op_res.status_code == 200:
                                         full_data = op_res.json()
                                         matched_data = (full_data.get('originProduct', full_data), full_data.get('originProduct', full_data))
-                        exceptException as e: pass
+                        except Exception as e: pass
 
-                    # 보험 로직 2: 이름으로 검색해서 어떻게든 찾기
                     if not matched_data:
                         search_terms = []
                         if keyword_text: search_terms.append(keyword_text)
@@ -306,13 +296,11 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                                     for p in contents:
                                         o_no = p.get('originProductNo')
                                         try:
-                                            # V2 API는 상품 정보를 'originProduct'라는 폴더 안에 감싸서 줍니다.
                                             op_res = requests.get(f"https://api.commerce.naver.com/external/v2/products/{p.get('channelProducts', [{}])[0].get('channelProductNo') or o_no}", headers=c_headers, timeout=5)
                                             if op_res.status_code == 200:
                                                 full_data = op_res.json()
                                                 origin_data = full_data.get('originProduct', full_data)
                                                 
-                                                # 이름 강제 매칭
                                                 p_name_clean = re.sub(r'[^a-zA-Z0-9가-힣]', '', str(origin_data.get('name', '')))
                                                 k_name_clean = re.sub(r'[^a-zA-Z0-9가-힣]', '', keyword_text)
                                                 if k_name_clean and k_name_clean in p_name_clean:
@@ -321,7 +309,6 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                                         except Exception as e: pass
                             except Exception as e: pass
 
-                    # 데이터 저장
                     if matched_data:
                         fp, fop = matched_data
                         c_no = fp.get('channelProductNo')
