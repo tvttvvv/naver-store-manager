@@ -105,12 +105,9 @@ def clear_data():
     db.session.commit()
     return jsonify({'success': True, 'message': f'✅ 선택한 항목의 검색 정보가 초기화되었습니다.'})
 
-# ✨ 핵심: NNB 쿠키를 우리가 직접 위조해서 네이버 시스템을 완벽하게 속입니다!
 def get_html_with_fake_cookie(url):
     print(f"\n[CCTV] 🛡️ Initiating FAKE COOKIE Bypass for: {urllib.parse.unquote(url)}", flush=True)
     session = requests.Session()
-    
-    # 완벽한 모바일(안드로이드) 사용자 위장
     headers = {
         "User-Agent": "Mozilla/5.0 (Linux; Android 13; SM-S918N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.6261.90 Mobile Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
@@ -123,26 +120,17 @@ def get_html_with_fake_cookie(url):
     }
     session.headers.update(headers)
 
-    # NNB 쿠키 위조 (13자리 랜덤 문자열)
     fake_nnb = ''.join(random.choices(string.ascii_uppercase + string.digits, k=13))
     session.cookies.set('NNB', fake_nnb, domain='.naver.com')
-    print(f"[CCTV] 🍪 Fake NNB Cookie Injected: {fake_nnb}", flush=True)
 
     try:
-        print(f"[CCTV] 🌐 Accessing Target URL...", flush=True)
         res = session.get(url, timeout=5)
-        print(f"[CCTV] 🌐 Response Status: {res.status_code}", flush=True)
-
         if res.status_code == 200:
             html = res.text
-            print(f"[CCTV] 🌐 HTML Length: {len(html)} chars.", flush=True)
             if len(html) > 5000: 
-                print("[CCTV] ✅ Valid Mobile HTML loaded successfully!", flush=True)
                 return html
-            else:
-                print(f"[CCTV] ⚠️ HTML is too short. Preview: {html[:100]}", flush=True)
     except Exception as e:
-        print(f"[CCTV] 🌐 Target Access Error: {e}", flush=True)
+        print(f"[CCTV] Target Access Error: {e}", flush=True)
 
     return ""
 
@@ -150,75 +138,60 @@ def get_naver_rank_only(queries, target_mall):
     for q in queries:
         if not q: continue
         print(f"\n[CCTV] --- Scanning Mobile Rank For: '{q}' ---", flush=True)
-        # 모바일 전용 도서 쇼핑 URL로 타격!
         url = f"https://msearch.shopping.naver.com/book/search?query={urllib.parse.quote(q)}"
         html = get_html_with_fake_cookie(url)
         
         if not html: continue
         
-        # 1. JSON 스캔
         match = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', html, re.DOTALL)
         if match:
-            print("[CCTV] JSON __NEXT_DATA__ Found! Parsing for rank...", flush=True)
             try:
                 data = json.loads(match.group(1))
                 book_list = data.get('props', {}).get('pageProps', {}).get('initialState', {}).get('book', {}).get('list', [])
-                print(f"[CCTV] Found {len(book_list)} items in list.", flush=True)
-                
                 for idx, item in enumerate(book_list):
                     prod = item.get('item', item)
                     mall = prod.get('mallName', '')
-                    title = prod.get('bookTitle', '')
-                    print(f"[CCTV] Rank {idx+1} | Mall: '{mall}' | Title: '{title[:15]}...'", flush=True)
                     if target_mall in mall:
-                        rank = str(idx + 1)
-                        print(f"[CCTV] 🎯 EXACT TARGET FOUND! Rank: {rank}", flush=True)
-                        return rank
-            except Exception as e:
-                print(f"[CCTV] JSON parsing failed: {e}", flush=True)
+                        return str(idx + 1)
+            except: pass
                 
-        # 2. 백업용 HTML 스캔 (모바일 클래스명 대비)
-        print("[CCTV] Scanning raw HTML tags for mall name...", flush=True)
         mall_tags = re.findall(r'(?:class="[^"]*mall_name[^"]*"[^>]*>|"mallName":")([^<"]+)', html)
         if mall_tags:
             for idx, mall in enumerate(mall_tags):
                 if target_mall in mall:
-                    print(f"[CCTV] 🎯 TARGET FOUND in HTML! Rank: {idx+1}", flush=True)
                     return str(idx + 1)
                     
-        # 3. 최후의 수단: 단순히 HTML 텍스트 내 스터디박스 여부 확인
         if target_mall in html:
-            print("[CCTV] 🎯 Target Mall Name physically exists in HTML! Searching blocks...", flush=True)
             blocks = re.split(r'class="[^"]*bookListItem[^"]*"', html)
             if len(blocks) > 1:
                 for idx, block in enumerate(blocks[1:]):
                     if target_mall in block:
-                        rank = str(idx + 1)
-                        print(f"[CCTV] 🎯 FOUND via Block Parsing! Rank: {rank}", flush=True)
-                        return rank
-
+                        return str(idx + 1)
     return None
 
 def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, target_ids):
     with app.app_context():
-        print(f"\n========== [CCTV START] MOBILE RANK FOCUS ==========", flush=True)
         try:
             api_key = ApiKey.query.filter_by(user_id=user_id).first()
             target_mall_name = api_key.store_name if api_key else "스터디박스"
             api_headers = {"X-Naver-Client-Id": search_client_id, "X-Naver-Client-Secret": search_client_secret} if search_client_id else {}
-            print(f"[CCTV] Target Mall Name: {target_mall_name}", flush=True)
-        except Exception as e: pass
+            # ✨ 핵심 픽스 1: DB 값을 읽고 나서 즉시 세션을 커밋하여 DB 잠금(Lock)을 해제합니다!
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
 
         for k_id in target_ids:
             try:
                 kw = db.session.get(MonitoredKeyword, k_id)
-                if not kw: continue
+                if not kw: 
+                    db.session.commit()
+                    continue
                     
                 keyword_text = str(kw.keyword or "")
                 target_isbn = str(kw.isbn).strip().replace('-', '') if kw.isbn and kw.isbn != '-' else ""
+                
+                # ✨ 핵심 픽스 2: 네이버로 검색을 떠나기 전에 DB 문을 닫아줍니다!
                 db.session.commit()
-
-                print(f"\n[CCTV] ---- Processing: '{keyword_text}' ----", flush=True)
 
                 updates = {
                     'store_rank': '500위 밖',
@@ -229,7 +202,6 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     'book_title': '⚠️ 매칭 실패'
                 }
 
-                # 1. API로 진짜 이름 추출
                 real_book_title = ""
                 if api_headers and search_client_id:
                     search_query = target_isbn if target_isbn else keyword_text
@@ -242,7 +214,6 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                             updates['book_title'] = real_book_title
                     except: pass
                 
-                # 2. 강력한 NNB 위조 + 모바일 URL 침투로 순위 스캔!
                 book_queries = [keyword_text, real_book_title]
                 if target_isbn: book_queries.insert(0, target_isbn) 
                 
@@ -252,7 +223,6 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     updates['store_rank'] = book_rank
                     updates['store_name'] = target_mall_name
                 else:
-                    print(f"\n[CCTV] Target not found in Book Tab. Try scanning Official API (1~500)...", flush=True)
                     if api_headers and search_client_id:
                         try:
                             found_rank = False
@@ -267,12 +237,11 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                                         if target_mall_name in item.get('mallName', ''):
                                             updates['store_rank'] = str(start_idx + idx)
                                             updates['store_name'] = item.get('mallName')
-                                            print(f"[CCTV] 🎯 TARGET FOUND in Official API! Rank: {updates['store_rank']}", flush=True)
                                             found_rank = True
                                             break
                         except: pass
 
-                # DB 업데이트
+                # ✨ 핵심 픽스 3: 네이버 검색이 다 끝난 뒤에만 잠깐 DB 문을 열어서 값을 씁니다!
                 kw = db.session.get(MonitoredKeyword, k_id)
                 if kw:
                     for key, val in updates.items():
@@ -280,10 +249,9 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                         if key == 'isbn' and kw.isbn and kw.isbn != '-': continue
                         setattr(kw, key, val)
                     db.session.commit()
-                    print(f"[CCTV] Database updated for '{keyword_text}'. Rank: {updates['store_rank']}", flush=True)
 
             except Exception as e:
-                traceback.print_exc()
+                db.session.rollback()
                 kw = db.session.get(MonitoredKeyword, k_id)
                 if kw:
                     kw.store_rank = "에러"
@@ -291,7 +259,6 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     db.session.commit()
             
             time.sleep(0.1)
-        print("========== [CCTV END] ==========\n", flush=True)
 
 @monitoring_bp.route('/api/refresh_all_ranks', methods=['POST'])
 @login_required
