@@ -38,7 +38,6 @@
                         </span>
                     </div>
                     <div class="d-flex flex-wrap gap-2 align-items-center">
-                        
                         <div class="input-group shadow-sm me-2" style="width: auto;">
                             <select id="moveGradeSelect" class="form-select fw-bold border-primary text-primary" style="cursor: pointer;">
                                 <option value="MAIN">MAIN 이동</option>
@@ -50,7 +49,6 @@
                                 <i class="bi bi-folder-symlink"></i> 적용
                             </button>
                         </div>
-
                         <button class="btn btn-outline-warning fw-bold shadow-sm" onclick="clearSelectedData()">
                             <i class="bi bi-eraser"></i> 데이터 초기화
                         </button>
@@ -74,9 +72,7 @@
                         </select>
                         <input type="text" id="searchInput" class="form-control form-control-sm" style="width: 200px;" placeholder="검색어를 입력하세요...">
                     </div>
-                    
                     <div class="vr mx-2 d-none d-md-block"></div>
-                    
                     <div class="d-flex align-items-center">
                         <i class="bi bi-sort-down text-secondary me-2"></i>
                         <select id="sortOption" class="form-select form-select-sm w-auto fw-bold text-primary" style="cursor: pointer; border-color: #0d6efd;">
@@ -127,6 +123,8 @@
     .rank-down { color: #0d6efd; font-weight: bold; font-size: 0.8rem; }
     .rank-same { color: #adb5bd; font-weight: bold; font-size: 0.8rem; }
     .row-selected { background-color: #e8f4f8 !important; }
+    .editable-cell { cursor: pointer; transition: background-color 0.2s; }
+    .editable-cell:hover { background-color: #f8f9fa; }
 </style>
 
 <script>
@@ -183,7 +181,7 @@
     });
 
     async function loadSavedKeywords() {
-        if (isEditing) return; // 수정 중일 때는 데이터 갱신을 잠시 멈춥니다!
+        if (isEditing) return; // 수정 중일 때는 데이터 갱신 보류
         try {
             const res = await fetch("{{ url_for('monitoring.get_saved_keywords') }}");
             const result = await res.json();
@@ -242,14 +240,13 @@
     }
 
     function renderTable() {
-        if (isEditing) return; // 테이블을 다시 그리면 입력칸이 날아가므로 수정 중엔 렌더링 중지!
+        if (isEditing) return;
         const tbody = document.getElementById('savedKeywordsBody');
 
         updateTabCounts(); 
 
         let filteredData = allKeywordsData.filter(k => {
             if (k.grade !== currentGradeTab) return false;
-
             if (!searchQuery) return true; 
             const kw = (k.keyword || '').toLowerCase();
             const pub = (k.publisher || '').toLowerCase();
@@ -303,6 +300,9 @@
                 let safeTitleName = k.book_title || '-';
                 let titleNameDisplay = safeTitleName.includes('⚠️') ? `<span class="text-danger fw-bold">${safeTitleName}</span>` : `<span class="text-dark fw-bold">${safeTitleName}</span>`;
                 let isChecked = checkedIds.has(k.id.toString()) ? 'checked' : '';
+                
+                // ✨ 도서검색 링크로 완벽 교체 완료
+                let searchLink = `https://search.shopping.naver.com/book/search?query=${encodeURIComponent(k.keyword || '')}`;
 
                 return `
                 <tr class="${isChecked ? 'row-selected' : ''}">
@@ -311,16 +311,16 @@
                     <td class="align-middle ${kwBgColor}">${k.keyword || '-'}</td>
                     <td class="align-middle ${kwBgColor} fs-6">${(k.search_volume || 0).toLocaleString()}</td>
                     <td class="align-middle ${kwBgColor} text-dark" id="rank_${k.id}" data-val="${safeRank}">${rankDisplay}</td>
-                    <td class="align-middle"><a href="https://search.shopping.naver.com/search/all?query=${encodeURIComponent(k.keyword || '')}" target="_blank" class="btn btn-sm btn-outline-secondary py-0 px-2 text-decoration-none"><i class="bi bi-search"></i> 키워드</a></td>
+                    <td class="align-middle"><a href="${searchLink}" target="_blank" class="btn btn-sm btn-outline-secondary py-0 px-2 text-decoration-none"><i class="bi bi-search"></i> 도서검색</a></td>
                     <td class="align-middle" id="plink_${k.id}" data-val="${k.product_link || '-'}">${linkBtn}</td>
                     
-                    <td class="align-middle text-muted" id="pub_${k.id}" data-val="${k.publisher || '-'}" ondblclick="editSingleField(${k.id}, 'publisher', this)" title="더블클릭하여 수정" style="cursor:pointer;">${k.publisher || '-'}</td>
-                    <td class="align-middle text-muted" id="sup_${k.id}" data-val="${k.supply_rate || '-'}" ondblclick="editSingleField(${k.id}, 'supply_rate', this)" title="더블클릭하여 수정" style="cursor:pointer;">${k.supply_rate || '-'}</td>
-                    <td class="align-middle text-primary fw-bold" id="isbn_${k.id}" data-val="${k.isbn || '-'}" ondblclick="editSingleIsbn(${k.id}, this)" title="더블클릭하여 수정" style="cursor:pointer; text-decoration:underline dashed;">${k.isbn || '-'}</td>
+                    <td class="align-middle text-muted editable-cell" data-id="${k.id}" data-field="publisher" title="더블클릭하여 수정">${k.publisher || '-'}</td>
+                    <td class="align-middle text-muted editable-cell" data-id="${k.id}" data-field="supply_rate" title="더블클릭하여 수정">${k.supply_rate || '-'}</td>
+                    <td class="align-middle text-primary fw-bold editable-cell" data-id="${k.id}" data-field="isbn" title="더블클릭하여 수정" style="text-decoration:underline dashed;">${k.isbn || '-'}</td>
                     
                     <td class="align-middle text-muted" id="price_${k.id}" data-val="${k.price || '-'}">${k.price || '-'}</td>
                     <td class="align-middle fw-bold text-secondary" id="ship_${k.id}" data-val="${k.shipping_fee || '-'}">${k.shipping_fee || '-'}</td>
-                    <td class="align-middle text-start" id="store_${k.id}" data-val="${safeTitleName}" ondblclick="editSingleField(${k.id}, 'book_title', this)" title="더블클릭하여 수정" style="cursor:pointer;">${titleNameDisplay}</td>
+                    <td class="align-middle text-start editable-cell" data-id="${k.id}" data-field="book_title" title="더블클릭하여 수정">${titleNameDisplay}</td>
                     <td class="align-middle" id="action_${k.id}">
                         <button class="btn btn-sm btn-primary py-0 px-2" onclick="editKeyword(${k.id})" title="수정"><i class="bi bi-pencil-square"></i></button>
                         <button class="btn btn-sm btn-danger py-0 px-2" onclick="deleteKeyword(${k.id})" title="삭제"><i class="bi bi-trash"></i></button>
@@ -333,84 +333,37 @@
         }
     }
 
-    // ✨ 더블클릭 인라인 에디터 (ISBN 전용 - 중복 방지 포함 및 새로고침 방어 완벽 해결!)
-    function editSingleIsbn(id, tdElement) {
+    // ✨ 완벽한 이벤트 위임(Event Delegation)을 통한 더블클릭 로직
+    // 테이블이 100번 지워지고 다시 그려져도 이 로직은 절대 죽지 않습니다!
+    $(document).on('dblclick', '.editable-cell', function() {
         if (isEditing) return;
-        isEditing = true; // 나 지금부터 수정 중이니까 2초 새로고침 하지마!!
+        isEditing = true; // 수정 모드 진입 (새로고침 차단)
         
-        let currentVal = $(tdElement).text().trim();
+        let td = $(this);
+        let id = td.data('id');
+        let field = td.data('field');
+        
+        let currentVal = td.text().trim();
         if (currentVal === '-') currentVal = '';
         
-        let input = $(`<input type="text" class="form-control form-control-sm text-center fw-bold text-primary" value="${currentVal}" placeholder="엔터키로 저장">`);
-        $(tdElement).empty().append(input);
+        let alignment = field === 'book_title' ? 'text-start' : 'text-center';
+        let style = field === 'isbn' ? 'background-color:#fff3cd; font-weight:bold; color:#0d6efd;' : '';
+        let input = $(`<input type="text" class="form-control form-control-sm ${alignment}" value="${currentVal}" placeholder="엔터키로 저장" style="min-width: 100px; ${style}">`);
+        
+        td.empty().append(input);
         input.focus();
 
         let isSaved = false;
         input.on('blur keypress', async function(e) {
+            // 엔터키(13)가 아니면 무시 (blur 이벤트는 통과)
             if (e.type === 'keypress' && e.which !== 13) return;
             if (isSaved) return; // 중복 실행 방지
             isSaved = true;
-            
-            let newVal = input.val().trim();
-            if (newVal === currentVal) {
-                $(tdElement).text(newVal || '-');
-                isEditing = false; // 수정 끝! 새로고침 허용
-                return;
-            }
-            
-            let item = allKeywordsData.find(i => i.id === id);
-            const fd = new FormData();
-            fd.append('id', id);
-            fd.append('store_rank', item.store_rank || '-');
-            fd.append('product_link', item.product_link || '-');
-            fd.append('publisher', item.publisher || '-');
-            fd.append('supply_rate', item.supply_rate || '-');
-            fd.append('isbn', newVal || '-');
-            fd.append('price', item.price || '-');
-            fd.append('shipping_fee', item.shipping_fee || '-');
-            fd.append('store_name', item.store_name || '-');
-            fd.append('book_title', item.book_title || '-');
-
-            try {
-                const res = await fetch("{{ url_for('monitoring.update_keyword') }}", { method: 'POST', body: fd });
-                const result = await res.json();
-                if (result.success) {
-                    item.isbn = newVal || '-';
-                    $(tdElement).text(item.isbn);
-                } else {
-                    alert(result.message); // 중복 방지 경고 팝업
-                    $(tdElement).text(currentVal || '-');
-                }
-            } catch(e) {
-                alert('저장 중 오류가 발생했습니다.');
-                $(tdElement).text(currentVal || '-');
-            }
-            isEditing = false; // 수정 끝! 새로고침 허용
-        });
-    }
-
-    // ✨ 더블클릭 인라인 에디터 (출판사명, 공급률, 상품명 일반 필드용 및 새로고침 방어 완벽 해결!)
-    function editSingleField(id, field, tdElement) {
-        if (isEditing) return;
-        isEditing = true; // 나 지금부터 수정 중이니까 2초 새로고침 하지마!!
-        
-        let currentVal = $(tdElement).text().trim();
-        if (currentVal === '-') currentVal = '';
-        
-        let input = $(`<input type="text" class="form-control form-control-sm ${field==='book_title'?'text-start fw-bold':'text-center'}" value="${currentVal}" placeholder="엔터키로 저장" style="min-width: 100px;">`);
-        $(tdElement).empty().append(input);
-        input.focus();
-
-        let isSaved = false;
-        input.on('blur keypress', async function(e) {
-            if (e.type === 'keypress' && e.which !== 13) return;
-            if (isSaved) return;
-            isSaved = true;
 
             let newVal = input.val().trim();
             if (newVal === currentVal) {
-                $(tdElement).text(newVal || '-');
-                isEditing = false; // 수정 끝!
+                td.text(newVal || '-');
+                isEditing = false;
                 return;
             }
 
@@ -421,7 +374,7 @@
             fd.append('product_link', item.product_link || '-');
             fd.append('publisher', field === 'publisher' ? newVal : (item.publisher || '-'));
             fd.append('supply_rate', field === 'supply_rate' ? newVal : (item.supply_rate || '-'));
-            fd.append('isbn', item.isbn || '-');
+            fd.append('isbn', field === 'isbn' ? newVal : (item.isbn || '-'));
             fd.append('price', item.price || '-');
             fd.append('shipping_fee', item.shipping_fee || '-');
             fd.append('store_name', item.store_name || '-');
@@ -432,20 +385,20 @@
                 const result = await res.json();
                 if (result.success) {
                     item[field] = newVal || '-';
-                    $(tdElement).text(item[field]);
+                    td.text(item[field]);
                 } else {
-                    alert(result.message);
-                    $(tdElement).text(currentVal || '-');
+                    alert(result.message); // ISBN 중복 방지 경고
+                    td.text(currentVal || '-');
                 }
             } catch(e) {
                 alert('저장 중 오류가 발생했습니다.');
-                $(tdElement).text(currentVal || '-');
+                td.text(currentVal || '-');
             }
-            isEditing = false; // 수정 끝!
+            isEditing = false; // 수정 모드 해제 (새로고침 다시 허용)
         });
-    }
+    });
 
-    // 전체 로우(행) 우측 버튼 편집 기능
+    // 전체 행 우측 버튼 편집 기능
     function editKeyword(id) {
         isEditing = true; 
         const fields = ['rank', 'plink', 'pub', 'sup', 'isbn', 'price', 'ship', 'store'];
@@ -491,7 +444,7 @@
                 isEditing = false;
                 loadSavedKeywords(); 
             } else {
-                alert(result.message); // 중복 방지 경고
+                alert(result.message);
             }
         } catch(e) { alert('저장 중 오류가 발생했습니다.'); }
     }
@@ -531,7 +484,6 @@
             alert("업데이트할 항목을 왼쪽 체크박스로 먼저 선택해주세요!");
             return;
         }
-
         const btn = document.getElementById('refreshIsbnBtn');
         const origText = btn.innerHTML;
         btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 전송중...';
@@ -554,7 +506,6 @@
             alert("초기화할 항목을 왼쪽 체크박스로 먼저 선택해주세요!");
             return;
         }
-
         if(!confirm(`선택한 ${checkedIds.size}개 항목의 검색 데이터(가격, 택배비 등)를 모두 비우시겠습니까? (수동 입력한 키워드, ISBN 등은 안전하게 보존됩니다)`)) return;
         
         const fd = new FormData();
