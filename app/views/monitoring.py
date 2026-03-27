@@ -149,10 +149,13 @@ def get_html_with_proxy(url):
     except: pass
     return ""
 
-def get_naver_book_shopping_rank(keyword, target_mall):
-    url = f"https://search.shopping.naver.com/book/search?query={urllib.parse.quote(keyword)}"
-    html = get_html_with_proxy(url)
-    if html:
+def get_naver_book_shopping_rank(queries, target_mall):
+    for q in queries:
+        if not q: continue
+        url = f"https://search.shopping.naver.com/book/search?query={urllib.parse.quote(q)}"
+        html = get_html_with_proxy(url)
+        if not html: continue
+        
         match = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', html, re.DOTALL)
         if match:
             try:
@@ -173,7 +176,7 @@ def get_naver_book_shopping_rank(keyword, target_mall):
 
 def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, target_ids):
     with app.app_context():
-        print(f"\n========== [DEBUG START] FAST 500 UPDATE (User: {user_id}) ==========", flush=True)
+        print(f"\n========== [DEBUG START] FAST & PRECISE UPDATE ==========", flush=True)
         try:
             api_key = ApiKey.query.filter_by(user_id=user_id).first()
             commerce_token = get_commerce_token(api_key.client_id, api_key.client_secret) if api_key else None
@@ -192,8 +195,6 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                 target_isbn = str(kw.isbn).strip().replace('-', '') if kw.isbn and kw.isbn != '-' else ""
                 db.session.commit()
 
-                print(f"\n[DEBUG] Processing: '{keyword_text}'", flush=True)
-
                 updates = {
                     'store_rank': '500위 밖',
                     'price': '-',
@@ -202,7 +203,7 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     'book_title': '⚠️ 매칭 실패'
                 }
 
-                # ✨ [1] 초고속 도서 API (이름, 출판사 추출)
+                # ✨ [1] 초고속 도서 API (이름, 출판사 추출 - 정상 작동 확인됨)
                 real_book_title = ""
                 if api_headers and search_client_id:
                     search_query = target_isbn if target_isbn else keyword_text
@@ -231,55 +232,60 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     real_book_title = get_real_title_via_proxy(target_isbn)
                 if real_book_title: updates['book_title'] = real_book_title
 
-                # ✨ [2] 초고속 정밀 타겟팅 (가격/링크 확보)
-                matched_mall_pid = None
-                if api_headers and search_client_id:
-                    search_queries = [f"{keyword_text} {target_mall_name}", f"{real_book_title} {target_mall_name}"]
-                    for q in search_queries:
-                        if matched_mall_pid or not q.strip() or q == f" {target_mall_name}": continue
+                # ✨ [2] 커머스 API 이름 검색의 부활 (가격, 링크, 택배비 추출)
+                if commerce_token:
+                    search_terms = []
+                    if real_book_title: search_terms.append(real_book_title)
+                    if keyword_text and keyword_text not in search_terms: search_terms.append(keyword_text)
+                    
+                    found_commerce = False
+                    for term in search_terms:
+                        if found_commerce: break
                         try:
-                            url = f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(q)}&display=20"
-                            res = requests.get(url, headers=api_headers, timeout=3)
-                            if res.status_code == 200:
-                                for item in res.json().get('items', []):
-                                    if target_mall_name in item.get('mallName', ''):
-                                        matched_mall_pid = item.get('mallProductId')
-                                        updates['product_link'] = item.get('link')
-                                        updates['price'] = f"{int(item.get('lprice', 0)):,}원"
-                                        updates['store_name'] = item.get('mallName')
-                                        break
+                            payload = {"page": 1, "size": 20, "searchKeywordType": "NAME", "searchKeyword": term}
+                            c_res = requests.post("https://api.commerce.naver.com/external/v1/products/search", headers=c_headers, json=payload, timeout=5)
+                            if c_res.status_code == 200:
+                                contents = c_res.json().get('contents', [])
+                                for p in contents:
+                                    o_no = p.get('originProductNo')
+                                    if not o_no: continue
+                                    
+                                    op_res = requests.get(f"https://api.commerce.naver.com/external/v2/products/origin-products/{o_no}", headers=c_headers, timeout=5)
+                                    if op_res.status_code == 200:
+                                        op_data = op_res.json().get('originProduct', op_res.json())
+                                        p_name = str(op_data.get('name', ''))
+                                        p_name_clean = re.sub(r'[^a-zA-Z0-9가-힣]', '', p_name)
+                                        term_clean = re.sub(r'[^a-zA-Z0-9가-힣]', '', term)
+                                        
+                                        if term_clean and term_clean in p_name_clean:
+                                            c_prods = p.get('channelProducts', [{}])
+                                            c_no = c_prods[0].get('channelProductNo') if c_prods else o_no
+                                            
+                                            updates['store_name'] = str(op_data.get('name') or p.get('name', '-'))
+                                            updates['product_link'] = f"https://smartstore.naver.com/main/products/{c_no}" if c_no else "-"
+                                            updates['book_title'] = str(op_data.get('name', updates['book_title']))
+                                            
+                                            sale_price = op_data.get('salePrice')
+                                            if sale_price is not None: updates['price'] = f"{sale_price:,}원"
+                                            
+                                            fee = op_data.get('deliveryInfo', {}).get('deliveryFee', {}).get('baseFee')
+                                            if fee is not None: updates['shipping_fee'] = "무료" if fee == 0 else f"{fee:,}원"
+                                            
+                                            found_commerce = True
+                                            break
                         except: pass
 
-                # ✨ [3] 커머스 API로 택배비만 빠르게 훔쳐오기
-                if commerce_token and matched_mall_pid:
-                    try:
-                        op_res = requests.get(f"https://api.commerce.naver.com/external/v2/products/{matched_mall_pid}", headers=c_headers, timeout=3)
-                        if op_res.status_code == 200:
-                            op_data = op_res.json().get('originProduct', op_res.json())
-                            fee = op_data.get('deliveryInfo', {}).get('deliveryFee', {}).get('baseFee')
-                            if fee is not None: updates['shipping_fee'] = "무료" if fee == 0 else f"{fee:,}원"
-                            book_info = op_data.get('detailAttribute', {}).get('bookInfo', {})
-                            if book_info and book_info.get('publisher'): updates['publisher'] = str(book_info.get('publisher'))
-                    except: pass
+                # ✨ [3] 순위 스캔 (도서 탭 화면 스캔 후 최대 500위까지 쇼핑 API 스캔)
+                book_queries = [target_isbn, keyword_text, real_book_title]
+                book_tab_rank = get_naver_book_shopping_rank(book_queries, target_mall_name)
                 
-                if matched_mall_pid and updates.get('book_title') == '⚠️ 매칭 실패':
-                    updates['book_title'] = "" 
-
-                # ✨ [4] 순위 스캔 (최대 500위 초고속 & 도서 탭 정밀 탐색 결합!)
-                print("[DEBUG] Scanning Rank (Max 500 & Book Tab)...", flush=True)
-                
-                # 4-1. 카탈로그로 묶인 최상위 1~40위 정밀 스캔 (도서 탭)
-                book_tab_rank = get_naver_book_shopping_rank(keyword_text, target_mall_name)
                 if book_tab_rank:
                     updates['store_rank'] = book_tab_rank
-                    print(f"[DEBUG] ✅ Found in Book Tab (Rank {book_tab_rank})", flush=True)
                 else:
-                    # 4-2. 네이버 공식 쇼핑 API 초고속 스캔 (정확히 딱 500위까지만!)
                     if api_headers and search_client_id:
                         try:
                             found_rank = False
-                            # 1, 101, 201, 301, 401 = 총 500개 검사
-                            for start_idx in range(1, 402, 100): 
+                            for start_idx in range(1, 402, 100): # 1~500위 스캔
                                 if found_rank: break
                                 api_url = f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(keyword_text)}&display=100&start={start_idx}"
                                 api_res = requests.get(api_url, headers=api_headers, timeout=3)
@@ -290,7 +296,6 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                                         if target_mall_name in item.get('mallName', ''):
                                             updates['store_rank'] = str(start_idx + idx)
                                             found_rank = True
-                                            print(f"[DEBUG] ✅ Found in Shop API (Rank {updates['store_rank']})", flush=True)
                                             break
                         except: pass
 
@@ -311,7 +316,7 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     kw.book_title = f"⚠️ 시스템 에러"
                     db.session.commit()
             
-            time.sleep(0.1) # 딜레이를 최소화하여 신속함 극대화
+            time.sleep(0.1)
         print("========== [DEBUG END] ==========\n", flush=True)
 
 @monitoring_bp.route('/api/refresh_all_ranks', methods=['POST'])
