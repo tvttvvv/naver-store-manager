@@ -3,7 +3,6 @@ import time
 import re
 import traceback
 import random
-import string
 from threading import Thread
 from flask import Blueprint, render_template, request, jsonify, current_app
 from flask_login import login_required, current_user
@@ -105,47 +104,51 @@ def clear_data():
     db.session.commit()
     return jsonify({'success': True, 'message': f'✅ 선택한 항목의 검색 정보가 초기화되었습니다.'})
 
-# ✨ 에러 진단을 위한 초정밀 CCTV 모드
-def get_html_with_fake_cookie(url):
-    print(f"\n[CCTV] 🛡️ Requesting URL: {urllib.parse.unquote(url)}", flush=True)
-    session = requests.Session()
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Linux; Android 13; SM-S918N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.6261.90 Mobile Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Referer": "https://m.naver.com/",
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "cross-site",
-        "Upgrade-Insecure-Requests": "1"
-    }
-    session.headers.update(headers)
+# ✨ 418 에러 무력화: 검색 엔진 봇(Yeti, Googlebot)으로 완벽하게 신분을 위장합니다!
+def get_html_with_bot_spoofing(url):
+    bots = [
+        ("Naver Yeti", {
+            "User-Agent": "Mozilla/5.0 (compatible; Yeti/1.1; +http://naver.me/spd)",
+            "Accept": "*/*",
+            "X-Forwarded-For": f"125.209.{random.randint(1, 255)}.{random.randint(1, 255)}" # 가짜 네이버 본사 IP
+        }),
+        ("Googlebot", {
+            "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "X-Forwarded-For": f"66.249.{random.randint(64, 95)}.{random.randint(1, 255)}" # 가짜 구글 IP
+        }),
+        ("Bingbot", {
+            "User-Agent": "Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)",
+            "Accept": "*/*"
+        })
+    ]
 
-    fake_nnb = ''.join(random.choices(string.ascii_uppercase + string.digits, k=13))
-    session.cookies.set('NNB', fake_nnb, domain='.naver.com')
-
-    try:
-        res = session.get(url, timeout=5)
-        print(f"[CCTV] 🌐 Target Status Code: {res.status_code}", flush=True)
-        print(f"[CCTV] 🌐 Target Headers: {res.headers}", flush=True)
-        print(f"[CCTV] 🌐 HTML Length: {len(res.text)} chars.", flush=True)
-        print(f"[CCTV] 🌐 HTML Preview (first 200 chars): {res.text[:200].replace(chr(10), '')}", flush=True)
-
-        if res.status_code == 200:
-            html = res.text
-            if len(html) > 5000: 
-                return html
-    except Exception as e:
-        print(f"[CCTV] 🌐 Request Error Exception: {e}", flush=True)
+    for name, headers in bots:
+        print(f"\n[CCTV] 🛡️ Trying VIP Bot Spoofing ({name}): {urllib.parse.unquote(url)}", flush=True)
+        try:
+            res = requests.get(url, headers=headers, timeout=5)
+            print(f"[CCTV] 🌐 {name} Status Code: {res.status_code}", flush=True)
+            
+            if res.status_code == 200:
+                html = res.text
+                if len(html) > 5000:
+                    print(f"[CCTV] ✅ {name} Bypass SUCCESS! Extracted Real HTML.", flush=True)
+                    return html
+                else:
+                    print(f"[CCTV] ⚠️ Caught by Captcha despite bot disguise.", flush=True)
+        except Exception as e:
+            print(f"[CCTV] 🌐 {name} Request Error: {e}", flush=True)
 
     return ""
 
 def get_naver_rank_only(queries, target_mall):
     for q in queries:
         if not q: continue
-        print(f"\n[CCTV] --- Scanning Mobile Rank For: '{q}' ---", flush=True)
-        url = f"https://msearch.shopping.naver.com/book/search?query={urllib.parse.quote(q)}"
-        html = get_html_with_fake_cookie(url)
+        print(f"\n[CCTV] --- Scanning Public Rank For: '{q}' ---", flush=True)
+        
+        # 봇 위장은 PC 버전이 가장 잘 뚫립니다.
+        url = f"https://search.shopping.naver.com/book/search?query={urllib.parse.quote(q)}"
+        html = get_html_with_bot_spoofing(url)
         
         if not html: continue
         
@@ -177,7 +180,7 @@ def get_naver_rank_only(queries, target_mall):
 
 def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, target_ids):
     with app.app_context():
-        print(f"\n========== [CCTV START] DIAGNOSTIC MODE ==========", flush=True)
+        print(f"\n========== [CCTV START] BOT DISGUISE MODE ==========", flush=True)
         try:
             api_key = ApiKey.query.filter_by(user_id=user_id).first()
             target_mall_name = api_key.store_name if api_key else "스터디박스"
@@ -218,6 +221,7 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                             updates['book_title'] = real_book_title
                     except: pass
                 
+                # 봇 신분증을 들고 1순위 타격!
                 book_queries = [keyword_text, real_book_title]
                 if target_isbn: book_queries.insert(0, target_isbn) 
                 
@@ -226,6 +230,27 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                 if book_rank:
                     updates['store_rank'] = book_rank
                     updates['store_name'] = target_mall_name
+                else:
+                    # 백업: 공식 쇼핑 API (1~500위) 탐색
+                    print(f"\n[CCTV] Not found directly. Scanning Official API (1~500)...", flush=True)
+                    if api_headers and search_client_id:
+                        try:
+                            found_rank = False
+                            for start_idx in range(1, 402, 100):
+                                if found_rank: break
+                                api_url = f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(keyword_text)}&display=100&start={start_idx}"
+                                api_res = requests.get(api_url, headers=api_headers, timeout=3)
+                                if api_res.status_code == 200:
+                                    items = api_res.json().get('items', [])
+                                    if not items: break
+                                    for idx, item in enumerate(items):
+                                        if target_mall_name in item.get('mallName', ''):
+                                            updates['store_rank'] = str(start_idx + idx)
+                                            updates['store_name'] = item.get('mallName')
+                                            print(f"[CCTV] 🎯 TARGET FOUND in Official API! Rank: {updates['store_rank']}", flush=True)
+                                            found_rank = True
+                                            break
+                        except: pass
 
                 kw = db.session.get(MonitoredKeyword, k_id)
                 if kw:
@@ -234,6 +259,7 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                         if key == 'isbn' and kw.isbn and kw.isbn != '-': continue
                         setattr(kw, key, val)
                     db.session.commit()
+                    print(f"[CCTV] Database updated for '{keyword_text}'. Final Rank: {updates['store_rank']}", flush=True)
 
             except Exception as e:
                 db.session.rollback()
@@ -243,7 +269,7 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     kw.book_title = f"⚠️ 시스템 에러"
                     db.session.commit()
             
-            time.sleep(0.1)
+            time.sleep(0.2)
         print("========== [CCTV END] ==========\n", flush=True)
 
 @monitoring_bp.route('/api/refresh_all_ranks', methods=['POST'])
@@ -276,4 +302,4 @@ def refresh_by_isbn():
         
     thread = Thread(target=async_refresh_by_isbn, args=(app, user_id, search_id, search_pw, target_ids))
     thread.start()
-    return jsonify({'success': True, 'message': f'✅ 진단 모드로 추적을 시작합니다. 잠시 후 새로고침 해주세요.'})
+    return jsonify({'success': True, 'message': f'✅ 검색엔진 봇 위장 모드로 추적을 시작합니다. 잠시 후 새로고침 해주세요.'})
