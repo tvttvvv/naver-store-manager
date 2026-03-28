@@ -19,9 +19,7 @@ monitoring_bp = Blueprint('monitoring', __name__)
 # 상품명 깔끔하게 정제하는 함수 (태그 제거 및 특수문자 복원)
 def clean_text(text):
     if not text or text == '-': return '-'
-    # <b> </b> 같은 HTML 태그 제거
     cleaned = re.sub(r'<[^>]*>', '', str(text))
-    # &amp; 같은 HTML 엔티티 복원
     return html.unescape(cleaned).strip()
 
 @monitoring_bp.route('/')
@@ -179,6 +177,7 @@ def get_naver_shopping_info(queries, target_mall, find_rank=False):
 
     for q in queries:
         if not q: continue
+        # ✨ 핵심 1: find_rank 여부와 무관하게 깊게 파고들 때는 무조건 10페이지까지 뒤집니다.
         max_pages = 10 if find_rank else 1 
 
         for page in range(1, max_pages + 1):
@@ -207,17 +206,18 @@ def get_naver_shopping_info(queries, target_mall, find_rank=False):
                         for idx, prod in enumerate(products):
                             mall = prod.get('mallName', '')
                             if safe_target in mall.lower().replace(" ", ""):
-                                result['rank'] = str(idx + 1) 
+                                result['rank'] = str((page - 1) * 40 + idx + 1)
                                 p = str(prod.get('price', 0))
                                 result['my_price'] = f"{int(p):,}원" if p.isdigit() and p != '0' else "-"
                                 df = prod.get('deliveryFeeContent', prod.get('deliveryFee', '-'))
                                 result['my_shipping'] = '무료' if str(df) == '0' else (f"{int(df):,}원" if str(df).isdigit() else str(df))
                                 
+                                # ✨ 구매수 완벽 스캔
                                 pc = prod.get('purchaseCnt', prod.get('keepCnt', prod.get('reviewCount', '-')))
                                 if str(pc) != '0' and str(pc) != '-': result['my_purchase'] = str(pc)
                                 
-                                # ✨ 최우선: 가짜 링크 배제하고 직링크(mallPcUrl) 확보
-                                result['my_link'] = prod.get('mallPcUrl', prod.get('mallProductUrl', '-'))
+                                # ✨ 최우선: 가짜 링크 배제하고 무조건 직링크(mallPcUrl) 강제 확보
+                                result['my_link'] = prod.get('mallPcUrl', prod.get('mallProductUrl', prod.get('pcUrl', '-')))
                                 result['my_title'] = clean_text(prod.get('productTitle', prod.get('bookTitle', '')))
                                 return result
                         
@@ -247,11 +247,12 @@ def get_naver_shopping_info(queries, target_mall, find_rank=False):
                             df = prod.get('deliveryFeeContent', prod.get('deliveryFee', '-'))
                             result['my_shipping'] = '무료' if str(df) == '0' else (f"{int(df):,}원" if str(df).isdigit() else str(df))
                             
+                            # ✨ 구매수 완벽 스캔
                             pc = prod.get('purchaseCnt', prod.get('keepCnt', prod.get('reviewCount', '-')))
                             if str(pc) != '0' and str(pc) != '-': result['my_purchase'] = str(pc)
                             
-                            # ✨ 최우선: 가짜 링크 배제하고 직링크(mallPcUrl) 확보
-                            result['my_link'] = prod.get('mallPcUrl', prod.get('mallProductUrl', '-'))
+                            # ✨ 최우선: 가짜 링크 배제하고 무조건 직링크(mallPcUrl) 강제 확보
+                            result['my_link'] = prod.get('mallPcUrl', prod.get('mallProductUrl', prod.get('pcUrl', '-')))
                             result['my_title'] = clean_text(prod.get('productTitle', prod.get('bookTitle', '')))
                             return result
                             
@@ -291,16 +292,26 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     'store_name': kw.store_name
                 }
 
+                # 검색어 우선순위: ISBN이 있으면 ISBN 먼저, 실패하거나 없으면 키워드로.
+                search_queries = []
+                if target_isbn: search_queries.append(target_isbn)
+                if keyword_text: search_queries.append(keyword_text)
+
                 # ========================================================
-                # 1️⃣ 순위 파악
+                # ✨ 1단계: 1~10페이지 심층 탐색 한방으로 모든 정보(순위, 구매수, 직링크) 확보!
                 # ========================================================
+                kw_info = {}
+                if update_mode in ['all', 'rank', 'purchase']:
+                    kw_info = get_naver_shopping_info(search_queries, target_mall_name, find_rank=True)
+
+                # [순위 업데이트]
                 if update_mode in ['all', 'rank']:
-                    updates['store_rank'] = '500위 밖'
-                    kw_info = get_naver_shopping_info([keyword_text], target_mall_name, find_rank=True)
                     if kw_info.get('rank'):
                         updates['store_rank'] = kw_info['rank']
                         updates['store_name'] = target_mall_name
                     else:
+                        updates['store_rank'] = '500위 밖'
+                        # 10페이지에 없으면 API로 500위 스캔
                         if api_headers and search_client_id:
                             found_rank = False
                             try:
@@ -316,41 +327,35 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                                                 break
                             except Exception: pass
 
-                # ========================================================
-                # 2️⃣ 구매수 파악
-                # ========================================================
+                # [구매수 업데이트]
                 if update_mode in ['all', 'purchase']:
-                    updates['purchase_count'] = '-'
-                    search_list = [target_isbn] if target_isbn else [keyword_text]
-                    purchase_info = get_naver_shopping_info(search_list, target_mall_name, find_rank=False)
-                    if purchase_info.get('my_purchase'):
-                        updates['purchase_count'] = purchase_info['my_purchase']
+                    if kw_info.get('my_purchase'):
+                        updates['purchase_count'] = kw_info['my_purchase']
+                    else:
+                        updates['purchase_count'] = '-'
 
-                # ========================================================
-                # 3️⃣ 상품 정보 (이름, 직링크, 가격) 파악
-                # ========================================================
+                # [상품 정보 전체 업데이트]
                 if update_mode == 'all':
-                    search_queries = [target_isbn] if target_isbn else [keyword_text]
+                    # 스크래핑한 100% 안전 데이터 먼저 채우기
+                    if kw_info.get('my_title'): updates['book_title'] = kw_info['my_title']
+                    elif kw_info.get('general_title'): updates['book_title'] = kw_info['general_title']
                     
-                    # (1) 웹 스크래핑으로 기초 데이터 확보
-                    base_info = get_naver_shopping_info(search_queries, target_mall_name, find_rank=False)
+                    if kw_info.get('my_price'): updates['price'] = kw_info['my_price']
+                    elif kw_info.get('general_price'): updates['price'] = kw_info['general_price']
                     
-                    if base_info.get('my_title'): updates['book_title'] = base_info['my_title']
-                    elif base_info.get('general_title'): updates['book_title'] = base_info['general_title']
+                    if kw_info.get('my_shipping'): updates['shipping_fee'] = kw_info['my_shipping']
                     
-                    if base_info.get('general_publisher'): updates['publisher'] = base_info['general_publisher']
-                    
-                    if base_info.get('my_price'): updates['price'] = base_info['my_price']
-                    elif base_info.get('general_price'): updates['price'] = base_info['general_price']
-                    
-                    if base_info.get('my_shipping'): updates['shipping_fee'] = base_info['my_shipping']
-                    
-                    if base_info.get('my_link') and base_info['my_link'] != '-': updates['product_link'] = base_info['my_link']
-                    elif base_info.get('general_link'): updates['product_link'] = base_info['general_link']
+                    # ✨ 절대 API로 덮어쓰지 않을 '진짜 직링크' 확보
+                    if kw_info.get('my_link') and kw_info['my_link'] != '-': updates['product_link'] = kw_info['my_link']
+                    elif kw_info.get('general_link'): updates['product_link'] = kw_info['general_link']
 
+                    if kw_info.get('general_publisher'): updates['publisher'] = kw_info['general_publisher']
                     updates['store_name'] = target_mall_name
 
-                    # (2) API로 완벽한 풀네임과 쇼핑몰 직링크 덮어쓰기
+                    # ========================================================
+                    # ✨ 2단계: API를 이용해서 '잘린 이름'과 '출판사'만 깔끔하게 보정
+                    # (이때 절대로 product_link는 덮어쓰지 않습니다!)
+                    # ========================================================
                     if api_headers and search_client_id:
                         api_found = False
                         for sq in search_queries:
@@ -360,12 +365,9 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                                 if api_res.status_code == 200:
                                     for item in api_res.json().get('items', []):
                                         if safe_target in item.get('mallName', '').lower().replace(" ", ""):
-                                            # 태그 제거된 완벽한 풀네임
-                                            updates['book_title'] = clean_text(item.get('title', ''))
-                                            
-                                            # 추적 링크 없는 다이렉트 쇼핑몰 링크
-                                            raw_link = item.get('link', '-')
-                                            if raw_link != '-': updates['product_link'] = raw_link.replace('http://', 'https://')
+                                            # 상품명만 깔끔하게 덮어쓰기!
+                                            clean_t = clean_text(item.get('title', ''))
+                                            if clean_t: updates['book_title'] = clean_t
                                             
                                             p = item.get('lprice', '0')
                                             if p.isdigit() and p != '0': updates['price'] = f"{int(p):,}원"
@@ -374,7 +376,7 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                                             break
                             except Exception: pass
 
-                        # 도서 API로 출판사 정보 보완
+                        # 도서 API로 출판사 정보만 쏙 보완
                         if target_isbn:
                             try:
                                 book_res = requests.get(f"https://openapi.naver.com/v1/search/book.json?d_isbn={urllib.parse.quote(target_isbn)}", headers=api_headers, timeout=3)
@@ -384,7 +386,7 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                             except Exception: pass
 
                 # ========================================================
-                # DB 저장
+                # DB 최종 반영
                 # ========================================================
                 kw = db.session.get(MonitoredKeyword, k_id)
                 if kw:
@@ -396,7 +398,7 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                         if updates['book_title']: kw.book_title = updates['book_title']
                         if updates['publisher']: kw.publisher = updates['publisher']
                         if updates['price']: kw.price = updates['price']
-                        if updates['product_link']: kw.product_link = updates['product_link']
+                        if updates['product_link'] and updates['product_link'] != '-': kw.product_link = updates['product_link']
                         if updates['shipping_fee']: kw.shipping_fee = updates['shipping_fee']
                         kw.store_name = updates['store_name']
                     
