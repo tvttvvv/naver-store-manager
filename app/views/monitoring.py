@@ -162,18 +162,22 @@ def get_naver_shopping_info(queries, target_mall):
                 
                 if not book_list: continue
 
-                # ✨ 순위와 무관하게 무조건 첫 번째 도서 카탈로그 정보를 훔쳐옵니다!
                 first_item = book_list[0].get('item', book_list[0])
                 result['general_title'] = first_item.get('bookTitle', '')
                 result['general_publisher'] = first_item.get('publisher', '')
                 
                 gp = str(first_item.get('lowPrice', first_item.get('price', 0)))
                 result['general_price'] = f"{int(gp):,}원" if gp.isdigit() and gp != '0' else "-"
-                result['general_link'] = first_item.get('mallProductUrl', first_item.get('crUrl', '-'))
+                
+                # ✨ 핵심 수정 1: 도서 백과사전의 '카탈로그 고유 주소'를 완벽하게 조합합니다.
+                cat_id = first_item.get('catalogId', first_item.get('id', ''))
+                if cat_id:
+                    result['general_link'] = f"https://search.shopping.naver.com/book/catalog/{cat_id}"
+                else:
+                    result['general_link'] = first_item.get('productUrl', first_item.get('mallProductUrl', '-'))
                 
                 print(f"[CCTV] Basic Info Extracted -> Title: {result['general_title']}, Pub: {result['general_publisher']}", flush=True)
 
-                # 내 상점(스터디박스) 순위와 정보 찾기
                 for idx, item in enumerate(book_list):
                     prod = item.get('item', item)
                     mall = prod.get('mallName', '')
@@ -188,11 +192,12 @@ def get_naver_shopping_info(queries, target_mall):
                         elif str(df).isdigit(): result['my_shipping'] = f"{int(df):,}원"
                         else: result['my_shipping'] = str(df)
                         
-                        result['my_link'] = prod.get('mallProductUrl', prod.get('crUrl', '-'))
+                        # ✨ 핵심 수정 2: 상점 직링크를 뽑아낼 때 mallPcUrl을 최우선으로 가져오게 수정했습니다.
+                        result['my_link'] = prod.get('mallPcUrl', prod.get('mallProductUrl', prod.get('crUrl', '-')))
                         print(f"[CCTV] 🎯 TARGET MALL FOUND! Rank: {result['rank']}", flush=True)
                         return result 
                 
-                return result # 순위에 없어도 기본 정보는 반환!
+                return result 
             except Exception as e:
                 print(f"[CCTV] JSON Parsing Error: {e}", flush=True)
                 
@@ -206,10 +211,8 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
             target_mall_name = api_key.store_name if api_key else "스터디박스"
             api_headers = {"X-Naver-Client-Id": search_client_id, "X-Naver-Client-Secret": search_client_secret} if search_client_id else {}
             db.session.commit()
-            print(f"[CCTV] Target Mall configured as: {target_mall_name}", flush=True)
         except Exception as e: 
             db.session.rollback()
-            print(f"[CCTV] DB Init Error: {e}", flush=True)
 
         for k_id in target_ids:
             try:
@@ -234,7 +237,6 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     'book_title': '⚠️ 매칭 실패'
                 }
 
-                # 1. 네이버 Open API로 공식 정보 스캔 (가장 정확)
                 real_book_title = ""
                 if api_headers and search_client_id:
                     search_query = target_isbn if target_isbn else keyword_text
@@ -249,18 +251,19 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                             
                             price = item.get('discount', item.get('price', 0))
                             updates['price'] = f"{int(price):,}원" if price else "-"
-                            updates['product_link'] = item.get('link', '-')
+                            
+                            # Open API에서 가져오는 링크는 http인 경우가 많아 https로 강제 보정합니다.
+                            raw_link = item.get('link', '-')
+                            updates['product_link'] = raw_link.replace('http://', 'https://') if raw_link != '-' else '-'
                             print(f"[CCTV] API Success! Title: {real_book_title}", flush=True)
                     except Exception as e: 
                         print(f"[CCTV] Open API Failed: {e}", flush=True)
                 
-                # 2. 도서검색 탭 크롤링 (순위 + 부족한 정보 보완)
                 book_queries = [keyword_text, real_book_title]
                 if target_isbn: book_queries.insert(0, target_isbn) 
                 
                 scrape_info = get_naver_shopping_info(book_queries, target_mall_name)
                 
-                # 상점 순위 밖이라도 크롤링한 기본 정보를 덮어씌움!
                 if scrape_info.get('general_title') and updates['book_title'] == '⚠️ 매칭 실패':
                     updates['book_title'] = scrape_info['general_title']
                 if scrape_info.get('general_publisher') and updates['publisher'] == '-':
@@ -270,7 +273,6 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                 if scrape_info.get('general_link') and updates['product_link'] == '-':
                     updates['product_link'] = scrape_info['general_link']
 
-                # 내 상점이 랭크되어 있다면 내 상점 정보로 덮어씌움!
                 if scrape_info.get('rank'):
                     updates['store_rank'] = scrape_info['rank']
                     updates['store_name'] = target_mall_name
@@ -280,10 +282,8 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                 else:
                     print(f"[CCTV] Target mall '{target_mall_name}' not found in top rank. Defaulting to general info.", flush=True)
 
-                # 3. DB 최종 업데이트
                 kw = db.session.get(MonitoredKeyword, k_id)
                 if kw:
-                    # 기존에 수동으로 입력한 값은 지키고 빈칸만 채웁니다.
                     if kw.book_title == '-' or kw.book_title == '⚠️ 매칭 실패': kw.book_title = updates['book_title']
                     if kw.publisher == '-': kw.publisher = updates['publisher']
                     if kw.price == '-': kw.price = updates['price']
@@ -305,7 +305,7 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     kw.store_rank = "에러"
                     db.session.commit()
             
-            time.sleep(0.5) # IP 차단 방지용 여유 시간
+            time.sleep(0.5) 
             
         print("========== [CCTV END] ==========\n", flush=True)
 
