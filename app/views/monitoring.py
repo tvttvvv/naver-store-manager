@@ -16,7 +16,6 @@ from sqlalchemy import text
 
 monitoring_bp = Blueprint('monitoring', __name__)
 
-# 상품명 깔끔하게 정제하는 함수 (태그 제거 및 특수문자 복원)
 def clean_text(text):
     if not text or text == '-': return '-'
     cleaned = re.sub(r'<[^>]*>', '', str(text))
@@ -154,20 +153,33 @@ def clear_data():
     db.session.commit()
     return jsonify({'success': True, 'message': f'✅ 선택한 항목의 검색 정보가 초기화되었습니다.'})
 
+# ✨ 핵심: HTTP 418 차단을 뚫기 위한 검색엔진 봇 위장술!
 def get_html_with_bot_spoofing(url):
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-        "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Referer": "https://search.shopping.naver.com/"
-    }
-    try:
-        res = requests.get(url, headers=headers, timeout=7)
-        if res.status_code == 200 and len(res.text) > 5000:
-            return res.text
-        else:
-            print(f"[CCTV-DEBUG] ❌ HTML 차단됨 (HTTP {res.status_code}): {url}", flush=True)
-    except Exception as e: pass
+    bot_headers = [
+        # 1. 구글봇 위장 (네이버 방화벽 프리패스 확률 가장 높음)
+        {"User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)", "Accept": "*/*"},
+        # 2. 네이버 자체 봇(Yeti) 위장
+        {"User-Agent": "Mozilla/5.0 (compatible; Yeti/1.1; +http://naver.me/spd)", "Accept": "*/*"},
+        # 3. 아이폰 모바일 사파리 위장
+        {"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1", "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"},
+        # 4. 일반 크롬 브라우저
+        {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36", "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"}
+    ]
+    
+    for headers in bot_headers:
+        try:
+            res = requests.get(url, headers=headers, timeout=6)
+            if res.status_code == 200 and len(res.text) > 5000:
+                print(f"[CCTV-DEBUG] 🔓 418 방어벽 우회 접속 성공! (사용된 위장: {headers['User-Agent'][:20]}...)", flush=True)
+                return res.text
+            elif res.status_code == 418:
+                print(f"[CCTV-DEBUG] ❌ 418 차단됨. 위장 봇: {headers['User-Agent'][:15]}...", flush=True)
+            else:
+                print(f"[CCTV-DEBUG] ⚠️ 실패 (HTTP {res.status_code}). 위장: {headers['User-Agent'][:15]}...", flush=True)
+        except Exception as e:
+            pass
+            
+    print(f"[CCTV-DEBUG] 🚨 모든 웹 스크래핑 위장술 실패. URL: {url}", flush=True)
     return ""
 
 def get_naver_shopping_info(queries, target_mall, find_rank=False):
@@ -230,7 +242,7 @@ def get_naver_shopping_info(queries, target_mall, find_rank=False):
                             return result
                             
                 except Exception: pass
-            if find_rank: time.sleep(0.1) 
+            if find_rank: time.sleep(0.5) 
     return result
 
 def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, target_ids, update_mode):
@@ -252,47 +264,53 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     
                 keyword_text = str(kw.keyword or "")
                 target_isbn = str(kw.isbn).strip().replace('-', '') if kw.isbn and kw.isbn != '-' else ""
+                print(f"\n[CCTV-DEBUG] 🛠️ 항목 처리 시작: ID={k_id}, KW=[{keyword_text}], ISBN=[{target_isbn}]", flush=True)
                 db.session.commit()
 
                 updates = {}
+                kw_info = {}
 
                 # ========================================================
-                # 1️⃣ 순위 파악 (웹스크래핑 시도)
+                # 1️⃣ 순위 파악 (구글봇 위장술 시도)
                 # ========================================================
-                kw_info = get_naver_shopping_info([keyword_text], target_mall_name, find_rank=True)
                 if update_mode in ['all', 'rank']:
+                    kw_info = get_naver_shopping_info([keyword_text], target_mall_name, find_rank=True)
                     updates['store_rank'] = kw_info.get('rank', '500위 밖')
 
-                # 🚨 [비상 탈출구] HTTP 418 웹 차단으로 500위 밖이 떴을 경우, 무적의 API로 순위 탐색 강제 가동!
-                if updates.get('store_rank', '500위 밖') == '500위 밖' and api_headers and search_client_id:
-                    print(f"[CCTV-DEBUG] 🚨 웹 스크래핑 차단 의심. API 비상 순위 탐색 가동: [{keyword_text}]", flush=True)
-                    found_rank = False
-                    try:
-                        for start_idx in range(1, 402, 100):
-                            if found_rank: break
-                            api_res = requests.get(f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(keyword_text)}&display=100&start={start_idx}", headers=api_headers, timeout=3)
-                            if api_res.status_code == 200:
-                                for idx, item in enumerate(api_res.json().get('items', [])):
-                                    if safe_target in item.get('mallName', '').lower().replace(" ", ""):
-                                        updates['store_rank'] = str(start_idx + idx)
-                                        # API에서 찾은 데이터로 텅 빈 바구니(kw_info)를 응급으로 채워줍니다.
-                                        kw_info['my_title'] = clean_text(item.get('title', ''))
-                                        p = item.get('lprice', '0')
-                                        if p.isdigit() and p != '0': kw_info['my_price'] = f"{int(p):,}원"
-                                        raw_link = item.get('link', '-')
-                                        if raw_link != '-': kw_info['my_link'] = raw_link.replace('http://', 'https://')
-                                        updates['store_name'] = item.get('mallName')
-                                        found_rank = True
-                                        print(f"[CCTV-DEBUG] 🎯 API 비상 구출 성공! 순위: {updates['store_rank']}위", flush=True)
-                                        break
-                    except Exception: pass
+                # 🚨 [비상 탈출구] 구글봇 위장술마저 차단당해 500위 밖이 떴을 경우
+                if updates.get('store_rank', '500위 밖') == '500위 밖':
+                    if api_headers and search_client_id:
+                        print(f"[CCTV-DEBUG] 🚨 웹 스크래핑 완전 차단 확인. API 비상 순위 탐색 가동: [{keyword_text}]", flush=True)
+                        found_rank = False
+                        try:
+                            for start_idx in range(1, 402, 100):
+                                if found_rank: break
+                                api_res = requests.get(f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(keyword_text)}&display=100&start={start_idx}", headers=api_headers, timeout=3)
+                                if api_res.status_code == 200:
+                                    for idx, item in enumerate(api_res.json().get('items', [])):
+                                        if safe_target in item.get('mallName', '').lower().replace(" ", ""):
+                                            updates['store_rank'] = str(start_idx + idx)
+                                            kw_info['my_title'] = clean_text(item.get('title', ''))
+                                            p = item.get('lprice', '0')
+                                            if p.isdigit() and p != '0': kw_info['my_price'] = f"{int(p):,}원"
+                                            raw_link = item.get('link', '-')
+                                            if raw_link != '-': kw_info['my_link'] = raw_link.replace('http://', 'https://')
+                                            updates['store_name'] = item.get('mallName')
+                                            found_rank = True
+                                            print(f"[CCTV-DEBUG] 🎯 API 비상 구출 성공! 순위: {updates['store_rank']}위", flush=True)
+                                            break
+                        except Exception: pass
+                    else:
+                        # ✨ 사용자가 API 키를 안 넣어서 실패한 경우 정확히 알려줍니다!
+                        print(f"[CCTV-DEBUG] ⚠️ [경고] 네이버 검색 API 키(NAVER_CLIENT_ID)가 설정되지 않아 'API 비상 탈출 모드'를 작동할 수 없습니다! (설정 탭 확인 요망)", flush=True)
 
                 # ========================================================
-                # 2️⃣ 구매수 파악 (웹스크래핑 전용, 완전 차단 시엔 '-' 로 남음)
+                # 2️⃣ 구매수 파악
                 # ========================================================
                 search_list = [target_isbn] if target_isbn else [keyword_text]
-                purchase_info = get_naver_shopping_info(search_list, target_mall_name, find_rank=False)
+                purchase_info = {}
                 if update_mode in ['all', 'purchase']:
+                    purchase_info = get_naver_shopping_info(search_list, target_mall_name, find_rank=False)
                     updates['purchase_count'] = purchase_info.get('my_purchase', '-')
 
                 # ========================================================
@@ -305,7 +323,6 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     updates['book_title'] = purchase_info.get('my_title') or kw_info.get('my_title') or '-'
                     updates['store_name'] = target_mall_name
 
-                    # API 최종 보완: 이름이 잘렸거나 차단당해 링크를 못 찾은 경우 API로 복구
                     if api_headers and search_client_id:
                         for sq in search_list:
                             try:
@@ -313,11 +330,9 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                                 if api_res.status_code == 200:
                                     for item in api_res.json().get('items', []):
                                         if safe_target in item.get('mallName', '').lower().replace(" ", ""):
-                                            # 상품명만 깔끔하게 덮어쓰기
                                             clean_t = clean_text(item.get('title', ''))
                                             if clean_t and clean_t != '-': updates['book_title'] = clean_t
                                             
-                                            # 웹 차단으로 가격이나 링크가 아예 비어있으면 API로 응급 처치
                                             if updates.get('price', '-') == '-':
                                                 p = item.get('lprice', '0')
                                                 if p.isdigit() and p != '0': updates['price'] = f"{int(p):,}원"
@@ -327,7 +342,6 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                                             break
                             except Exception: pass
 
-                        # 도서 API로 출판사 정보 보완
                         if target_isbn:
                             try:
                                 book_res = requests.get(f"https://openapi.naver.com/v1/search/book.json?d_isbn={urllib.parse.quote(target_isbn)}", headers=api_headers, timeout=3)
@@ -362,8 +376,7 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     if update_mode in ['all', 'rank']: kw.store_rank = "에러"
                     db.session.commit()
             
-            # API 보호를 위한 여유 딜레이 추가
-            time.sleep(1.0) 
+            time.sleep(1.5) # IP 밴 방지를 위해 휴식 시간 약간 증가
 
 @monitoring_bp.route('/api/refresh_all_ranks', methods=['POST'])
 @login_required
