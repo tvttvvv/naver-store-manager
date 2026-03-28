@@ -78,13 +78,26 @@
                         
                         <div class="vr mx-2 d-none d-md-block"></div>
                         
-                        <div class="d-flex align-items-center w-100 w-md-auto justify-content-end mt-2 mt-md-0">
-                            <i class="bi bi-sort-down text-secondary me-2"></i>
-                            <select id="sortOption" class="form-select form-select-sm fw-bold text-primary w-100 w-md-auto" style="cursor: pointer; border-color: #0d6efd; min-width: 140px;">
-                                <option value="recent">최근 등록순</option>
-                                <option value="vol_desc">검색량 높은순</option>
-                                <option value="vol_asc">검색량 낮은순</option>
-                            </select>
+                        <div class="d-flex align-items-center w-100 w-md-auto justify-content-end mt-2 mt-md-0 flex-wrap gap-2">
+                            <!-- ✨ 보기 개수 선택 드롭다운 추가 -->
+                            <div class="d-flex align-items-center w-100 w-md-auto">
+                                <i class="bi bi-list-ol text-secondary me-2"></i>
+                                <select id="itemsPerPageSelect" class="form-select form-select-sm fw-bold text-dark w-100 w-md-auto border-secondary" style="cursor: pointer; min-width: 110px;">
+                                    <option value="50" selected>50개씩 보기</option>
+                                    <option value="100">100개씩 보기</option>
+                                    <option value="500">500개씩 보기</option>
+                                    <option value="1000">1000개씩 보기</option>
+                                </select>
+                            </div>
+                            
+                            <div class="d-flex align-items-center w-100 w-md-auto mt-2 mt-md-0">
+                                <i class="bi bi-sort-down text-secondary me-2"></i>
+                                <select id="sortOption" class="form-select form-select-sm fw-bold text-primary w-100 w-md-auto" style="cursor: pointer; border-color: #0d6efd; min-width: 140px;">
+                                    <option value="recent">최근 등록순</option>
+                                    <option value="vol_desc">검색량 높은순</option>
+                                    <option value="vol_asc">검색량 낮은순</option>
+                                </select>
+                            </div>
                         </div>
                     </div>
                     
@@ -115,6 +128,14 @@
                             </tbody>
                         </table>
                     </div>
+
+                    <!-- ✨ 페이지네이션(페이지 넘기기) 바 추가 -->
+                    <nav aria-label="Page navigation" class="mt-3">
+                        <ul class="pagination justify-content-center mb-0" id="paginationContainer" style="flex-wrap: wrap;">
+                            <!-- 자바스크립트로 생성됨 -->
+                        </ul>
+                    </nav>
+
                 </div>
             </div>
         </div>
@@ -154,6 +175,8 @@
             margin-bottom: 5px; 
             animation: pulse 2s infinite;
         }
+        .pagination { gap: 5px; }
+        .page-link { padding: 0.375rem 0.5rem; font-size: 0.875rem; }
     }
     
     @keyframes pulse {
@@ -174,6 +197,10 @@
     let currentGradeTab = 'A';
     let checkedIds = new Set();
     let lastCheckedCheckbox = null;
+    
+    // ✨ 페이지네이션 상태 관리 변수
+    let currentPage = 1;
+    let itemsPerPage = 50;
 
     function updateTabCounts() {
         let countA = allKeywordsData.filter(k => k.grade === 'A').length;
@@ -200,21 +227,31 @@
         if(grade === 'MAIN') activeTab.classList.add('text-danger');
         else activeTab.classList.add('text-dark');
         
-        checkedIds.clear();
+        currentPage = 1; // 탭 이동 시 1페이지로 리셋
         document.getElementById('selectAll').checked = false;
         renderTable();
     }
 
     document.getElementById('searchInput').addEventListener('input', function(e) {
         searchQuery = e.target.value.toLowerCase();
+        currentPage = 1; // 검색 시 1페이지로 리셋
         renderTable();
     });
     document.getElementById('searchCategory').addEventListener('change', function(e) {
         searchCategory = e.target.value;
+        currentPage = 1;
         renderTable();
     });
     document.getElementById('sortOption').addEventListener('change', function(e) {
         currentSort = e.target.value;
+        currentPage = 1;
+        renderTable();
+    });
+    
+    // 보기 개수 변경 이벤트
+    document.getElementById('itemsPerPageSelect').addEventListener('change', function(e) {
+        itemsPerPage = parseInt(e.target.value);
+        currentPage = 1;
         renderTable();
     });
 
@@ -258,6 +295,7 @@
         renderTableColors();
     }
 
+    // 전체 선택 (현재 보이는 페이지의 데이터만 선택됨)
     function toggleAll(source) {
         const checkboxes = document.querySelectorAll('.row-checkbox');
         checkboxes.forEach(cb => {
@@ -275,6 +313,63 @@
             if(cb && cb.checked) { tr.classList.add('row-selected'); } 
             else { tr.classList.remove('row-selected'); }
         });
+        
+        // 전체 체크박스 상태 동기화
+        const checkboxes = document.querySelectorAll('.row-checkbox');
+        const allChecked = checkboxes.length > 0 && Array.from(checkboxes).every(cb => cb.checked);
+        document.getElementById('selectAll').checked = allChecked;
+    }
+    
+    // ✨ 페이지 변경 함수
+    function changePage(page, event) {
+        if (event) event.preventDefault();
+        currentPage = page;
+        renderTable();
+        // 페이지 이동 시 상단으로 스크롤 살짝 올려주기
+        document.querySelector('.table-responsive').scrollTop = 0;
+    }
+    
+    // ✨ 페이지네이션 렌더링 함수
+    function renderPagination(totalItems) {
+        const paginationEl = document.getElementById('paginationContainer');
+        paginationEl.innerHTML = '';
+        
+        let totalPages = Math.ceil(totalItems / itemsPerPage) || 1;
+        if (totalPages <= 1) return;
+        
+        let html = '';
+        
+        // 이전 버튼
+        html += `<li class="page-item ${currentPage === 1 ? 'disabled' : ''}">
+                    <a class="page-link shadow-sm" href="#" onclick="changePage(${currentPage - 1}, event)" tabindex="-1">이전</a>
+                 </li>`;
+                 
+        // 페이지 번호 (너무 많으면 생략 처리)
+        let startPage = Math.max(1, currentPage - 2);
+        let endPage = Math.min(totalPages, currentPage + 2);
+        
+        if (startPage > 1) {
+            html += `<li class="page-item"><a class="page-link shadow-sm" href="#" onclick="changePage(1, event)">1</a></li>`;
+            if (startPage > 2) html += `<li class="page-item disabled"><span class="page-link border-0 text-muted">...</span></li>`;
+        }
+        
+        for (let i = startPage; i <= endPage; i++) {
+            html += `<li class="page-item ${currentPage === i ? 'active' : ''}">
+                        <a class="page-link shadow-sm" href="#" onclick="changePage(${i}, event)">${i}</a>
+                     </li>`;
+        }
+        
+        if (endPage < totalPages) {
+            if (endPage < totalPages - 1) html += `<li class="page-item disabled"><span class="page-link border-0 text-muted">...</span></li>`;
+            html += `<li class="page-item"><a class="page-link shadow-sm" href="#" onclick="changePage(${totalPages}, event)">${totalPages}</a></li>`;
+        }
+        
+        // 다음 버튼
+        html += `<li class="page-item ${currentPage === totalPages ? 'disabled' : ''}">
+                    <a class="page-link shadow-sm" href="#" onclick="changePage(${currentPage + 1}, event)">다음</a>
+                 </li>`;
+                 
+        paginationEl.innerHTML = html;
     }
 
     function renderTable() {
@@ -303,14 +398,25 @@
         } else {
             filteredData.sort((a, b) => b.id - a.id);
         }
+        
+        // ✨ 페이징 계산 로직
+        let totalItems = filteredData.length;
+        let totalPages = Math.ceil(totalItems / itemsPerPage) || 1;
+        if (currentPage > totalPages) currentPage = totalPages;
+        
+        let startIndex = (currentPage - 1) * itemsPerPage;
+        let endIndex = startIndex + itemsPerPage;
+        let paginatedData = filteredData.slice(startIndex, endIndex);
 
-        if (filteredData.length > 0) {
+        if (paginatedData.length > 0) {
             let kwBgColor = 'bg-neon-green';
             if(currentGradeTab === 'B') kwBgColor = 'bg-neon-yellow';
             if(currentGradeTab === 'C') kwBgColor = 'bg-neon-orange';
             if(currentGradeTab === 'MAIN') kwBgColor = 'bg-neon-pink';
 
-            tbody.innerHTML = filteredData.map((k, index) => {
+            tbody.innerHTML = paginatedData.map((k, index) => {
+                let actualIndex = startIndex + index + 1; // 순번을 전체 리스트 기준으로 보정
+                
                 let linkBtn = '<span class="text-muted">-</span>';
                 if (k.product_link && k.product_link !== '-' && k.product_link !== '') {
                     let finalUrl = k.product_link.startsWith('http') ? k.product_link : 'http://' + k.product_link;
@@ -337,15 +443,16 @@
 
                 let safeTitleName = k.book_title || '-';
                 let titleNameDisplay = safeTitleName.includes('⚠️') ? `<span class="text-danger fw-bold">${safeTitleName}</span>` : `<span class="text-dark fw-bold">${safeTitleName}</span>`;
+                
+                // 페이지를 넘겨도 Set에 기록되어 있다면 유지됨!
                 let isChecked = checkedIds.has(k.id.toString()) ? 'checked' : '';
                 
-                // ✨ 요청하신 '네이버 통합검색' 탭으로 완벽하게 이동하도록 URL 수정!
                 let searchLink = `https://search.naver.com/search.naver?where=nexearch&query=${encodeURIComponent(k.keyword || '')}`;
 
                 return `
                 <tr class="${isChecked ? 'row-selected' : ''}">
                     <td class="align-middle bg-light"><input type="checkbox" class="form-check-input row-checkbox" value="${k.id}" onclick="handleRowCheck(event, this)" style="cursor: pointer;" ${isChecked}></td>
-                    <td class="align-middle">${index + 1}</td>
+                    <td class="align-middle fw-bold">${actualIndex}</td>
                     <td class="align-middle ${kwBgColor}">${k.keyword || '-'}</td>
                     <td class="align-middle ${kwBgColor} fs-6">${(k.search_volume || 0).toLocaleString()}</td>
                     <td class="align-middle ${kwBgColor} text-dark" id="rank_${k.id}" data-val="${safeRank}">${rankDisplay}</td>
@@ -368,9 +475,17 @@
                 </tr>
                 `;
             }).join('');
+            
+            // 페이지네이션 바 그리기 호출
+            renderPagination(totalItems);
+            
         } else {
             tbody.innerHTML = `<tr><td colspan="14" class="text-center py-5 text-muted">${currentGradeTab}등급에 해당하는 데이터가 없습니다.</td></tr>`;
+            document.getElementById('paginationContainer').innerHTML = ''; // 데이터 없으면 페이징 숨김
         }
+        
+        // 새로 그려졌으니 전체 선택 체크박스 상태 보정
+        renderTableColors();
     }
 
     $(document).on('dblclick', '.editable-cell', function() {
