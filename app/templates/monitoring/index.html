@@ -339,8 +339,8 @@
                 let titleNameDisplay = safeTitleName.includes('⚠️') ? `<span class="text-danger fw-bold">${safeTitleName}</span>` : `<span class="text-dark fw-bold">${safeTitleName}</span>`;
                 let isChecked = checkedIds.has(k.id.toString()) ? 'checked' : '';
                 
-                // ✨ 확실하게 고정된 '도서검색' 링크입니다! (Ctrl+Shift+R 시 완벽 작동)
-                let searchLink = `https://search.shopping.naver.com/book/search?query=${encodeURIComponent(k.keyword || '')}`;
+                // ✨ 요청하신 '네이버 통합검색' 탭으로 완벽하게 이동하도록 URL 수정!
+                let searchLink = `https://search.naver.com/search.naver?where=nexearch&query=${encodeURIComponent(k.keyword || '')}`;
 
                 return `
                 <tr class="${isChecked ? 'row-selected' : ''}">
