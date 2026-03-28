@@ -56,24 +56,28 @@
                                 <i class="bi bi-eraser"></i> 데이터 초기화
                             </button>
                             
-                            <!-- ✨ 개별 업데이트 버튼 부활! 밖으로 시원하게 꺼냈습니다. -->
-                            <div class="d-flex gap-1 shadow-sm w-100 w-md-auto overflow-auto hide-scrollbar pb-1 pb-md-0">
-                                <button type="button" class="btn btn-success fw-bold text-nowrap flex-grow-1" onclick="refreshByIsbn('all')">
+                            <!-- ✨ 절대 고장 안 나는 '독립형 드롭다운' 엔진 부착! -->
+                            <div class="btn-group shadow-sm w-100 w-md-auto" style="position: relative;">
+                                <button type="button" class="btn btn-success fw-bold" onclick="refreshByIsbn('all', event)">
                                     <i class="bi bi-upc-scan"></i> 모두 업데이트
                                 </button>
-                                <button type="button" class="btn btn-outline-success fw-bold text-nowrap flex-grow-1" onclick="refreshByIsbn('rank')">
-                                    <i class="bi bi-sort-numeric-up"></i> 순위만
+                                <button type="button" class="btn btn-success dropdown-toggle dropdown-toggle-split" onclick="toggleCustomDropdown(event)">
+                                    <span class="visually-hidden">Toggle Dropdown</span>
                                 </button>
-                                <button type="button" class="btn btn-outline-success fw-bold text-nowrap flex-grow-1" onclick="refreshByIsbn('purchase')">
-                                    <i class="bi bi-cart-check"></i> 구매수만
-                                </button>
+                                <!-- 커스텀 드롭다운 메뉴 (기존 스크립트 충돌 무시) -->
+                                <ul class="custom-dropdown-menu border-success shadow" id="customUpdateMenu" style="display: none; position: absolute; top: 100%; right: 0; z-index: 1050; background: white; list-style: none; padding: 0.5rem 0; margin-top: 0.125rem; border-radius: 0.375rem; border: 1px solid #198754; min-width: 170px;">
+                                    <li><a class="dropdown-item fw-bold text-success" href="#" style="display: block; padding: 0.35rem 1rem; text-decoration: none;" onmouseover="this.style.backgroundColor='#e8f5e9'" onmouseout="this.style.backgroundColor='transparent'" onclick="refreshByIsbn('all', event)"><i class="bi bi-check-all"></i> 모두 업데이트</a></li>
+                                    <li><hr class="dropdown-divider" style="margin: 0.5rem 0; border-top: 1px solid #dee2e6;"></li>
+                                    <li><a class="dropdown-item fw-bold text-dark" href="#" style="display: block; padding: 0.35rem 1rem; text-decoration: none;" onmouseover="this.style.backgroundColor='#f8f9fa'" onmouseout="this.style.backgroundColor='transparent'" onclick="refreshByIsbn('rank', event)"><i class="bi bi-sort-numeric-up"></i> 순위만 업데이트</a></li>
+                                    <li><a class="dropdown-item fw-bold text-dark" href="#" style="display: block; padding: 0.35rem 1rem; text-decoration: none;" onmouseover="this.style.backgroundColor='#f8f9fa'" onmouseout="this.style.backgroundColor='transparent'" onclick="refreshByIsbn('purchase', event)"><i class="bi bi-cart-check"></i> 구매수만 업데이트</a></li>
+                                </ul>
                             </div>
                         </div>
                     </div>
 
                     <div class="d-flex flex-column flex-md-row align-items-md-center mb-2 p-2 bg-light rounded border gap-2 search-area">
                         
-                        <!-- ✨ 네이버 카운트 직접 입력 필터 기능 추가! -->
+                        <!-- ✨ 네이버 카운트 직접 입력 필터 기능! -->
                         <div class="d-flex align-items-center bg-white rounded border border-secondary px-2 py-1 w-100 w-md-auto mb-2 mb-md-0 shadow-sm" style="min-width: 200px;">
                             <span class="small text-secondary fw-bold me-2 text-nowrap"><i class="bi bi-funnel"></i> 검색량:</span>
                             <input type="number" id="minVolume" class="form-control form-control-sm border-0 px-1 text-center fw-bold text-primary" placeholder="최소" min="0" style="width: 65px; box-shadow: none;">
@@ -190,9 +194,6 @@
         }
         .pagination { gap: 5px; }
         .page-link { padding: 0.375rem 0.5rem; font-size: 0.875rem; }
-        /* 모바일에서 버튼들 가로 스크롤 허용 */
-        .d-flex.gap-1 { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; }
-        .d-flex.gap-1 .btn { flex: 0 0 auto; width: auto !important; padding: 0.375rem 0.75rem; }
     }
     
     @keyframes pulse {
@@ -216,6 +217,22 @@
     let lastCheckedCheckbox = null;
     let currentPage = 1;
     let itemsPerPage = 50;
+
+    // ✨ 커스텀 드롭다운 열고 닫는 마법 스크립트!
+    function toggleCustomDropdown(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        var menu = document.getElementById('customUpdateMenu');
+        menu.style.display = (menu.style.display === 'none' || menu.style.display === '') ? 'block' : 'none';
+    }
+
+    // 다른 빈 공간 클릭 시 드롭다운 닫기
+    document.addEventListener('click', function(e) {
+        var menu = document.getElementById('customUpdateMenu');
+        if (menu && menu.style.display === 'block') {
+            menu.style.display = 'none';
+        }
+    });
 
     function updateTabCounts() {
         let countA = allKeywordsData.filter(k => k.grade === 'A').length;
@@ -253,7 +270,7 @@
         renderTable();
     });
     
-    // ✨ 최소, 최대 필터 입력 시 즉시 표 갱신 이벤트 추가
+    // ✨ 최소, 최대 필터 입력 시 즉시 표 갱신
     document.getElementById('minVolume').addEventListener('input', function() { currentPage = 1; renderTable(); });
     document.getElementById('maxVolume').addEventListener('input', function() { currentPage = 1; renderTable(); });
 
@@ -376,14 +393,12 @@
 
         let isGlobalSearch = searchQuery.length > 0;
         
-        // ✨ 입력된 최소, 최대 검색량 값 가져오기
         let minVolVal = parseInt(document.getElementById('minVolume').value);
         let maxVolVal = parseInt(document.getElementById('maxVolume').value);
         let minVol = isNaN(minVolVal) ? 0 : minVolVal;
         let maxVol = isNaN(maxVolVal) ? Infinity : maxVolVal;
 
         let filteredData = allKeywordsData.filter(k => {
-            // 1. 검색어 조건 확인
             let matchSearch = true;
             if (isGlobalSearch) {
                 const kw = (k.keyword || '').toLowerCase();
@@ -395,7 +410,6 @@
                 else matchSearch = kw.includes(searchQuery) || pub.includes(searchQuery) || isbn.includes(searchQuery);
             }
             
-            // 2. ✨ 네이버 카운트(검색량) 조건 확인
             let vol = k.search_volume || 0;
             let matchVolume = (vol >= minVol && vol <= maxVol);
 
@@ -590,7 +604,14 @@
         } catch(e) { alert('이동 중 오류가 발생했습니다.'); }
     }
 
-    async function refreshByIsbn(mode) {
+    // ✨ 드롭다운 내부의 업데이트 버튼을 누르면 창이 자동으로 닫히도록 event 추가
+    async function refreshByIsbn(mode, event) {
+        if(event) event.preventDefault();
+        
+        // 클릭 시 커스텀 드롭다운 닫기
+        var menu = document.getElementById('customUpdateMenu');
+        if(menu) menu.style.display = 'none';
+
         if (checkedIds.size === 0) {
             alert("업데이트할 항목을 왼쪽 체크박스로 먼저 선택해주세요!");
             return;
