@@ -148,21 +148,19 @@ def get_html_with_bot_spoofing(url):
         except Exception: pass
     return ""
 
-# ✨ 순위를 찾을 때는 페이지를 1~10까지 넘기도록 업그레이드!
 def get_naver_shopping_info(queries, target_mall, find_rank=False):
     result = {}
-    # 띄어쓰기, 대소문자 모두 무시하고 완벽하게 비교하기 위한 맷돌 치기
     safe_target = target_mall.lower().replace(" ", "")
 
     for q in queries:
         if not q: continue
         
-        # 순위 추적일 때는 10페이지(400위)까지 파고, ISBN 정보만 뽑을 때는 1페이지만 탐색
         max_pages = 10 if find_rank else 1 
 
         for page in range(1, max_pages + 1):
             url = f"https://search.shopping.naver.com/book/search?query={urllib.parse.quote(q)}&pagingIndex={page}&pagingSize=40"
-            print(f"[CCTV] 🔎 Searching Page {page}... URL: {url}", flush=True)
+            if find_rank:
+                print(f"[CCTV] 🔎 Searching Page {page} for Keyword [{q}]...", flush=True)
             
             html = get_html_with_bot_spoofing(url)
             if not html: break
@@ -173,11 +171,9 @@ def get_naver_shopping_info(queries, target_mall, find_rank=False):
                     data = json.loads(match.group(1))
                     state = data.get('props', {}).get('pageProps', {}).get('initialState', {})
                     
-                    # [상황 1] 도서 상세(카탈로그) 페이지로 강제 진입된 경우 (주로 ISBN 검색 시)
                     if 'catalog' in state and state['catalog'].get('info'):
                         info = state['catalog']['info']
                         
-                        # 기본 정보는 1페이지만 저장
                         if not result.get('general_title'):
                             result['general_title'] = info.get('bookTitle', info.get('productName', ''))
                             result['general_publisher'] = info.get('publisher', '')
@@ -187,11 +183,16 @@ def get_naver_shopping_info(queries, target_mall, find_rank=False):
                             result['general_link'] = f"https://search.shopping.naver.com/book/catalog/{cat_id}" if cat_id else "-"
                         
                         products = state['catalog'].get('products', [])
+                        
+                        # CCTV 생중계: 카탈로그 안에는 어떤 상점들이 있나?
+                        if page == 1 and find_rank:
+                            sample_malls = [p.get('mallName', '') for p in products][:10]
+                            print(f"[CCTV] 📊 Catalog Page 1 Sample Malls: {sample_malls}", flush=True)
+
                         for idx, prod in enumerate(products):
                             mall = prod.get('mallName', '')
-                            # 띄어쓰기 무시 완벽 매칭
                             if safe_target in mall.lower().replace(" ", ""):
-                                result['rank'] = str(idx + 1)
+                                result['rank'] = str(idx + 1) 
                                 p = str(prod.get('price', 0))
                                 result['my_price'] = f"{int(p):,}원" if p.isdigit() else "-"
                                 df = prod.get('deliveryFeeContent', prod.get('deliveryFee', '-'))
@@ -201,12 +202,16 @@ def get_naver_shopping_info(queries, target_mall, find_rank=False):
                                 print(f"[CCTV] 🎯 TARGET FOUND IN CATALOG! Rank: {result['rank']}", flush=True)
                                 return result
                         
-                        if not find_rank: return result # ISBN 정보 털이 중이면 여기서 종료
-                        else: break # 순위 찾는 중인데 카탈로그면 더 이상 페이지 넘길 필요 없음
+                        if not find_rank: return result 
+                        else: break 
 
-                    # [상황 2] 여러 도서가 나오는 검색 리스트 페이지인 경우
                     book_list = state.get('book', {}).get('list', [])
-                    if not book_list: break # 검색 결과가 없으면 페이지 넘기기 종료
+                    if not book_list: break 
+
+                    # CCTV 생중계: 리스트에는 어떤 상점들이 있나?
+                    if page == 1 and find_rank:
+                        sample_malls = [item.get('item', item).get('mallName', '') for item in book_list if item.get('item', item).get('mallName')]
+                        print(f"[CCTV] 📊 Search List Page 1 Sample Malls: {sample_malls[:10]}...", flush=True)
 
                     if page == 1 and not result.get('general_title'):
                         first_item = book_list[0].get('item', book_list[0])
@@ -222,7 +227,6 @@ def get_naver_shopping_info(queries, target_mall, find_rank=False):
                         mall = prod.get('mallName', '')
                         
                         if safe_target in mall.lower().replace(" ", ""):
-                            # 1페이지면 1~40, 2페이지면 41~80으로 순위 누적 계산
                             result['rank'] = str((page - 1) * 40 + idx + 1)
                             p = str(prod.get('lowPrice', prod.get('price', 0)))
                             result['my_price'] = f"{int(p):,}원" if p.isdigit() else "-"
@@ -236,20 +240,35 @@ def get_naver_shopping_info(queries, target_mall, find_rank=False):
                 except Exception as e:
                     print(f"[CCTV] JSON Parse Error on page {page}: {e}", flush=True)
                     break
+            else:
+                # JSON을 못 찾았을 경우 최후의 수단: HTML 텍스트 정규식 강제 파싱!
+                print(f"[CCTV] JSON NOT FOUND on page {page}. Trying Regex Fallback...", flush=True)
+                malls = re.findall(r'"mallName":"([^"]+)"', html)
+                if not malls:
+                    malls = re.findall(r'class="[^"]*mall_name[^"]*"[^>]*>([^<]+)<', html)
+                
+                if page == 1 and find_rank:
+                    print(f"[CCTV] 📊 Regex Sample Malls: {malls[:10]}...", flush=True)
+
+                for idx, mall in enumerate(malls):
+                    if safe_target in mall.lower().replace(" ", ""):
+                        result['rank'] = str((page - 1) * 40 + idx + 1)
+                        print(f"[CCTV] 🎯 Regex Fallback Found at Rank: {result['rank']} (Page {page})", flush=True)
+                        return result
             
-            # 너무 빨리 요청해서 차단당하지 않도록 페이지 넘길 때 0.1초 쉼
-            if find_rank: time.sleep(0.1) 
+            if find_rank: time.sleep(0.2) 
             
     return result
 
 def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, target_ids):
     with app.app_context():
-        print(f"\n========== [CCTV START] STRICT ISBN SCRAPING ==========", flush=True)
+        print(f"\n========== [CCTV START] RANK & INFO SCRAPING ==========", flush=True)
         try:
             api_key = ApiKey.query.filter_by(user_id=user_id).first()
             target_mall_name = api_key.store_name if api_key else "스터디박스"
             api_headers = {"X-Naver-Client-Id": search_client_id, "X-Naver-Client-Secret": search_client_secret} if search_client_id else {}
             db.session.commit()
+            print(f"[CCTV] My Target Store Name: [{target_mall_name}]", flush=True)
         except Exception: db.session.rollback()
 
         for k_id in target_ids:
@@ -273,15 +292,13 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     'book_title': '⚠️ 매칭 실패'
                 }
 
-                print(f"\n[CCTV] [1단계] 오직 '키워드({keyword_text})'로 순위만 파악합니다. (최대 10페이지 탐색)", flush=True)
-                # ✨ find_rank=True 를 줘서 10페이지까지 깊게 파고들게 만듭니다!
+                print(f"\n[CCTV] --- [1단계] 순위 파악 (Keyword: {keyword_text}) ---", flush=True)
                 kw_info = get_naver_shopping_info([keyword_text], target_mall_name, find_rank=True)
                 
                 if kw_info.get('rank'):
                     updates['store_rank'] = kw_info['rank']
                     updates['store_name'] = target_mall_name
                 else:
-                    # 도서검색 10페이지를 뒤져도 없으면 일반 쇼핑 API(500위)를 마저 뒤집니다.
                     if api_headers and search_client_id:
                         found_rank = False
                         safe_target = target_mall_name.lower().replace(" ", "")
@@ -302,7 +319,6 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                                             break
                         except Exception: pass
 
-                # API Fallback (제목, 출판사 보조용)
                 api_info = {}
                 if api_headers and search_client_id:
                     search_query = target_isbn if target_isbn else keyword_text
@@ -318,8 +334,7 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     except Exception: pass
 
                 if target_isbn:
-                    print(f"[CCTV] [2단계] 오직 'ISBN({target_isbn})'으로 진짜 상품 정보를 털어옵니다.", flush=True)
-                    # ISBN은 순위를 찾을 필요가 없으니 1페이지만 빠르게 파악합니다.
+                    print(f"[CCTV] --- [2단계] 상품 정보 파싱 (ISBN: {target_isbn}) ---", flush=True)
                     isbn_info = get_naver_shopping_info([target_isbn], target_mall_name, find_rank=False)
                     
                     if isbn_info.get('general_publisher'): updates['publisher'] = isbn_info['general_publisher']
@@ -369,7 +384,7 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     kw.store_rank = "에러"
                     db.session.commit()
             
-            time.sleep(0.5) 
+            time.sleep(1) # ✨ 서버 과부하 방지 및 차단 회피를 위해 1초 휴식!
             
         print("========== [CCTV END] ==========\n", flush=True)
 
@@ -403,4 +418,4 @@ def refresh_by_isbn():
         
     thread = Thread(target=async_refresh_by_isbn, args=(app, user_id, search_id, search_pw, target_ids))
     thread.start()
-    return jsonify({'success': True, 'message': f'✅ 도서검색 탭 기준 데이터 수집을 시작합니다. 잠시 후 새로고침 해주세요.'})
+    return jsonify({'success': True, 'message': f'✅ 도서검색 탭 기준 데이터 수집을 시작합니다. (시간이 조금 걸릴 수 있습니다.)'})
