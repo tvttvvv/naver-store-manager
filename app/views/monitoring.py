@@ -12,6 +12,7 @@ from app.models import User, MonitoredKeyword, ApiKey
 import requests
 import urllib.parse
 import json
+from sqlalchemy import text # ✨ DB 구조 자동 변경을 위한 마법 도구 추가
 
 monitoring_bp = Blueprint('monitoring', __name__)
 
@@ -45,6 +46,14 @@ def receive_webhook():
 @monitoring_bp.route('/api/saved_keywords', methods=['GET'])
 @login_required
 def get_saved_keywords():
+    # ✨ [핵심 방어막] 기존 데이터 손실 없이 DB에 '구매수' 기둥만 몰래 추가합니다!
+    try:
+        db.session.execute(text("ALTER TABLE monitored_keyword ADD COLUMN purchase_count VARCHAR(50) DEFAULT '-'"))
+        db.session.commit()
+        print("[CCTV] 🛠️ DB 자동 복구 성공: 기존 데이터를 살리고 '구매수' 저장 공간을 증축했습니다!", flush=True)
+    except Exception:
+        db.session.rollback() # 이미 기둥이 있으면 자연스럽게 넘어갑니다.
+
     keywords = MonitoredKeyword.query.filter_by(user_id=current_user.id).order_by(MonitoredKeyword.id.desc()).all()
     return jsonify({'success': True, 'data': [{
         'id': k.id, 
@@ -241,7 +250,7 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                 updates = {}
 
                 # ========================================================
-                # 1️⃣ 순위 파악 로직 (update_mode: 'all' 또는 'rank')
+                # 1️⃣ 순위 파악 로직
                 # ========================================================
                 if update_mode in ['all', 'rank']:
                     updates['store_rank'] = '500위 밖'
@@ -264,7 +273,7 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                             except Exception: pass
 
                 # ========================================================
-                # 2️⃣ 구매수 파악 로직 (update_mode: 'all' 또는 'purchase')
+                # 2️⃣ 구매수 파악 로직
                 # ========================================================
                 if update_mode in ['all', 'purchase']:
                     updates['purchase_count'] = '-'
@@ -274,7 +283,7 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                         updates['purchase_count'] = purchase_info['my_purchase']
 
                 # ========================================================
-                # 3️⃣ 상품 100% 원본 이름 및 직링크 강탈 (update_mode: 'all' 전용)
+                # 3️⃣ 상품 100% 원본 이름 및 직링크 강탈 (all 모드)
                 # ========================================================
                 if update_mode == 'all':
                     updates['product_link'] = '-'
