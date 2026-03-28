@@ -163,21 +163,18 @@ def get_naver_shopping_info(queries, target_mall):
                 if not book_list: continue
 
                 first_item = book_list[0].get('item', book_list[0])
-                result['general_title'] = first_item.get('bookTitle', '')
+                result['general_title'] = first_item.get('bookTitle', first_item.get('productTitle', ''))
                 result['general_publisher'] = first_item.get('publisher', '')
                 
                 gp = str(first_item.get('lowPrice', first_item.get('price', 0)))
                 result['general_price'] = f"{int(gp):,}원" if gp.isdigit() and gp != '0' else "-"
                 
-                # ✨ 핵심 수정 1: 도서 백과사전의 '카탈로그 고유 주소'를 완벽하게 조합합니다.
                 cat_id = first_item.get('catalogId', first_item.get('id', ''))
                 if cat_id:
                     result['general_link'] = f"https://search.shopping.naver.com/book/catalog/{cat_id}"
                 else:
                     result['general_link'] = first_item.get('productUrl', first_item.get('mallProductUrl', '-'))
                 
-                print(f"[CCTV] Basic Info Extracted -> Title: {result['general_title']}, Pub: {result['general_publisher']}", flush=True)
-
                 for idx, item in enumerate(book_list):
                     prod = item.get('item', item)
                     mall = prod.get('mallName', '')
@@ -192,9 +189,10 @@ def get_naver_shopping_info(queries, target_mall):
                         elif str(df).isdigit(): result['my_shipping'] = f"{int(df):,}원"
                         else: result['my_shipping'] = str(df)
                         
-                        # ✨ 핵심 수정 2: 상점 직링크를 뽑아낼 때 mallPcUrl을 최우선으로 가져오게 수정했습니다.
                         result['my_link'] = prod.get('mallPcUrl', prod.get('mallProductUrl', prod.get('crUrl', '-')))
-                        print(f"[CCTV] 🎯 TARGET MALL FOUND! Rank: {result['rank']}", flush=True)
+                        
+                        # ✨ 스터디박스에서 실제로 판매하는 진짜 "상품명"을 가져옴!
+                        result['my_title'] = prod.get('productTitle', prod.get('bookTitle', ''))
                         return result 
                 
                 return result 
@@ -205,14 +203,13 @@ def get_naver_shopping_info(queries, target_mall):
 
 def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, target_ids):
     with app.app_context():
-        print(f"\n========== [CCTV START] BOOK INFO & RANK SCRAPING ==========", flush=True)
+        print(f"\n========== [CCTV START] STRICT ISBN SCRAPING ==========", flush=True)
         try:
             api_key = ApiKey.query.filter_by(user_id=user_id).first()
             target_mall_name = api_key.store_name if api_key else "스터디박스"
             api_headers = {"X-Naver-Client-Id": search_client_id, "X-Naver-Client-Secret": search_client_secret} if search_client_id else {}
             db.session.commit()
-        except Exception as e: 
-            db.session.rollback()
+        except Exception: db.session.rollback()
 
         for k_id in target_ids:
             try:
@@ -225,8 +222,6 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                 target_isbn = str(kw.isbn).strip().replace('-', '') if kw.isbn and kw.isbn != '-' else ""
                 db.session.commit()
 
-                print(f"\n[CCTV] Processing Keyword: [{keyword_text}] / ISBN: [{target_isbn}]", flush=True)
-
                 updates = {
                     'store_rank': '500위 밖',
                     'price': '-',
@@ -237,69 +232,91 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     'book_title': '⚠️ 매칭 실패'
                 }
 
-                real_book_title = ""
-                if api_headers and search_client_id:
-                    search_query = target_isbn if target_isbn else keyword_text
-                    try:
-                        print(f"[CCTV] 🔍 Using Naver Open API for: {search_query}", flush=True)
-                        book_res = requests.get(f"https://openapi.naver.com/v1/search/book.json?query={urllib.parse.quote(search_query)}", headers=api_headers, timeout=3)
-                        if book_res.status_code == 200 and book_res.json().get('items'):
-                            item = book_res.json()['items'][0]
-                            real_book_title = re.sub(r'\(.*?\)', '', re.sub(r'<[^>]*>', '', item.get('title', ''))).strip()
-                            updates['book_title'] = real_book_title
-                            updates['publisher'] = item.get('publisher', '-')
-                            
-                            price = item.get('discount', item.get('price', 0))
-                            updates['price'] = f"{int(price):,}원" if price else "-"
-                            
-                            # Open API에서 가져오는 링크는 http인 경우가 많아 https로 강제 보정합니다.
-                            raw_link = item.get('link', '-')
-                            updates['product_link'] = raw_link.replace('http://', 'https://') if raw_link != '-' else '-'
-                            print(f"[CCTV] API Success! Title: {real_book_title}", flush=True)
-                    except Exception as e: 
-                        print(f"[CCTV] Open API Failed: {e}", flush=True)
+                print(f"\n[CCTV] [1단계] 오직 '키워드({keyword_text})'로 순위만 파악합니다.", flush=True)
+                kw_info = get_naver_shopping_info([keyword_text], target_mall_name)
                 
-                book_queries = [keyword_text, real_book_title]
-                if target_isbn: book_queries.insert(0, target_isbn) 
-                
-                scrape_info = get_naver_shopping_info(book_queries, target_mall_name)
-                
-                if scrape_info.get('general_title') and updates['book_title'] == '⚠️ 매칭 실패':
-                    updates['book_title'] = scrape_info['general_title']
-                if scrape_info.get('general_publisher') and updates['publisher'] == '-':
-                    updates['publisher'] = scrape_info['general_publisher']
-                if scrape_info.get('general_price') and updates['price'] == '-':
-                    updates['price'] = scrape_info['general_price']
-                if scrape_info.get('general_link') and updates['product_link'] == '-':
-                    updates['product_link'] = scrape_info['general_link']
-
-                if scrape_info.get('rank'):
-                    updates['store_rank'] = scrape_info['rank']
+                if kw_info.get('rank'):
+                    updates['store_rank'] = kw_info['rank']
                     updates['store_name'] = target_mall_name
-                    if scrape_info.get('my_price'): updates['price'] = scrape_info['my_price']
-                    if scrape_info.get('my_shipping'): updates['shipping_fee'] = scrape_info['my_shipping']
-                    if scrape_info.get('my_link'): updates['product_link'] = scrape_info['my_link']
                 else:
-                    print(f"[CCTV] Target mall '{target_mall_name}' not found in top rank. Defaulting to general info.", flush=True)
+                    if api_headers and search_client_id:
+                        found_rank = False
+                        try:
+                            for start_idx in range(1, 402, 100):
+                                if found_rank: break
+                                api_res = requests.get(f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(keyword_text)}&display=100&start={start_idx}", headers=api_headers, timeout=3)
+                                if api_res.status_code == 200:
+                                    items = api_res.json().get('items', [])
+                                    if not items: break
+                                    for idx, item in enumerate(items):
+                                        if target_mall_name in item.get('mallName', ''):
+                                            updates['store_rank'] = str(start_idx + idx)
+                                            updates['store_name'] = item.get('mallName')
+                                            found_rank = True
+                                            break
+                        except Exception: pass
 
+                # ✨ 가장 핵심! 오직 ISBN(판매자상품코드)으로 상품 정보를 추출합니다.
+                if target_isbn:
+                    print(f"[CCTV] [2단계] 키워드 무시! 오직 'ISBN({target_isbn})'으로 진짜 상품 정보를 털어옵니다.", flush=True)
+                    isbn_info = get_naver_shopping_info([target_isbn], target_mall_name)
+                    
+                    if isbn_info.get('general_publisher'): updates['publisher'] = isbn_info['general_publisher']
+                    if isbn_info.get('general_title'): updates['book_title'] = isbn_info['general_title']
+                    if isbn_info.get('general_price'): updates['price'] = isbn_info['general_price']
+                    if isbn_info.get('general_link'): updates['product_link'] = isbn_info['general_link']
+
+                    # 스터디박스 전용 정보가 매칭되었다면 무조건 스터디박스 정보로 덮어쓰기
+                    if isbn_info.get('my_title'): updates['book_title'] = isbn_info['my_title']
+                    if isbn_info.get('my_price'): updates['price'] = isbn_info['my_price']
+                    if isbn_info.get('my_shipping'): updates['shipping_fee'] = isbn_info['my_shipping']
+                    if isbn_info.get('my_link'): updates['product_link'] = isbn_info['my_link']
+                    
+                    # ISBN 도서 탭에서 스터디박스를 못 찾았다면, API를 통해 확실하게 스터디박스 정보를 뜯어옵니다.
+                    if not isbn_info.get('rank') and api_headers and search_client_id:
+                        print(f"[CCTV] ISBN 도서탭에서 상점을 못 찾음. 공식 API를 ISBN으로 검색합니다.", flush=True)
+                        try:
+                            api_res = requests.get(f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(target_isbn)}&display=100", headers=api_headers, timeout=3)
+                            if api_res.status_code == 200:
+                                items = api_res.json().get('items', [])
+                                for item in items:
+                                    if target_mall_name in item.get('mallName', ''):
+                                        updates['book_title'] = re.sub(r'<[^>]*>', '', item.get('title', ''))
+                                        raw_link = item.get('link', '-')
+                                        updates['product_link'] = raw_link.replace('http://', 'https://') if raw_link != '-' else '-'
+                                        p = item.get('lprice', '0')
+                                        if p.isdigit() and p != '0': updates['price'] = f"{int(p):,}원"
+                                        break
+                        except Exception: pass
+                else:
+                    # ISBN이 아예 비어있으면 어쩔 수 없이 키워드 정보를 보조로 씁니다.
+                    if kw_info.get('my_title'): updates['book_title'] = kw_info['my_title']
+                    elif kw_info.get('general_title'): updates['book_title'] = kw_info['general_title']
+                    if kw_info.get('general_publisher'): updates['publisher'] = kw_info['general_publisher']
+                    if kw_info.get('my_price'): updates['price'] = kw_info['my_price']
+                    elif kw_info.get('general_price'): updates['price'] = kw_info['general_price']
+                    if kw_info.get('my_shipping'): updates['shipping_fee'] = kw_info['my_shipping']
+                    if kw_info.get('my_link'): updates['product_link'] = kw_info['my_link']
+                    elif kw_info.get('general_link'): updates['product_link'] = kw_info['general_link']
+
+                # DB 확실하게 업데이트 (기존 오타 정보 강제 삭제)
                 kw = db.session.get(MonitoredKeyword, k_id)
                 if kw:
-                    if kw.book_title == '-' or kw.book_title == '⚠️ 매칭 실패': kw.book_title = updates['book_title']
-                    if kw.publisher == '-': kw.publisher = updates['publisher']
-                    if kw.price == '-': kw.price = updates['price']
-                    if kw.product_link == '-': kw.product_link = updates['product_link']
+                    if updates['book_title'] not in ['-', '⚠️ 매칭 실패']: kw.book_title = updates['book_title']
+                    if updates['publisher'] != '-': kw.publisher = updates['publisher']
+                    if updates['price'] != '-': kw.price = updates['price']
+                    if updates['product_link'] != '-': kw.product_link = updates['product_link']
                     
                     kw.store_rank = updates['store_rank']
                     kw.shipping_fee = updates['shipping_fee']
                     if updates.get('store_name') != '-': kw.store_name = updates['store_name']
                     
                     db.session.commit()
-                    print(f"[CCTV] ✅ Successfully Updated DB for ID {k_id}", flush=True)
+                    print(f"[CCTV] ✅ DB Update Success. Rank: {updates['store_rank']} / Title: {updates['book_title']}", flush=True)
 
             except Exception as e:
                 db.session.rollback()
-                print(f"[CCTV] ❌ Fatal Error on keyword processing: {e}", flush=True)
-                traceback.print_exc()
+                print(f"[CCTV] ❌ Fatal Error: {e}", flush=True)
                 kw = db.session.get(MonitoredKeyword, k_id)
                 if kw:
                     kw.store_rank = "에러"
