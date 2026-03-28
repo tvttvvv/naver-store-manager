@@ -40,7 +40,7 @@
                             </span>
                         </div>
                         
-                        <div class="d-flex flex-column flex-md-row gap-2 control-btns">
+                        <div class="d-flex flex-column flex-md-row gap-2 control-btns align-items-md-center">
                             <div class="input-group shadow-sm w-100 w-md-auto">
                                 <select id="moveGradeSelect" class="form-select fw-bold border-primary text-primary" style="cursor: pointer;">
                                     <option value="MAIN">MAIN 이동</option>
@@ -56,25 +56,31 @@
                                 <i class="bi bi-eraser"></i> 데이터 초기화
                             </button>
                             
-                            <!-- ✨ 선택형 업데이트 드롭다운 버튼 -->
-                            <div class="btn-group shadow-sm w-100 w-md-auto">
-                                <button type="button" class="btn btn-success fw-bold" onclick="refreshByIsbn('all')">
+                            <!-- ✨ 개별 업데이트 버튼 부활! 밖으로 시원하게 꺼냈습니다. -->
+                            <div class="d-flex gap-1 shadow-sm w-100 w-md-auto overflow-auto hide-scrollbar pb-1 pb-md-0">
+                                <button type="button" class="btn btn-success fw-bold text-nowrap flex-grow-1" onclick="refreshByIsbn('all')">
                                     <i class="bi bi-upc-scan"></i> 모두 업데이트
                                 </button>
-                                <button type="button" class="btn btn-success dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false">
-                                    <span class="visually-hidden">Toggle Dropdown</span>
+                                <button type="button" class="btn btn-outline-success fw-bold text-nowrap flex-grow-1" onclick="refreshByIsbn('rank')">
+                                    <i class="bi bi-sort-numeric-up"></i> 순위만
                                 </button>
-                                <ul class="dropdown-menu dropdown-menu-end border-success shadow">
-                                    <li><a class="dropdown-item fw-bold text-success" href="#" onclick="refreshByIsbn('all')"><i class="bi bi-check-all"></i> 모두 업데이트</a></li>
-                                    <li><hr class="dropdown-divider"></li>
-                                    <li><a class="dropdown-item fw-bold" href="#" onclick="refreshByIsbn('rank')"><i class="bi bi-sort-numeric-up"></i> 순위만 업데이트</a></li>
-                                    <li><a class="dropdown-item fw-bold" href="#" onclick="refreshByIsbn('purchase')"><i class="bi bi-cart-check"></i> 구매수만 업데이트</a></li>
-                                </ul>
+                                <button type="button" class="btn btn-outline-success fw-bold text-nowrap flex-grow-1" onclick="refreshByIsbn('purchase')">
+                                    <i class="bi bi-cart-check"></i> 구매수만
+                                </button>
                             </div>
                         </div>
                     </div>
 
                     <div class="d-flex flex-column flex-md-row align-items-md-center mb-2 p-2 bg-light rounded border gap-2 search-area">
+                        
+                        <!-- ✨ 네이버 카운트 직접 입력 필터 기능 추가! -->
+                        <div class="d-flex align-items-center bg-white rounded border border-secondary px-2 py-1 w-100 w-md-auto mb-2 mb-md-0 shadow-sm" style="min-width: 200px;">
+                            <span class="small text-secondary fw-bold me-2 text-nowrap"><i class="bi bi-funnel"></i> 검색량:</span>
+                            <input type="number" id="minVolume" class="form-control form-control-sm border-0 px-1 text-center fw-bold text-primary" placeholder="최소" min="0" style="width: 65px; box-shadow: none;">
+                            <span class="text-muted mx-1">~</span>
+                            <input type="number" id="maxVolume" class="form-control form-control-sm border-0 px-1 text-center fw-bold text-danger" placeholder="최대" min="0" style="width: 65px; box-shadow: none;">
+                        </div>
+
                         <div class="d-flex align-items-center flex-grow-1 w-100">
                             <i class="bi bi-search text-secondary ms-1 me-2 d-none d-sm-block"></i>
                             <select id="searchCategory" class="form-select form-select-sm me-2 fw-bold" style="cursor: pointer; max-width: 120px;">
@@ -83,12 +89,12 @@
                                 <option value="publisher">출판사명</option>
                                 <option value="isbn">ISBN</option>
                             </select>
-                            <input type="text" id="searchInput" class="form-control form-control-sm flex-grow-1 border-primary" placeholder="검색어 입력 시 전체 탭에서 통합 검색됩니다...">
+                            <input type="text" id="searchInput" class="form-control form-control-sm flex-grow-1 border-primary shadow-sm" placeholder="검색어 입력 시 전체 탭에서 통합 검색됩니다...">
                         </div>
                         
-                        <div class="vr mx-2 d-none d-md-block"></div>
+                        <div class="vr mx-2 d-none d-xl-block"></div>
                         
-                        <div class="d-flex align-items-center w-100 w-md-auto justify-content-end mt-2 mt-md-0 flex-wrap gap-2">
+                        <div class="d-flex align-items-center w-100 w-xl-auto justify-content-end mt-2 mt-md-0 flex-wrap gap-2">
                             <div class="d-flex align-items-center w-100 w-md-auto">
                                 <i class="bi bi-list-ol text-secondary me-2"></i>
                                 <select id="itemsPerPageSelect" class="form-select form-select-sm fw-bold text-dark w-100 w-md-auto border-secondary" style="cursor: pointer; min-width: 110px;">
@@ -141,7 +147,6 @@
 
                     <nav aria-label="Page navigation" class="mt-3">
                         <ul class="pagination justify-content-center mb-0" id="paginationContainer" style="flex-wrap: wrap;">
-                            <!-- 자바스크립트로 생성됨 -->
                         </ul>
                     </nav>
 
@@ -171,7 +176,7 @@
 
     @media (max-width: 768px) {
         .control-btns .btn, .control-btns .input-group, .control-btns .btn-group { width: 100% !important; }
-        .w-md-auto { width: 100% !important; }
+        .w-md-auto, .w-xl-auto { width: 100% !important; }
         .table { font-size: 0.75rem !important; } 
         .table th, .table td { padding: 0.3rem !important; } 
         .mobile-scroll-guide { 
@@ -185,6 +190,9 @@
         }
         .pagination { gap: 5px; }
         .page-link { padding: 0.375rem 0.5rem; font-size: 0.875rem; }
+        /* 모바일에서 버튼들 가로 스크롤 허용 */
+        .d-flex.gap-1 { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        .d-flex.gap-1 .btn { flex: 0 0 auto; width: auto !important; padding: 0.375rem 0.75rem; }
     }
     
     @keyframes pulse {
@@ -244,6 +252,11 @@
         currentPage = 1; 
         renderTable();
     });
+    
+    // ✨ 최소, 최대 필터 입력 시 즉시 표 갱신 이벤트 추가
+    document.getElementById('minVolume').addEventListener('input', function() { currentPage = 1; renderTable(); });
+    document.getElementById('maxVolume').addEventListener('input', function() { currentPage = 1; renderTable(); });
+
     document.getElementById('searchCategory').addEventListener('change', function(e) {
         searchCategory = e.target.value;
         currentPage = 1;
@@ -362,8 +375,15 @@
         updateTabCounts(); 
 
         let isGlobalSearch = searchQuery.length > 0;
+        
+        // ✨ 입력된 최소, 최대 검색량 값 가져오기
+        let minVolVal = parseInt(document.getElementById('minVolume').value);
+        let maxVolVal = parseInt(document.getElementById('maxVolume').value);
+        let minVol = isNaN(minVolVal) ? 0 : minVolVal;
+        let maxVol = isNaN(maxVolVal) ? Infinity : maxVolVal;
 
         let filteredData = allKeywordsData.filter(k => {
+            // 1. 검색어 조건 확인
             let matchSearch = true;
             if (isGlobalSearch) {
                 const kw = (k.keyword || '').toLowerCase();
@@ -374,6 +394,12 @@
                 else if (searchCategory === 'isbn') matchSearch = isbn.includes(searchQuery);
                 else matchSearch = kw.includes(searchQuery) || pub.includes(searchQuery) || isbn.includes(searchQuery);
             }
+            
+            // 2. ✨ 네이버 카운트(검색량) 조건 확인
+            let vol = k.search_volume || 0;
+            let matchVolume = (vol >= minVol && vol <= maxVol);
+
+            if (!matchVolume) return false;
 
             if (isGlobalSearch) return matchSearch; 
             else return k.grade === currentGradeTab && matchSearch;
@@ -603,25 +629,6 @@
             const result = await res.json();
             if(result.success) { alert(result.message); loadSavedKeywords(); }
         } catch(e) { alert('초기화 중 오류가 발생했습니다.'); }
-    }
-
-    function exportToExcel() {
-        let exportData = allKeywordsData.filter(k => k.grade === currentGradeTab);
-        if(exportData.length === 0) { alert("다운로드할 데이터가 없습니다."); return; }
-        
-        let csvContent = "\uFEFF순번,등급,키워드,네이버카운트,스터디박스 순위,구매수,상품링크,출판사명(제조사명),공급률,ISBN(판매자상품코드),가격,택배비,상품명\n";
-        exportData.forEach((k, index) => {
-            let row = [ index + 1, k.grade, k.keyword || '-', k.search_volume || 0, k.store_rank || '-', k.purchase_count || '-', k.product_link || '-', k.publisher || '-', k.supply_rate || '-', k.isbn || '-', k.price || '-', k.shipping_fee || '-', k.book_title || '-' ];
-            csvContent += row.map(v => `"${(v || '').toString().replace(/"/g, '""')}"`).join(',') + "\n";
-        });
-        
-        let blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        let link = document.createElement("a");
-        link.href = URL.createObjectURL(blob);
-        link.download = `스터디박스_모니터링_${currentGradeTab}등급.csv`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
     }
 
     document.addEventListener("DOMContentLoaded", () => {
