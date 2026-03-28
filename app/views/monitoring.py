@@ -153,33 +153,20 @@ def clear_data():
     db.session.commit()
     return jsonify({'success': True, 'message': f'✅ 선택한 항목의 검색 정보가 초기화되었습니다.'})
 
-# ✨ 핵심: HTTP 418 차단을 뚫기 위한 검색엔진 봇 위장술!
 def get_html_with_bot_spoofing(url):
     bot_headers = [
-        # 1. 구글봇 위장 (네이버 방화벽 프리패스 확률 가장 높음)
         {"User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)", "Accept": "*/*"},
-        # 2. 네이버 자체 봇(Yeti) 위장
-        {"User-Agent": "Mozilla/5.0 (compatible; Yeti/1.1; +http://naver.me/spd)", "Accept": "*/*"},
-        # 3. 아이폰 모바일 사파리 위장
-        {"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1", "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"},
-        # 4. 일반 크롬 브라우저
         {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36", "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"}
     ]
-    
     for headers in bot_headers:
         try:
             res = requests.get(url, headers=headers, timeout=6)
             if res.status_code == 200 and len(res.text) > 5000:
-                print(f"[CCTV-DEBUG] 🔓 418 방어벽 우회 접속 성공! (사용된 위장: {headers['User-Agent'][:20]}...)", flush=True)
                 return res.text
             elif res.status_code == 418:
-                print(f"[CCTV-DEBUG] ❌ 418 차단됨. 위장 봇: {headers['User-Agent'][:15]}...", flush=True)
-            else:
-                print(f"[CCTV-DEBUG] ⚠️ 실패 (HTTP {res.status_code}). 위장: {headers['User-Agent'][:15]}...", flush=True)
-        except Exception as e:
-            pass
-            
-    print(f"[CCTV-DEBUG] 🚨 모든 웹 스크래핑 위장술 실패. URL: {url}", flush=True)
+                print(f"[CCTV-DEBUG] ❌ 418 IP 완전 차단됨. 위장 봇: {headers['User-Agent'][:15]}...", flush=True)
+        except Exception: pass
+    print(f"[CCTV-DEBUG] 🚨 모든 웹 스크래핑 위장술 실패 (네이버 IP 밴 확인). URL: {url}", flush=True)
     return ""
 
 def get_naver_shopping_info(queries, target_mall, find_rank=False):
@@ -240,7 +227,6 @@ def get_naver_shopping_info(queries, target_mall, find_rank=False):
                             result['my_link'] = prod.get('mallPcUrl', prod.get('mallProductUrl', prod.get('pcUrl', '-')))
                             result['my_title'] = clean_text(prod.get('productTitle', prod.get('bookTitle', '')))
                             return result
-                            
                 except Exception: pass
             if find_rank: time.sleep(0.5) 
     return result
@@ -271,21 +257,24 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                 kw_info = {}
 
                 # ========================================================
-                # 1️⃣ 순위 파악 (구글봇 위장술 시도)
+                # 1. 순위 파악
                 # ========================================================
                 if update_mode in ['all', 'rank']:
                     kw_info = get_naver_shopping_info([keyword_text], target_mall_name, find_rank=True)
                     updates['store_rank'] = kw_info.get('rank', '500위 밖')
 
-                # 🚨 [비상 탈출구] 구글봇 위장술마저 차단당해 500위 밖이 떴을 경우
+                # 🚨 [비상 탈출구] 500위 밖이 떴을 경우 무조건 API 시도 (에러 메시지 상세 출력)
                 if updates.get('store_rank', '500위 밖') == '500위 밖':
                     if api_headers and search_client_id:
-                        print(f"[CCTV-DEBUG] 🚨 웹 스크래핑 완전 차단 확인. API 비상 순위 탐색 가동: [{keyword_text}]", flush=True)
+                        print(f"[CCTV-DEBUG] 🚨 웹 스크래핑 차단 의심. API 비상 순위 탐색 가동: [{keyword_text}]", flush=True)
                         found_rank = False
                         try:
                             for start_idx in range(1, 402, 100):
                                 if found_rank: break
-                                api_res = requests.get(f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(keyword_text)}&display=100&start={start_idx}", headers=api_headers, timeout=3)
+                                api_url = f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(keyword_text)}&display=100&start={start_idx}"
+                                api_res = requests.get(api_url, headers=api_headers, timeout=5)
+                                
+                                # ✨ API 성공 여부 정밀 판독
                                 if api_res.status_code == 200:
                                     for idx, item in enumerate(api_res.json().get('items', [])):
                                         if safe_target in item.get('mallName', '').lower().replace(" ", ""):
@@ -299,13 +288,17 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                                             found_rank = True
                                             print(f"[CCTV-DEBUG] 🎯 API 비상 구출 성공! 순위: {updates['store_rank']}위", flush=True)
                                             break
-                        except Exception: pass
+                                else:
+                                    print(f"[CCTV-DEBUG] ❌ 네이버 API 통신 실패! (상태코드: {api_res.status_code})", flush=True)
+                                    print(f"[CCTV-DEBUG] ❌ API 응답 메시지: {api_res.text}", flush=True)
+                                    break # 에러가 났다면 쓸데없이 4번 더 돌지 않고 즉시 중단
+                        except Exception as e: 
+                            print(f"[CCTV-DEBUG] 💥 API 요청 중 파이썬 내부 에러: {e}", flush=True)
                     else:
-                        # ✨ 사용자가 API 키를 안 넣어서 실패한 경우 정확히 알려줍니다!
-                        print(f"[CCTV-DEBUG] ⚠️ [경고] 네이버 검색 API 키(NAVER_CLIENT_ID)가 설정되지 않아 'API 비상 탈출 모드'를 작동할 수 없습니다! (설정 탭 확인 요망)", flush=True)
+                        print(f"[CCTV-DEBUG] ⚠️ [경고] 설정 탭에 네이버 검색 API 키(ID/Secret)가 없어 API 비상 탐색 불가!", flush=True)
 
                 # ========================================================
-                # 2️⃣ 구매수 파악
+                # 2. 구매수 파악 (웹스크래핑 차단 시 '-' 로 남음)
                 # ========================================================
                 search_list = [target_isbn] if target_isbn else [keyword_text]
                 purchase_info = {}
@@ -314,7 +307,7 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     updates['purchase_count'] = purchase_info.get('my_purchase', '-')
 
                 # ========================================================
-                # 3️⃣ 상품 정보 및 100% 원본 이름 덮어쓰기
+                # 3. 상품 정보 덮어쓰기
                 # ========================================================
                 if update_mode == 'all':
                     updates['product_link'] = purchase_info.get('my_link') or kw_info.get('my_link') or '-'
@@ -323,16 +316,16 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     updates['book_title'] = purchase_info.get('my_title') or kw_info.get('my_title') or '-'
                     updates['store_name'] = target_mall_name
 
+                    # API로 상품 정보 응급 복구 (에러 메시지 상세 출력)
                     if api_headers and search_client_id:
                         for sq in search_list:
                             try:
-                                api_res = requests.get(f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(sq)}&display=100", headers=api_headers, timeout=3)
+                                api_res = requests.get(f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(sq)}&display=100", headers=api_headers, timeout=5)
                                 if api_res.status_code == 200:
                                     for item in api_res.json().get('items', []):
                                         if safe_target in item.get('mallName', '').lower().replace(" ", ""):
                                             clean_t = clean_text(item.get('title', ''))
                                             if clean_t and clean_t != '-': updates['book_title'] = clean_t
-                                            
                                             if updates.get('price', '-') == '-':
                                                 p = item.get('lprice', '0')
                                                 if p.isdigit() and p != '0': updates['price'] = f"{int(p):,}원"
@@ -340,7 +333,10 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                                                 raw_link = item.get('link', '-')
                                                 if raw_link != '-': updates['product_link'] = raw_link.replace('http://', 'https://')
                                             break
-                            except Exception: pass
+                                else:
+                                    print(f"[CCTV-DEBUG] ❌ 네이버 API 통신 실패 (정보검색)! 상태: {api_res.status_code}, 응답: {api_res.text}", flush=True)
+                            except Exception as e: 
+                                print(f"[CCTV-DEBUG] 💥 API 요청 중 파이썬 내부 에러 (정보검색): {e}", flush=True)
 
                         if target_isbn:
                             try:
@@ -350,15 +346,12 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                                     updates['publisher'] = clean_text(b_item.get('publisher', '-'))
                             except Exception: pass
 
-                # ========================================================
-                # DB 안전하게 저장
-                # ========================================================
+                # DB 저장
                 kw = db.session.get(MonitoredKeyword, k_id)
                 if kw:
                     if 'store_rank' in updates: kw.store_rank = updates['store_rank']
                     if hasattr(kw, 'purchase_count') and 'purchase_count' in updates: 
                         kw.purchase_count = updates['purchase_count']
-                    
                     if update_mode == 'all':
                         if updates.get('book_title') and updates['book_title'] != '-': kw.book_title = updates['book_title']
                         if updates.get('publisher') and updates['publisher'] != '-': kw.publisher = updates['publisher']
@@ -366,7 +359,6 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                         if updates.get('product_link') and updates['product_link'] != '-': kw.product_link = updates['product_link']
                         if updates.get('shipping_fee') and updates['shipping_fee'] != '-': kw.shipping_fee = updates['shipping_fee']
                         kw.store_name = updates.get('store_name', target_mall_name)
-                    
                     db.session.commit()
 
             except Exception as e:
@@ -376,7 +368,7 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     if update_mode in ['all', 'rank']: kw.store_rank = "에러"
                     db.session.commit()
             
-            time.sleep(1.5) # IP 밴 방지를 위해 휴식 시간 약간 증가
+            time.sleep(1.0) 
 
 @monitoring_bp.route('/api/refresh_all_ranks', methods=['POST'])
 @login_required
