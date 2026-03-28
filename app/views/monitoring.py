@@ -187,6 +187,15 @@ def get_naver_shopping_info(queries, target_mall, find_rank=False):
                     if 'catalog' in state and state['catalog'].get('info'):
                         info = state['catalog']['info']
                         
+                        if not result.get('general_title'):
+                            raw_t = info.get('bookTitle', info.get('productName', ''))
+                            result['general_title'] = html.unescape(raw_t)
+                            result['general_publisher'] = info.get('publisher', '')
+                            gp = str(info.get('lowestPrice', info.get('lowPrice', info.get('price', 0))))
+                            result['general_price'] = f"{int(gp):,}원" if gp.isdigit() and gp != '0' else "-"
+                            cat_id = info.get('id', '')
+                            result['general_link'] = f"https://search.shopping.naver.com/book/catalog/{cat_id}" if cat_id else "-"
+
                         products = state['catalog'].get('products', [])
                         for idx, prod in enumerate(products):
                             mall = prod.get('mallName', '')
@@ -196,9 +205,11 @@ def get_naver_shopping_info(queries, target_mall, find_rank=False):
                                 result['my_price'] = f"{int(p):,}원" if p.isdigit() and p != '0' else "-"
                                 df = prod.get('deliveryFeeContent', prod.get('deliveryFee', '-'))
                                 result['my_shipping'] = '무료' if str(df) == '0' else (f"{int(df):,}원" if str(df).isdigit() else str(df))
-                                # 구매건수/리뷰수 등 추출
                                 pc = prod.get('purchaseCnt', prod.get('keepCnt', prod.get('reviewCount', '-')))
                                 if str(pc) != '0' and str(pc) != '-': result['my_purchase'] = str(pc)
+                                raw_my_t = prod.get('productTitle', prod.get('bookTitle', ''))
+                                result['my_title'] = html.unescape(raw_my_t)
+                                result['my_link'] = prod.get('mallPcUrl', prod.get('mallProductUrl', prod.get('crUrl', '-')))
                                 return result
                         
                         if not find_rank: return result 
@@ -206,6 +217,16 @@ def get_naver_shopping_info(queries, target_mall, find_rank=False):
 
                     book_list = state.get('book', {}).get('list', [])
                     if not book_list: break 
+
+                    if page == 1 and not result.get('general_title'):
+                        first_item = book_list[0].get('item', book_list[0])
+                        raw_t = first_item.get('bookTitle', first_item.get('productTitle', ''))
+                        result['general_title'] = html.unescape(raw_t)
+                        result['general_publisher'] = first_item.get('publisher', '')
+                        gp = str(first_item.get('lowPrice', first_item.get('price', 0)))
+                        result['general_price'] = f"{int(gp):,}원" if gp.isdigit() and gp != '0' else "-"
+                        cat_id = first_item.get('catalogId', first_item.get('id', ''))
+                        result['general_link'] = f"https://search.shopping.naver.com/book/catalog/{cat_id}" if cat_id else first_item.get('productUrl', '-')
                     
                     for idx, item in enumerate(book_list):
                         prod = item.get('item', item)
@@ -219,6 +240,9 @@ def get_naver_shopping_info(queries, target_mall, find_rank=False):
                             result['my_shipping'] = '무료' if str(df) == '0' else (f"{int(df):,}원" if str(df).isdigit() else str(df))
                             pc = prod.get('purchaseCnt', prod.get('keepCnt', prod.get('reviewCount', '-')))
                             if str(pc) != '0' and str(pc) != '-': result['my_purchase'] = str(pc)
+                            raw_my_t = prod.get('productTitle', prod.get('bookTitle', ''))
+                            result['my_title'] = html.unescape(raw_my_t)
+                            result['my_link'] = prod.get('mallPcUrl', prod.get('mallProductUrl', prod.get('crUrl', '-')))
                             return result
                             
                 except Exception: break
@@ -246,16 +270,27 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                 target_isbn = str(kw.isbn).strip().replace('-', '') if kw.isbn and kw.isbn != '-' else ""
                 db.session.commit()
 
-                updates = {}
+                # 기존 데이터를 보존하면서 빈칸을 채우기 위해 딕셔너리 준비
+                updates = {
+                    'store_rank': kw.store_rank,
+                    'purchase_count': getattr(kw, 'purchase_count', '-'),
+                    'book_title': kw.book_title,
+                    'product_link': kw.product_link,
+                    'price': kw.price,
+                    'shipping_fee': kw.shipping_fee,
+                    'publisher': kw.publisher,
+                    'store_name': kw.store_name
+                }
 
                 # ========================================================
-                # 1️⃣ 순위 파악 로직 (웹 크롤링 & API 병행)
+                # 1️⃣ 순위 파악 로직
                 # ========================================================
                 if update_mode in ['all', 'rank']:
                     updates['store_rank'] = '500위 밖'
                     kw_info = get_naver_shopping_info([keyword_text], target_mall_name, find_rank=True)
                     if kw_info.get('rank'):
                         updates['store_rank'] = kw_info['rank']
+                        updates['store_name'] = target_mall_name
                     else:
                         if api_headers and search_client_id:
                             found_rank = False
@@ -267,12 +302,13 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                                         for idx, item in enumerate(api_res.json().get('items', [])):
                                             if safe_target in item.get('mallName', '').lower().replace(" ", ""):
                                                 updates['store_rank'] = str(start_idx + idx)
+                                                updates['store_name'] = item.get('mallName')
                                                 found_rank = True
                                                 break
                             except Exception: pass
 
                 # ========================================================
-                # 2️⃣ 구매수 파악 로직 (웹 크롤링 한정)
+                # 2️⃣ 구매수 파악 로직
                 # ========================================================
                 if update_mode in ['all', 'purchase']:
                     updates['purchase_count'] = '-'
@@ -282,36 +318,42 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                         updates['purchase_count'] = purchase_info['my_purchase']
 
                 # ========================================================
-                # 3️⃣ 상품 정보 (이름, 링크, 가격, 출판사) - ✨ API 100% 신뢰 로직
+                # 3️⃣ 상품 정보 (이름, 링크, 가격, 출판사) - 하이브리드 엔진
                 # ========================================================
                 if update_mode == 'all':
-                    updates['product_link'] = '-'
-                    updates['book_title'] = '⚠️ 매칭 실패'
-                    updates['price'] = '-'
-                    updates['publisher'] = '-'
-                    updates['store_name'] = target_mall_name
-                    updates['shipping_fee'] = purchase_info.get('my_shipping', '-') if 'purchase_info' in locals() else '-'
+                    search_queries = [target_isbn] if target_isbn else [keyword_text]
                     
-                    api_found = False
+                    # (1) 먼저 전에 잘 작동하던 웹 스크래핑으로 기초 데이터를 탄탄하게 확보!
+                    base_info = get_naver_shopping_info(search_queries, target_mall_name, find_rank=False)
+                    
+                    if base_info.get('my_title'): updates['book_title'] = base_info['my_title']
+                    elif base_info.get('general_title'): updates['book_title'] = base_info['general_title']
+                    
+                    if base_info.get('general_publisher'): updates['publisher'] = base_info['general_publisher']
+                    
+                    if base_info.get('my_price'): updates['price'] = base_info['my_price']
+                    elif base_info.get('general_price'): updates['price'] = base_info['general_price']
+                    
+                    if base_info.get('my_shipping'): updates['shipping_fee'] = base_info['my_shipping']
+                    
+                    if base_info.get('my_link'): updates['product_link'] = base_info['my_link']
+                    elif base_info.get('general_link'): updates['product_link'] = base_info['general_link']
 
-                    # ✨ 핵심: API를 통해 '내 상점'의 100% 원본 이름과 직링크를 최우선으로 뜯어옵니다!
+                    updates['store_name'] = target_mall_name
+
+                    # (2) 그 다음, API를 조용히 찔러서 '잘린 이름'과 '경유지 링크'를 원본으로 깨끗하게 세차(덮어쓰기)!
                     if api_headers and search_client_id:
-                        # ISBN이 있으면 무조건 ISBN만으로 찾습니다. 없으면 키워드로 찾습니다.
-                        search_queries_for_exact = [target_isbn] if target_isbn else [keyword_text]
-                        
-                        for sq in search_queries_for_exact:
+                        api_found = False
+                        for sq in search_queries:
                             if api_found: break
                             try:
                                 api_res = requests.get(f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(sq)}&display=100", headers=api_headers, timeout=3)
                                 if api_res.status_code == 200:
                                     for item in api_res.json().get('items', []):
-                                        # 내 상점(스터디박스)과 이름이 일치하는 데이터만 찾습니다.
                                         if safe_target in item.get('mallName', '').lower().replace(" ", ""):
-                                            # 웹에 잘려있던 이름 무시! <b> 태그 다 떼고 순수 100% 풀네임 장착!
                                             raw_title = re.sub(r'<[^>]*>', '', item.get('title', ''))
                                             updates['book_title'] = html.unescape(raw_title).strip()
                                             
-                                            # 추적 링크(cr.shopping...) 무시! API가 주는 다이렉트 쇼핑몰 링크 장착!
                                             raw_link = item.get('link', '-')
                                             updates['product_link'] = raw_link.replace('http://', 'https://') if raw_link != '-' else '-'
                                             
@@ -319,11 +361,11 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                                             if p.isdigit() and p != '0': updates['price'] = f"{int(p):,}원"
                                             
                                             api_found = True
-                                            print(f"[CCTV] 🎯 API 원본 상품정보 매칭 완료! ({updates['book_title']})", flush=True)
+                                            print(f"[CCTV] 🎯 API에서 원본 상품 정보 덮어쓰기 성공! ({updates['book_title']})", flush=True)
                                             break
                             except Exception: pass
 
-                        # 도서 전용 API로 공식 출판사 정보만 쏙 빼옵니다.
+                        # 도서 API로 출판사 정보만 쏙 빼서 보완
                         if target_isbn:
                             try:
                                 book_res = requests.get(f"https://openapi.naver.com/v1/search/book.json?d_isbn={urllib.parse.quote(target_isbn)}", headers=api_headers, timeout=3)
@@ -333,23 +375,24 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                             except Exception: pass
 
                 # ========================================================
-                # DB 저장 로직 (업데이트 된 항목만 선택적으로 저장)
+                # DB 저장 로직 
                 # ========================================================
                 kw = db.session.get(MonitoredKeyword, k_id)
                 if kw:
                     if 'store_rank' in updates: kw.store_rank = updates['store_rank']
-                    if 'purchase_count' in updates and hasattr(kw, 'purchase_count'): kw.purchase_count = updates['purchase_count']
+                    if hasattr(kw, 'purchase_count') and 'purchase_count' in updates: 
+                        kw.purchase_count = updates['purchase_count']
                     
                     if update_mode == 'all':
-                        # API에서 정보를 성공적으로 가져왔을 때만 덮어씁니다.
-                        if updates['book_title'] not in ['-', '⚠️ 매칭 실패']: kw.book_title = updates['book_title']
-                        if updates['publisher'] != '-': kw.publisher = updates['publisher']
-                        if updates['price'] != '-': kw.price = updates['price']
-                        if updates['product_link'] != '-': kw.product_link = updates['product_link']
-                        if updates['shipping_fee'] != '-': kw.shipping_fee = updates['shipping_fee']
+                        if updates['book_title']: kw.book_title = updates['book_title']
+                        if updates['publisher']: kw.publisher = updates['publisher']
+                        if updates['price']: kw.price = updates['price']
+                        if updates['product_link']: kw.product_link = updates['product_link']
+                        if updates['shipping_fee']: kw.shipping_fee = updates['shipping_fee']
                         kw.store_name = updates['store_name']
                     
                     db.session.commit()
+                    print(f"[CCTV] ✅ DB 저장 완료. Rank: {updates['store_rank']}", flush=True)
 
             except Exception as e:
                 db.session.rollback()
