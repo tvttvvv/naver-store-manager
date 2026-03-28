@@ -152,30 +152,46 @@ def clear_data():
     db.session.commit()
     return jsonify({'success': True, 'message': f'✅ 선택한 항목의 검색 정보가 초기화되었습니다.'})
 
-# ✨ 핵심: HTTP 418 차단을 뚫기 위한 가짜 IP 위장술!
+# ✨ 418 차단을 부숴버릴 무적의 글로벌 프록시 우회 터널!
 def get_html_with_bot_spoofing(url):
-    # 한국 내 랜덤 가상 IP 생성 (SKT, KT 대역 등 흉내)
-    fake_ip = f"211.{random.randint(100, 255)}.{random.randint(0, 255)}.{random.randint(1, 254)}"
-    
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-        "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Referer": "https://naver.com",
-        "X-Forwarded-For": fake_ip,   # 프록시를 거친 척 가정집 IP 제출
-        "X-Real-IP": fake_ip,
-        "Client-IP": fake_ip
-    }
-    
+    # 1. 다이렉트 접속 (혹시 차단이 풀렸을까 찔러보기)
     try:
-        res = requests.get(url, headers=headers, timeout=6)
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        res = requests.get(url, headers=headers, timeout=3)
         if res.status_code == 200 and len(res.text) > 5000:
-            print(f"[CCTV-DEBUG] 🔓 IP 위장({fake_ip})으로 418 방어벽 우회 성공!", flush=True)
             return res.text
-        elif res.status_code == 418:
-            print(f"[CCTV-DEBUG] ❌ 418 차단 유지됨 (IP 위장 간파당함). Fake IP: {fake_ip}", flush=True)
     except Exception: pass
-    
+
+    print(f"[CCTV-DEBUG] 🚧 다이렉트 접속 차단됨. 무료 글로벌 프록시 우주선 발사!", flush=True)
+
+    # 2. 글로벌 무료 프록시 API 3대장 출격
+    proxies = [
+        {"name": "AllOrigins", "url": f"https://api.allorigins.win/get?url={urllib.parse.quote(url)}"},
+        {"name": "CorsProxy", "url": f"https://corsproxy.io/?{urllib.parse.quote(url)}"},
+        {"name": "CodeTabs", "url": f"https://api.codetabs.com/v1/proxy?quest={urllib.parse.quote(url)}"}
+    ]
+
+    for proxy in proxies:
+        try:
+            res = requests.get(proxy["url"], timeout=10)
+            if res.status_code == 200:
+                # AllOrigins는 JSON 형태로 데이터를 주기 때문에 따로 파싱
+                if proxy["name"] == "AllOrigins":
+                    data = res.json()
+                    html_text = data.get('contents', '')
+                    if html_text and len(html_text) > 5000:
+                        print(f"[CCTV-DEBUG] 🌐 무료 프록시 [{proxy['name']}]로 네이버 방화벽 뚫기 성공!", flush=True)
+                        return html_text
+                else:
+                    if len(res.text) > 5000 and "418" not in res.text:
+                        print(f"[CCTV-DEBUG] 🌐 무료 프록시 [{proxy['name']}]로 네이버 방화벽 뚫기 성공!", flush=True)
+                        return res.text
+            else:
+                print(f"[CCTV-DEBUG] ⚠️ 프록시 [{proxy['name']}] 실패. (상태코드: {res.status_code})", flush=True)
+        except Exception as e:
+            print(f"[CCTV-DEBUG] ⚠️ 프록시 [{proxy['name']}] 통신 에러: {e}", flush=True)
+
+    print(f"[CCTV-DEBUG] 🚨 모든 무료 프록시 우회 실패. (네이버의 완전 방어)", flush=True)
     return ""
 
 def get_naver_shopping_info(queries, target_mall, find_rank=False):
@@ -187,7 +203,8 @@ def get_naver_shopping_info(queries, target_mall, find_rank=False):
         max_pages = 10 if find_rank else 1 
 
         for page in range(1, max_pages + 1):
-            url = f"https://search.shopping.naver.com/book/search?query={urllib.parse.quote(q)}&pagingIndex={page}&pagingSize=40"
+            # 모바일 URL이 방화벽이 더 낮을 수 있으므로 m.search 로 찔러봅니다.
+            url = f"https://m.search.shopping.naver.com/book/search?query={urllib.parse.quote(q)}&pagingIndex={page}&pagingSize=40"
             html_text = get_html_with_bot_spoofing(url)
             if not html_text: break
             
@@ -213,7 +230,7 @@ def get_naver_shopping_info(queries, target_mall, find_rank=False):
                                 
                                 result['my_link'] = prod.get('mallPcUrl', prod.get('mallProductUrl', prod.get('pcUrl', '-')))
                                 result['my_title'] = clean_text(prod.get('productTitle', prod.get('bookTitle', '')))
-                                print(f"[CCTV-DEBUG] 🎯 카탈로그에서 데이터 추출 완료!", flush=True)
+                                print(f"[CCTV-DEBUG] 🎯 프록시 우회 후 카탈로그에서 데이터 추출 완료!", flush=True)
                                 return result
                         if not find_rank: return result 
                         else: break 
@@ -236,7 +253,7 @@ def get_naver_shopping_info(queries, target_mall, find_rank=False):
                             
                             result['my_link'] = prod.get('mallPcUrl', prod.get('mallProductUrl', prod.get('pcUrl', '-')))
                             result['my_title'] = clean_text(prod.get('productTitle', prod.get('bookTitle', '')))
-                            print(f"[CCTV-DEBUG] 🎯 일반목록에서 데이터 추출 완료!", flush=True)
+                            print(f"[CCTV-DEBUG] 🎯 프록시 우회 후 일반목록에서 데이터 추출 완료!", flush=True)
                             return result
                 except Exception: pass
             if find_rank: time.sleep(0.5) 
@@ -267,25 +284,44 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                 updates = {}
                 kw_info = {}
 
-                # ========================================================
-                # 1. 순위 파악 (오직 웹스크래핑만 시도 - API는 무의미함이 증명됨)
-                # ========================================================
+                # 1. 순위 파악 (프록시 스크래핑)
                 if update_mode in ['all', 'rank']:
                     kw_info = get_naver_shopping_info([keyword_text], target_mall_name, find_rank=True)
                     updates['store_rank'] = kw_info.get('rank', '500위 밖')
 
-                # ========================================================
-                # 2. 구매수 파악 (오직 웹스크래핑만 시도)
-                # ========================================================
+                # 🚨 [API 비상 탐색 보존] 프록시마저 500위 밖을 띄우면 마지막 보루로 API 실행
+                if updates.get('store_rank', '500위 밖') == '500위 밖' and api_headers and search_client_id:
+                    found_rank = False
+                    try:
+                        for start_idx in range(1, 402, 100):
+                            if found_rank: break
+                            api_url = f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(keyword_text)}&display=100&start={start_idx}"
+                            api_res = requests.get(api_url, headers=api_headers, timeout=5)
+                            if api_res.status_code == 200:
+                                items = api_res.json().get('items', [])
+                                for idx, item in enumerate(items):
+                                    mall = item.get('mallName', '')
+                                    if safe_target in mall.lower().replace(" ", ""):
+                                        updates['store_rank'] = str(start_idx + idx)
+                                        kw_info['my_title'] = clean_text(item.get('title', ''))
+                                        p = item.get('lprice', '0')
+                                        if p.isdigit() and p != '0': kw_info['my_price'] = f"{int(p):,}원"
+                                        raw_link = item.get('link', '-')
+                                        if raw_link != '-': kw_info['my_link'] = raw_link.replace('http://', 'https://')
+                                        updates['store_name'] = item.get('mallName')
+                                        found_rank = True
+                                        print(f"[CCTV-DEBUG] 🎯 API 비상 구출 성공! 순위: {updates['store_rank']}위", flush=True)
+                                        break
+                    except Exception: pass
+
+                # 2. 구매수 파악 (프록시 스크래핑)
                 search_list = [target_isbn] if target_isbn else [keyword_text]
                 purchase_info = {}
                 if update_mode in ['all', 'purchase']:
                     purchase_info = get_naver_shopping_info(search_list, target_mall_name, find_rank=False)
                     updates['purchase_count'] = purchase_info.get('my_purchase', '-')
 
-                # ========================================================
-                # 3. 상품 정보 덮어쓰기 (API는 이름 보정용으로만 제한적 사용)
-                # ========================================================
+                # 3. 상품 정보 덮어쓰기
                 if update_mode == 'all':
                     updates['product_link'] = purchase_info.get('my_link') or kw_info.get('my_link') or '-'
                     updates['price'] = purchase_info.get('my_price') or kw_info.get('my_price') or '-'
@@ -293,8 +329,7 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     updates['book_title'] = purchase_info.get('my_title') or kw_info.get('my_title') or '-'
                     updates['store_name'] = target_mall_name
 
-                    # API는 오직 잘린 이름 복구용으로만 깔끔하게 사용합니다.
-                    if api_headers and search_client_id and updates['book_title'] != '-':
+                    if api_headers and search_client_id:
                         for sq in search_list:
                             try:
                                 api_res = requests.get(f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(sq)}&display=100", headers=api_headers, timeout=5)
@@ -314,7 +349,7 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                                     updates['publisher'] = clean_text(b_item.get('publisher', '-'))
                             except Exception: pass
 
-                # DB 최종 저장
+                # DB 저장
                 kw = db.session.get(MonitoredKeyword, k_id)
                 if kw:
                     if 'store_rank' in updates: kw.store_rank = updates['store_rank']
@@ -338,7 +373,7 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     if update_mode in ['all', 'rank']: kw.store_rank = "에러"
                     db.session.commit()
             
-            time.sleep(1.0) 
+            time.sleep(1.5) 
 
 @monitoring_bp.route('/api/refresh_all_ranks', methods=['POST'])
 @login_required
