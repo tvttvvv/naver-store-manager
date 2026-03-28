@@ -152,38 +152,20 @@ def clear_data():
     db.session.commit()
     return jsonify({'success': True, 'message': f'✅ 선택한 항목의 검색 정보가 초기화되었습니다.'})
 
-# ✨ 성공한 CorsProxy에 집중하고, 응답이 진짜 데이터인지 검증하는 무적 터널
 def get_html_with_bot_spoofing(url):
-    # 1. 다이렉트 찔러보기
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+    }
     try:
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/123.0.0.0 Safari/537.36"}
-        res = requests.get(url, headers=headers, timeout=3)
-        if res.status_code == 200 and "__NEXT_DATA__" in res.text:
+        res = requests.get(url, headers=headers, timeout=5)
+        if res.status_code == 200:
             return res.text
-    except Exception: pass
-
-    print(f"[CCTV-DEBUG] 🚧 다이렉트 접속 차단됨. 글로벌 프록시 우주선 출격!", flush=True)
-
-    # 2. 확실하게 성공했던 CorsProxy와 CodeTabs만 사용 (에러 많던 AllOrigins 제거)
-    proxies = [
-        {"name": "CorsProxy", "url": f"https://corsproxy.io/?{urllib.parse.quote(url)}"},
-        {"name": "CodeTabs", "url": f"https://api.codetabs.com/v1/proxy?quest={urllib.parse.quote(url)}"}
-    ]
-
-    for proxy in proxies:
-        try:
-            res = requests.get(proxy["url"], timeout=10)
-            if res.status_code == 200 and len(res.text) > 5000:
-                # ✨ 핵심: 가져온 HTML이 네이버 쇼핑 PC버전 데이터가 맞는지 검증!
-                if "__NEXT_DATA__" in res.text:
-                    print(f"[CCTV-DEBUG] 🌐 무료 프록시 [{proxy['name']}]로 완벽 우회 성공 (데이터 정상)!", flush=True)
-                    return res.text
-                else:
-                    print(f"[CCTV-DEBUG] ⚠️ 프록시 [{proxy['name']}] 접속은 성공했으나, 캡챠 또는 가짜 화면임.", flush=True)
-        except Exception as e:
-            print(f"[CCTV-DEBUG] ⚠️ 프록시 [{proxy['name']}] 통신 에러: {e}", flush=True)
-
-    print(f"[CCTV-DEBUG] 🚨 모든 프록시 우회 실패. 데이터를 찾을 수 없습니다.", flush=True)
+        else:
+            print(f"[CCTV-DEBUG] ❌ 네이버 접근 차단됨 (HTTP {res.status_code}) - IP 밴이 아직 풀리지 않았습니다.", flush=True)
+    except Exception as e:
+        print(f"[CCTV-DEBUG] ❌ 통신 에러: {e}", flush=True)
     return ""
 
 def get_naver_shopping_info(queries, target_mall, find_rank=False):
@@ -195,7 +177,6 @@ def get_naver_shopping_info(queries, target_mall, find_rank=False):
         max_pages = 10 if find_rank else 1 
 
         for page in range(1, max_pages + 1):
-            # ✨ 핵심: 다시 PC 버전 URL로 복구! (m.search.shopping... 제거)
             url = f"https://search.shopping.naver.com/book/search?query={urllib.parse.quote(q)}&pagingIndex={page}&pagingSize=40"
             html_text = get_html_with_bot_spoofing(url)
             if not html_text: break
@@ -222,7 +203,6 @@ def get_naver_shopping_info(queries, target_mall, find_rank=False):
                                 
                                 result['my_link'] = prod.get('mallPcUrl', prod.get('mallProductUrl', prod.get('pcUrl', '-')))
                                 result['my_title'] = clean_text(prod.get('productTitle', prod.get('bookTitle', '')))
-                                print(f"[CCTV-DEBUG] 🎯 카탈로그 매칭 완료! Rank: {result['rank']}", flush=True)
                                 return result
                         if not find_rank: return result 
                         else: break 
@@ -245,7 +225,6 @@ def get_naver_shopping_info(queries, target_mall, find_rank=False):
                             
                             result['my_link'] = prod.get('mallPcUrl', prod.get('mallProductUrl', prod.get('pcUrl', '-')))
                             result['my_title'] = clean_text(prod.get('productTitle', prod.get('bookTitle', '')))
-                            print(f"[CCTV-DEBUG] 🎯 일반목록 매칭 완료! Rank: {result['rank']}", flush=True)
                             return result
                 except Exception: pass
             if find_rank: time.sleep(0.5) 
@@ -270,25 +249,24 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     
                 keyword_text = str(kw.keyword or "")
                 target_isbn = str(kw.isbn).strip().replace('-', '') if kw.isbn and kw.isbn != '-' else ""
-                print(f"\n[CCTV-DEBUG] 🛠️ 항목 처리 시작: ID={k_id}, KW=[{keyword_text}], ISBN=[{target_isbn}]", flush=True)
+                print(f"\n[CCTV-DEBUG] 🛠️ 항목 수집 시작 (오리지널 엔진): ID={k_id}, KW=[{keyword_text}]", flush=True)
                 db.session.commit()
 
                 updates = {}
                 kw_info = {}
 
-                # 1. 순위 파악 (프록시 스크래핑)
+                # 1. 순위 파악
                 if update_mode in ['all', 'rank']:
                     kw_info = get_naver_shopping_info([keyword_text], target_mall_name, find_rank=True)
                     updates['store_rank'] = kw_info.get('rank', '500위 밖')
 
-                # 2. 구매수 파악 (프록시 스크래핑)
+                # 2. 구매수 및 상품정보 파악
                 search_list = [target_isbn] if target_isbn else [keyword_text]
                 purchase_info = {}
                 if update_mode in ['all', 'purchase']:
                     purchase_info = get_naver_shopping_info(search_list, target_mall_name, find_rank=False)
                     updates['purchase_count'] = purchase_info.get('my_purchase', '-')
 
-                # 3. 상품 정보 덮어쓰기
                 if update_mode == 'all':
                     updates['product_link'] = purchase_info.get('my_link') or kw_info.get('my_link') or '-'
                     updates['price'] = purchase_info.get('my_price') or kw_info.get('my_price') or '-'
@@ -296,15 +274,20 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     updates['book_title'] = purchase_info.get('my_title') or kw_info.get('my_title') or '-'
                     updates['store_name'] = target_mall_name
 
+                    # API는 정보 '보완용(이름, 출판사 등)'으로만 얌전하게 사용
                     if api_headers and search_client_id:
                         for sq in search_list:
                             try:
-                                api_res = requests.get(f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(sq)}&display=100", headers=api_headers, timeout=5)
+                                api_res = requests.get(f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(sq)}&display=100", headers=api_headers, timeout=3)
                                 if api_res.status_code == 200:
                                     for item in api_res.json().get('items', []):
                                         if safe_target in item.get('mallName', '').lower().replace(" ", ""):
                                             clean_t = clean_text(item.get('title', ''))
                                             if clean_t and clean_t != '-': updates['book_title'] = clean_t
+                                            
+                                            if updates.get('price', '-') == '-':
+                                                p = item.get('lprice', '0')
+                                                if p.isdigit() and p != '0': updates['price'] = f"{int(p):,}원"
                                             break
                             except Exception: pass
 
@@ -330,7 +313,7 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                         if updates.get('shipping_fee') and updates['shipping_fee'] != '-': kw.shipping_fee = updates['shipping_fee']
                         kw.store_name = updates.get('store_name', target_mall_name)
                     
-                    print(f"[CCTV-DEBUG] ✅ DB 처리 완료: Rank={kw.store_rank}", flush=True)
+                    print(f"[CCTV-DEBUG] ✅ DB 처리 완료: Rank={kw.store_rank}, Title={kw.book_title}", flush=True)
                     db.session.commit()
 
             except Exception as e:
@@ -340,7 +323,10 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     if update_mode in ['all', 'rank']: kw.store_rank = "에러"
                     db.session.commit()
             
-            time.sleep(1.0) 
+            # ✨ 핵심: 한 항목을 처리한 뒤 네이버가 매크로로 인식하지 못하도록 2.5초 ~ 4초 랜덤으로 무조건 멈춰서 쉬어갑니다!
+            sleep_time = random.uniform(2.5, 4.0)
+            print(f"[CCTV-DEBUG] ⏳ 차단 방지를 위해 {sleep_time:.1f}초 대기 중...", flush=True)
+            time.sleep(sleep_time)
 
 @monitoring_bp.route('/api/refresh_all_ranks', methods=['POST'])
 @login_required
