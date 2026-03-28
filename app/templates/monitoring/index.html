@@ -1,112 +1,120 @@
 {% extends "base.html" %}
 {% block content %}
-<h3 class="mb-4 fw-bold">스터디박스 모니터링 (A/B/C/MAIN 등급 수신함)</h3>
+<div class="container-fluid py-3 px-sm-2 px-md-4">
+    <h3 class="mb-3 fw-bold fs-4 fs-md-3">스터디박스 모니터링 <span class="d-none d-md-inline">(A/B/C/MAIN 등급 수신함)</span></h3>
 
-<ul class="nav nav-tabs mb-4" id="gradeTabs">
-    <li class="nav-item">
-        <a class="nav-link active fw-bold text-dark" href="#" onclick="changeGradeTab('A', event)" id="tab-A" style="font-size: 1.1rem;">
-            A등급 <span class="badge bg-primary rounded-pill ms-1">0</span>
-        </a>
-    </li>
-    <li class="nav-item">
-        <a class="nav-link fw-bold text-secondary" href="#" onclick="changeGradeTab('B', event)" id="tab-B" style="font-size: 1.1rem;">
-            B등급 <span class="badge bg-secondary rounded-pill ms-1">0</span>
-        </a>
-    </li>
-    <li class="nav-item">
-        <a class="nav-link fw-bold text-secondary" href="#" onclick="changeGradeTab('C', event)" id="tab-C" style="font-size: 1.1rem;">
-            C등급 <span class="badge bg-secondary rounded-pill ms-1">0</span>
-        </a>
-    </li>
-    <li class="nav-item">
-        <a class="nav-link fw-bold text-danger" href="#" onclick="changeGradeTab('MAIN', event)" id="tab-MAIN" style="font-size: 1.1rem;">
-            MAIN <span class="badge bg-danger rounded-pill ms-1">0</span>
-        </a>
-    </li>
-</ul>
+    <ul class="nav nav-tabs mb-3 d-flex flex-nowrap overflow-auto hide-scrollbar" id="gradeTabs" style="white-space: nowrap;">
+        <li class="nav-item">
+            <a class="nav-link active fw-bold text-dark px-2 px-md-3" href="#" onclick="changeGradeTab('A', event)" id="tab-A" style="font-size: 1.05rem;">
+                A등급 <span class="badge bg-primary rounded-pill ms-1">0</span>
+            </a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link fw-bold text-secondary px-2 px-md-3" href="#" onclick="changeGradeTab('B', event)" id="tab-B" style="font-size: 1.05rem;">
+                B등급 <span class="badge bg-secondary rounded-pill ms-1">0</span>
+            </a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link fw-bold text-secondary px-2 px-md-3" href="#" onclick="changeGradeTab('C', event)" id="tab-C" style="font-size: 1.05rem;">
+                C등급 <span class="badge bg-secondary rounded-pill ms-1">0</span>
+            </a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link fw-bold text-danger px-2 px-md-3" href="#" onclick="changeGradeTab('MAIN', event)" id="tab-MAIN" style="font-size: 1.05rem;">
+                MAIN <span class="badge bg-danger rounded-pill ms-1">0</span>
+            </a>
+        </li>
+    </ul>
 
-<div class="row">
-    <div class="col-12">
-        <div class="card shadow-sm border-0 border-top border-primary border-3">
-            <div class="card-body p-4">
-                <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-                    <div>
-                        <h6 class="fw-bold mb-1 text-primary">체크박스 다중 선택 및 ISBN 업데이트</h6>
-                        <span class="text-muted small">
-                            <i class="bi bi-info-circle text-primary"></i> 
-                            체크박스를 클릭하고 다른 체크박스를 <b>Shift + 클릭</b>하면 그 사이의 모든 항목이 한 번에 선택됩니다!
-                        </span>
-                    </div>
-                    <div class="d-flex flex-wrap gap-2 align-items-center">
-                        <div class="input-group shadow-sm me-2" style="width: auto;">
-                            <select id="moveGradeSelect" class="form-select fw-bold border-primary text-primary" style="cursor: pointer;">
-                                <option value="MAIN">MAIN 이동</option>
-                                <option value="A">A등급 이동</option>
-                                <option value="B">B등급 이동</option>
-                                <option value="C">C등급 이동</option>
-                            </select>
-                            <button class="btn btn-outline-primary fw-bold" onclick="moveSelectedGrade()">
-                                <i class="bi bi-folder-symlink"></i> 적용
+    <div class="row">
+        <div class="col-12">
+            <div class="card shadow-sm border-0 border-top border-primary border-3">
+                <div class="card-body p-2 p-md-4">
+                    
+                    <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center mb-3 gap-3">
+                        <div>
+                            <h6 class="fw-bold mb-1 text-primary fs-6 fs-md-5">체크박스 다중 선택 및 기능 관리</h6>
+                            <span class="text-muted small d-none d-md-block">
+                                <i class="bi bi-info-circle text-primary"></i> 
+                                체크박스를 클릭하고 다른 체크박스를 <b>Shift + 클릭</b>하면 그 사이의 모든 항목이 한 번에 선택됩니다!
+                            </span>
+                        </div>
+                        
+                        <div class="d-flex flex-column flex-md-row gap-2 control-btns">
+                            <div class="input-group shadow-sm w-100 w-md-auto">
+                                <select id="moveGradeSelect" class="form-select fw-bold border-primary text-primary" style="cursor: pointer;">
+                                    <option value="MAIN">MAIN 이동</option>
+                                    <option value="A">A등급 이동</option>
+                                    <option value="B">B등급 이동</option>
+                                    <option value="C">C등급 이동</option>
+                                </select>
+                                <button class="btn btn-outline-primary fw-bold" onclick="moveSelectedGrade()">
+                                    <i class="bi bi-folder-symlink"></i> 적용
+                                </button>
+                            </div>
+                            <button class="btn btn-outline-warning fw-bold shadow-sm w-100 w-md-auto" onclick="clearSelectedData()">
+                                <i class="bi bi-eraser"></i> 데이터 초기화
+                            </button>
+                            <button class="btn btn-dark fw-bold shadow-sm w-100 w-md-auto" onclick="exportToExcel()">
+                                <i class="bi bi-file-earmark-excel"></i> 엑셀 다운로드
+                            </button>
+                            <button id="refreshIsbnBtn" class="btn btn-success fw-bold shadow-sm w-100 w-md-auto" onclick="refreshByIsbn()">
+                                <i class="bi bi-upc-scan"></i> 선택 항목 ISBN 업데이트
                             </button>
                         </div>
-                        <button class="btn btn-outline-warning fw-bold shadow-sm" onclick="clearSelectedData()">
-                            <i class="bi bi-eraser"></i> 데이터 초기화
-                        </button>
-                        <button class="btn btn-dark fw-bold shadow-sm" onclick="exportToExcel()">
-                            <i class="bi bi-file-earmark-excel"></i> 엑셀 다운로드
-                        </button>
-                        <button id="refreshIsbnBtn" class="btn btn-success fw-bold shadow-sm px-4" onclick="refreshByIsbn()">
-                            <i class="bi bi-upc-scan"></i> 선택 항목 ISBN 업데이트
-                        </button>
                     </div>
-                </div>
 
-                <div class="d-flex align-items-center mb-3 p-2 bg-light rounded border flex-wrap gap-2">
-                    <div class="d-flex align-items-center">
-                        <i class="bi bi-search text-secondary ms-1 me-2"></i>
-                        <select id="searchCategory" class="form-select form-select-sm w-auto me-2 fw-bold" style="cursor: pointer;">
-                            <option value="all">전체 검색</option>
-                            <option value="keyword">키워드</option>
-                            <option value="publisher">출판사명</option>
-                            <option value="isbn">ISBN</option>
-                        </select>
-                        <input type="text" id="searchInput" class="form-control form-control-sm" style="width: 200px;" placeholder="검색어를 입력하세요...">
+                    <div class="d-flex flex-column flex-md-row align-items-md-center mb-2 p-2 bg-light rounded border gap-2 search-area">
+                        <div class="d-flex align-items-center flex-grow-1 w-100">
+                            <i class="bi bi-search text-secondary ms-1 me-2 d-none d-sm-block"></i>
+                            <select id="searchCategory" class="form-select form-select-sm me-2 fw-bold" style="cursor: pointer; max-width: 120px;">
+                                <option value="all">전체 검색</option>
+                                <option value="keyword">키워드</option>
+                                <option value="publisher">출판사명</option>
+                                <option value="isbn">ISBN</option>
+                            </select>
+                            <input type="text" id="searchInput" class="form-control form-control-sm flex-grow-1" placeholder="검색어를 입력하세요...">
+                        </div>
+                        
+                        <div class="vr mx-2 d-none d-md-block"></div>
+                        
+                        <div class="d-flex align-items-center w-100 w-md-auto justify-content-end mt-2 mt-md-0">
+                            <i class="bi bi-sort-down text-secondary me-2"></i>
+                            <select id="sortOption" class="form-select form-select-sm fw-bold text-primary w-100 w-md-auto" style="cursor: pointer; border-color: #0d6efd; min-width: 140px;">
+                                <option value="recent">최근 등록순</option>
+                                <option value="vol_desc">검색량 높은순</option>
+                                <option value="vol_asc">검색량 낮은순</option>
+                            </select>
+                        </div>
                     </div>
-                    <div class="vr mx-2 d-none d-md-block"></div>
-                    <div class="d-flex align-items-center">
-                        <i class="bi bi-sort-down text-secondary me-2"></i>
-                        <select id="sortOption" class="form-select form-select-sm w-auto fw-bold text-primary" style="cursor: pointer; border-color: #0d6efd;">
-                            <option value="recent">최근 등록순</option>
-                            <option value="vol_desc">네이버 검색량 높은순</option>
-                            <option value="vol_asc">네이버 검색량 낮은순</option>
-                        </select>
+                    
+                    <div class="mobile-scroll-guide"><i class="bi bi-arrows-expand"></i> 표를 좌우로 스와이프 하세요 👉</div>
+                    
+                    <div class="table-responsive border rounded bg-white" style="max-height: 65vh; overflow-y: auto;">
+                        <table class="table table-hover table-bordered text-center align-middle mb-0" style="font-size: 0.85rem; white-space: nowrap;">
+                            <thead class="table-light text-muted" style="position: sticky; top: 0; z-index: 1;">
+                                <tr>
+                                    <th style="width: 40px;"><input type="checkbox" id="selectAll" class="form-check-input" style="cursor: pointer;" onclick="toggleAll(this)"></th>
+                                    <th>순번</th>
+                                    <th>키워드</th>
+                                    <th>네이버카운트</th>
+                                    <th>스터디박스 순위</th>
+                                    <th>키워드링크</th>
+                                    <th>상품링크</th>
+                                    <th>출판사명<br><small class="text-muted">(제조사명)</small></th>
+                                    <th>공급률</th>
+                                    <th>ISBN<br><small class="text-muted">(판매자 상품코드)</small></th>
+                                    <th>가격</th>
+                                    <th>택배비</th>
+                                    <th class="text-primary fw-bold">상품명</th>
+                                    <th>관리</th>
+                                </tr>
+                            </thead>
+                            <tbody id="savedKeywordsBody">
+                                <tr><td colspan="14" class="text-center py-5 text-muted">데이터를 가져오는 중입니다...</td></tr>
+                            </tbody>
+                        </table>
                     </div>
-                </div>
-                
-                <div class="table-responsive border rounded" style="max-height: 600px; overflow-y: auto;">
-                    <table class="table table-hover table-bordered text-center align-middle mb-0" style="font-size: 0.85rem; white-space: nowrap;">
-                        <thead class="table-light text-muted" style="position: sticky; top: 0; z-index: 1;">
-                            <tr>
-                                <th style="width: 40px;"><input type="checkbox" id="selectAll" class="form-check-input" style="cursor: pointer;" onclick="toggleAll(this)"></th>
-                                <th>순번</th>
-                                <th>키워드</th>
-                                <th>네이버카운트</th>
-                                <th>스터디박스 순위</th>
-                                <th>키워드링크</th>
-                                <th>상품링크</th>
-                                <th>출판사명<br><small class="text-muted">(제조사명)</small></th>
-                                <th>공급률</th>
-                                <th>ISBN<br><small class="text-muted">(판매자 상품코드)</small></th>
-                                <th>가격</th>
-                                <th>택배비</th>
-                                <th class="text-primary fw-bold">상품명</th>
-                                <th>관리</th>
-                            </tr>
-                        </thead>
-                        <tbody id="savedKeywordsBody">
-                            <tr><td colspan="14" class="text-center py-5 text-muted">데이터를 가져오는 중입니다...</td></tr>
-                        </tbody>
-                    </table>
                 </div>
             </div>
         </div>
@@ -118,6 +126,7 @@
     .bg-neon-yellow { background-color: #ffff00 !important; color: #000 !important; font-weight: 800; }
     .bg-neon-orange { background-color: #ff9900 !important; color: #000 !important; font-weight: 800; }
     .bg-neon-pink { background-color: #ffb6c1 !important; color: #000 !important; font-weight: 800; }
+    
     .edit-input { min-width: 70px; max-width: 150px; text-align: center; }
     .rank-up { color: #dc3545; font-weight: bold; font-size: 0.8rem; }
     .rank-down { color: #0d6efd; font-weight: bold; font-size: 0.8rem; }
@@ -125,9 +134,35 @@
     .row-selected { background-color: #e8f4f8 !important; }
     .editable-cell { cursor: pointer; transition: background-color 0.2s; }
     .editable-cell:hover { background-color: #f8f9fa; }
+    
+    .hide-scrollbar::-webkit-scrollbar { display: none; }
+    .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    
+    .mobile-scroll-guide { display: none; }
+
+    @media (max-width: 768px) {
+        .control-btns .btn, .control-btns .input-group { width: 100% !important; }
+        .w-md-auto { width: 100% !important; }
+        .table { font-size: 0.75rem !important; } 
+        .table th, .table td { padding: 0.3rem !important; } 
+        .mobile-scroll-guide { 
+            display: block; 
+            font-size: 0.8rem; 
+            color: #dc3545; 
+            font-weight: bold; 
+            text-align: right; 
+            margin-bottom: 5px; 
+            animation: pulse 2s infinite;
+        }
+    }
+    
+    @keyframes pulse {
+        0% { opacity: 0.7; }
+        50% { opacity: 1; transform: translateX(-3px); }
+        100% { opacity: 0.7; }
+    }
 </style>
 
-<!-- ✨ 무한 로딩의 범인이었던 누락된 jQuery 스크립트! 안전하게 추가 완료! -->
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 
 <script>
@@ -184,7 +219,7 @@
     });
 
     async function loadSavedKeywords() {
-        if (isEditing) return; // 수정 중일 때는 데이터 갱신 보류
+        if (isEditing) return; 
         try {
             const res = await fetch("{{ url_for('monitoring.get_saved_keywords') }}");
             const result = await res.json();
@@ -277,7 +312,7 @@
 
             tbody.innerHTML = filteredData.map((k, index) => {
                 let linkBtn = '<span class="text-muted">-</span>';
-                if (k.product_link !== '-' && k.product_link !== '') {
+                if (k.product_link && k.product_link !== '-' && k.product_link !== '') {
                     let finalUrl = k.product_link.startsWith('http') ? k.product_link : 'http://' + k.product_link;
                     linkBtn = `<a href="${finalUrl}" target="_blank" class="btn btn-sm btn-outline-primary py-0 px-2 text-decoration-none"><i class="bi bi-link-45deg"></i> 상품</a>`;
                 }
@@ -304,7 +339,7 @@
                 let titleNameDisplay = safeTitleName.includes('⚠️') ? `<span class="text-danger fw-bold">${safeTitleName}</span>` : `<span class="text-dark fw-bold">${safeTitleName}</span>`;
                 let isChecked = checkedIds.has(k.id.toString()) ? 'checked' : '';
                 
-                // 네이버 도서검색 전용 링크
+                // ✨ 네이버 도서검색 링크로 완벽하게 고정!
                 let searchLink = `https://search.shopping.naver.com/book/search?query=${encodeURIComponent(k.keyword || '')}`;
 
                 return `
@@ -314,7 +349,9 @@
                     <td class="align-middle ${kwBgColor}">${k.keyword || '-'}</td>
                     <td class="align-middle ${kwBgColor} fs-6">${(k.search_volume || 0).toLocaleString()}</td>
                     <td class="align-middle ${kwBgColor} text-dark" id="rank_${k.id}" data-val="${safeRank}">${rankDisplay}</td>
+                    
                     <td class="align-middle"><a href="${searchLink}" target="_blank" class="btn btn-sm btn-outline-secondary py-0 px-2 text-decoration-none"><i class="bi bi-search"></i> 도서검색</a></td>
+                    
                     <td class="align-middle" id="plink_${k.id}" data-val="${k.product_link || '-'}">${linkBtn}</td>
                     
                     <td class="align-middle text-muted editable-cell" data-id="${k.id}" data-field="publisher" title="더블클릭하여 수정">${k.publisher || '-'}</td>
@@ -336,7 +373,6 @@
         }
     }
 
-    // ✨ 완벽한 이벤트 위임을 통한 더블클릭 로직
     $(document).on('dblclick', '.editable-cell', function() {
         if (isEditing) return;
         isEditing = true; 
