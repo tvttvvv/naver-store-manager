@@ -94,7 +94,6 @@ def update_keyword():
     kw = MonitoredKeyword.query.filter_by(id=kw_id, user_id=current_user.id).first()
     if kw:
         new_isbn = request.form.get('isbn', '-').strip()
-        
         if new_isbn and new_isbn != '-':
             duplicate = MonitoredKeyword.query.filter(
                 MonitoredKeyword.user_id == current_user.id,
@@ -160,7 +159,7 @@ def get_html_with_bot_spoofing(url):
     ]
     for headers in bot_headers:
         try:
-            res = requests.get(url, headers=headers, timeout=6)
+            res = requests.get(url, headers=headers, timeout=5)
             if res.status_code == 200 and len(res.text) > 5000:
                 return res.text
             elif res.status_code == 418:
@@ -257,45 +256,54 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                 kw_info = {}
 
                 # ========================================================
-                # 1. 순위 파악
+                # 1. 순위 파악 (웹스크래핑 시도 -> 차단 시 500위 밖)
                 # ========================================================
                 if update_mode in ['all', 'rank']:
                     kw_info = get_naver_shopping_info([keyword_text], target_mall_name, find_rank=True)
                     updates['store_rank'] = kw_info.get('rank', '500위 밖')
 
-                # 🚨 [비상 탈출구] 500위 밖이 떴을 경우 무조건 API 시도 (에러 메시지 상세 출력)
-                if updates.get('store_rank', '500위 밖') == '500위 밖':
-                    if api_headers and search_client_id:
-                        print(f"[CCTV-DEBUG] 🚨 웹 스크래핑 차단 의심. API 비상 순위 탐색 가동: [{keyword_text}]", flush=True)
-                        found_rank = False
-                        try:
-                            for start_idx in range(1, 402, 100):
-                                if found_rank: break
-                                api_url = f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(keyword_text)}&display=100&start={start_idx}"
-                                api_res = requests.get(api_url, headers=api_headers, timeout=5)
+                # ========================================================
+                # 🚨 [API 엑스레이 투시경] 500위 밖일 때 API 응답 해부
+                # ========================================================
+                if updates.get('store_rank', '500위 밖') == '500위 밖' and api_headers and search_client_id:
+                    print(f"[CCTV-DEBUG] 🚨 웹 스크래핑 완전 차단. 네이버 API(비상 탈출) 가동: [{keyword_text}]", flush=True)
+                    found_rank = False
+                    try:
+                        for start_idx in range(1, 402, 100):
+                            if found_rank: break
+                            api_url = f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(keyword_text)}&display=100&start={start_idx}"
+                            api_res = requests.get(api_url, headers=api_headers, timeout=5)
+                            
+                            if api_res.status_code == 200:
+                                items = api_res.json().get('items', [])
+                                print(f"[CCTV-DEBUG] 📊 API 통신 성공! ({start_idx}위 ~ {start_idx + len(items) - 1}위 데이터 {len(items)}개 확보)", flush=True)
                                 
-                                # ✨ API 성공 여부 정밀 판독
-                                if api_res.status_code == 200:
-                                    for idx, item in enumerate(api_res.json().get('items', [])):
-                                        if safe_target in item.get('mallName', '').lower().replace(" ", ""):
-                                            updates['store_rank'] = str(start_idx + idx)
-                                            kw_info['my_title'] = clean_text(item.get('title', ''))
-                                            p = item.get('lprice', '0')
-                                            if p.isdigit() and p != '0': kw_info['my_price'] = f"{int(p):,}원"
-                                            raw_link = item.get('link', '-')
-                                            if raw_link != '-': kw_info['my_link'] = raw_link.replace('http://', 'https://')
-                                            updates['store_name'] = item.get('mallName')
-                                            found_rank = True
-                                            print(f"[CCTV-DEBUG] 🎯 API 비상 구출 성공! 순위: {updates['store_rank']}위", flush=True)
-                                            break
-                                else:
-                                    print(f"[CCTV-DEBUG] ❌ 네이버 API 통신 실패! (상태코드: {api_res.status_code})", flush=True)
-                                    print(f"[CCTV-DEBUG] ❌ API 응답 메시지: {api_res.text}", flush=True)
-                                    break # 에러가 났다면 쓸데없이 4번 더 돌지 않고 즉시 중단
-                        except Exception as e: 
-                            print(f"[CCTV-DEBUG] 💥 API 요청 중 파이썬 내부 에러: {e}", flush=True)
-                    else:
-                        print(f"[CCTV-DEBUG] ⚠️ [경고] 설정 탭에 네이버 검색 API 키(ID/Secret)가 없어 API 비상 탐색 불가!", flush=True)
+                                # ✨ X-Ray: 1페이지(1위~100위) 상위 5개 쇼핑몰 이름 훔쳐보기!
+                                if items and start_idx == 1:
+                                    sample_malls = [item.get('mallName', '알수없음') for item in items[:5]]
+                                    print(f"[CCTV-DEBUG] 🧐 API 검색결과 1위~5위 몰 이름: {sample_malls}", flush=True)
+
+                                for idx, item in enumerate(items):
+                                    mall = item.get('mallName', '')
+                                    if safe_target in mall.lower().replace(" ", ""):
+                                        updates['store_rank'] = str(start_idx + idx)
+                                        kw_info['my_title'] = clean_text(item.get('title', ''))
+                                        p = item.get('lprice', '0')
+                                        if p.isdigit() and p != '0': kw_info['my_price'] = f"{int(p):,}원"
+                                        raw_link = item.get('link', '-')
+                                        if raw_link != '-': kw_info['my_link'] = raw_link.replace('http://', 'https://')
+                                        updates['store_name'] = item.get('mallName')
+                                        found_rank = True
+                                        print(f"[CCTV-DEBUG] 🎯 API 비상 구출 성공! 순위: {updates['store_rank']}위", flush=True)
+                                        break
+                                
+                                if not found_rank:
+                                    print(f"[CCTV-DEBUG] ⚠️ API {start_idx}위~{start_idx+len(items)-1}위 내에서 타겟몰('{target_mall_name}')을 찾지 못했습니다.", flush=True)
+                            else:
+                                print(f"[CCTV-DEBUG] ❌ API 통신 에러 발생! 상태코드: {api_res.status_code} / 이유: {api_res.text}", flush=True)
+                                break
+                    except Exception as e: 
+                        print(f"[CCTV-DEBUG] 💥 API 로직 내부 에러: {e}", flush=True)
 
                 # ========================================================
                 # 2. 구매수 파악 (웹스크래핑 차단 시 '-' 로 남음)
@@ -316,7 +324,6 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     updates['book_title'] = purchase_info.get('my_title') or kw_info.get('my_title') or '-'
                     updates['store_name'] = target_mall_name
 
-                    # API로 상품 정보 응급 복구 (에러 메시지 상세 출력)
                     if api_headers and search_client_id:
                         for sq in search_list:
                             try:
@@ -333,10 +340,7 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                                                 raw_link = item.get('link', '-')
                                                 if raw_link != '-': updates['product_link'] = raw_link.replace('http://', 'https://')
                                             break
-                                else:
-                                    print(f"[CCTV-DEBUG] ❌ 네이버 API 통신 실패 (정보검색)! 상태: {api_res.status_code}, 응답: {api_res.text}", flush=True)
-                            except Exception as e: 
-                                print(f"[CCTV-DEBUG] 💥 API 요청 중 파이썬 내부 에러 (정보검색): {e}", flush=True)
+                            except Exception: pass
 
                         if target_isbn:
                             try:
