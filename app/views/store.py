@@ -212,7 +212,7 @@ def background_delete_job(app, store_id, delete_mode, isbn_list, user_id):
 
 
 # ==============================================================================
-# 2. 상품 중복 체크용 멀티 엔진
+# 2. 상품 중복 체크용 멀티 엔진 (✨ 판매중 필터링 완벽 수정 ✨)
 # ==============================================================================
 global_dup_tasks = {}
 
@@ -248,7 +248,7 @@ def background_duplicate_check_job(app, store_id, user_id):
                 update_dup_task(user_id, store_id, status='error', message='API 인증에 실패했습니다.')
                 return
 
-            update_dup_task(user_id, store_id, status='start', message='현재 판매 중인 상품 목록 수집 시작...')
+            update_dup_task(user_id, store_id, status='start', message='현재 "판매 중(SALE)"인 상품 목록만 수집 시작...')
             url = "https://api.commerce.naver.com/external/v1/products/search"
             headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
             
@@ -277,18 +277,14 @@ def background_duplicate_check_job(app, store_id, user_id):
                 total_fetched += len(contents)
                 
                 for p in contents:
-                    c_prods = p.get('channelProducts', [{}])
-                    if not c_prods: continue
+                    # ✨ 치명적 버그 수정: channelProductStatusType 이 아니라, 
+                    # 확실하게 네이버가 보장하는 최상위 상태값(statusType)을 확인합니다!
+                    root_status = str(p.get('statusType', '')).upper()
                     
-                    # 네이버 커머스 API 상태값
-                    status_type = str(c_prods[0].get('channelProductStatusType', '')).upper()
-                    
-                    # ✨ 핵심 패치: 오직 "SALE(판매/전시 중)" 상태인 진짜 살아있는 상품만 검사 바구니에 넣습니다!
-                    # SUSPEND(판매/전시중지), PROHIBIT(금지), DELETED(삭제), OUTOFSTOCK(품절) 전부 제외!
-                    if status_type == 'SALE':
+                    if root_status == 'SALE':
                         all_products.append(p)
                     
-                update_dup_task(user_id, store_id, status='progress', current=len(all_products), message=f'스캔 중... (스토어 전체: {total_fetched}개 / 판매중 대상: {len(all_products)}개 확보)')
+                update_dup_task(user_id, store_id, status='progress', current=len(all_products), message=f'스캔 중... (스토어 전체: {total_fetched}개 / 실제 판매중: {len(all_products)}개 획득)')
                 
                 if len(contents) < 50: break
                 page += 1
@@ -309,7 +305,7 @@ def background_duplicate_check_job(app, store_id, user_id):
                 if not channel_products: continue
                     
                 channel_product = channel_products[0]
-                name = channel_product.get('name', '이름 없는 상품')
+                name = channel_product.get('name', p.get('name', '이름 없는 상품'))
                 prod_id = channel_product.get('channelProductNo', 'ID 없음')
                 
                 raw_isbn = p.get('sellerManagementCode', '')
