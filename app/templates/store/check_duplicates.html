@@ -115,7 +115,6 @@
         renderDynamicCards();
     }
 
-    // ✨ 중복 ISBN 일괄 복사 기능 ✨
     function copyIsbns(storeId) {
         const textArea = document.getElementById(`hidden_isbns_${storeId}`);
         if (!textArea || !textArea.value.trim()) {
@@ -127,6 +126,28 @@
         }).catch(err => {
             alert('복사에 실패했습니다. 권한을 확인해주세요.');
         });
+    }
+
+    // ✨ 중복 상품을 모두 판매중지 시키는 기능 추가 ✨
+    async function suspendDuplicates(storeId) {
+        const idsText = document.getElementById(`hidden_dup_ids_${storeId}`).value;
+        if (!idsText) { alert('중지할 상품이 없습니다.'); return; }
+        if (!confirm('발견된 중복 상품들을 모두 판매중지/전시중지 처리하시겠습니까? (되돌리려면 네이버에서 수동으로 바꿔야 합니다)')) return;
+        
+        try {
+            const fd = new FormData();
+            fd.append('store_id', storeId);
+            fd.append('duplicate_ids', idsText);
+            const res = await fetch("{{ url_for('store.suspend_duplicates') }}", { method: 'POST', body: fd });
+            const result = await res.json();
+            if (result.success) {
+                alert(result.message);
+            } else {
+                alert('처리 중 오류가 발생했습니다: ' + result.message);
+            }
+        } catch(e) {
+            alert('서버 요청에 실패했습니다.');
+        }
     }
 
     async function stopTask(storeId) {
@@ -146,21 +167,15 @@
     const btnRefresh = document.getElementById('btnRefresh');
 
     function startPolling() {
-        if (!pollingTimer) {
-            pollingTimer = setInterval(() => fetchStatus(false), 1500); // ✨ 브라우저 멈춤 방지를 위해 1.5초 간격으로 완화
-        }
+        if (!pollingTimer) pollingTimer = setInterval(() => fetchStatus(false), 1500);
     }
     
     function stopPolling() { 
-        if (pollingTimer) { 
-            clearInterval(pollingTimer); 
-            pollingTimer = null; 
-        } 
+        if (pollingTimer) { clearInterval(pollingTimer); pollingTimer = null; } 
     }
 
-    // isManual 플래그를 통해 사용자가 새로고침 버튼을 누른 건지 판별
     async function fetchStatus(isManual = false) {
-        if (isFetching && !isManual) return; // 통신 중첩 방지 (프리즈 해결)
+        if (isFetching && !isManual) return;
         isFetching = true;
         
         try {
@@ -168,11 +183,7 @@
             const data = await res.json();
             if (data.status === 'empty') return; 
             updateUI(data.tasks);
-        } catch (e) { 
-            console.error(e); 
-        } finally {
-            isFetching = false;
-        }
+        } catch (e) { console.error(e); } finally { isFetching = false; }
     }
 
     function updateUI(tasks) {
@@ -185,6 +196,10 @@
             const taskData = tasks[storeId];
             if (taskData.is_running) anyRunning = true;
             
+            // ✨ 새로고침하거나 나갔다 와도 체크박스와 카드를 유지하도록 수정! ✨
+            const cb = document.getElementById(`store_${storeId}`);
+            if (cb && !cb.checked) cb.checked = true;
+
             let card = document.getElementById(`task_card_${storeId}`);
             if (!card) {
                 card = document.createElement('div');
@@ -231,12 +246,9 @@
                 statusText.innerText = taskData.message;
             }
 
-            // 검사 완료 후 중복 리스트 렌더링 (ISBN 추가)
             if (taskData.status === 'done' && taskData.duplicates) {
-                // 이미 렌더링된 테이블이 있는지 체크하여 껌뻑거림 방지
                 if (!resultArea.innerHTML.includes('table-responsive')) {
                     if (taskData.duplicates.length > 0) {
-                        // 유효한 ISBN만 추출하여 숨겨진 textarea에 저장 ('ISBN없음'은 제외)
                         const validIsbns = taskData.duplicates.map(d => d.isbn).filter(isbn => isbn !== 'ISBN없음');
                         
                         let rows = taskData.duplicates.map(dup => `
@@ -249,14 +261,18 @@
                         
                         resultArea.innerHTML = `
                             <div class="d-flex justify-content-between align-items-center mb-2">
-                                <div class="alert alert-warning py-2 small mb-0 fw-bold text-dark w-100 me-2 border-0">
+                                <div class="alert alert-warning py-2 small mb-0 fw-bold text-dark flex-grow-1 me-2 border-0">
                                     <i class="bi bi-exclamation-triangle-fill text-danger me-1"></i>
                                     ${taskData.duplicates.length}개의 중복 상품 발견
                                 </div>
-                                <button class="btn btn-sm btn-dark fw-bold text-nowrap py-2" onclick="copyIsbns('${storeId}')">
-                                    <i class="bi bi-clipboard me-1"></i>ISBN 복사
+                                <button class="btn btn-sm btn-dark fw-bold text-nowrap py-2 me-1" onclick="copyIsbns('${storeId}')">
+                                    <i class="bi bi-clipboard"></i> 복사
+                                </button>
+                                <button class="btn btn-sm btn-danger fw-bold text-nowrap py-2" onclick="suspendDuplicates('${storeId}')">
+                                    <i class="bi bi-pause-circle"></i> 일괄 판매중지
                                 </button>
                                 <textarea id="hidden_isbns_${storeId}" class="d-none">${validIsbns.join('\n')}</textarea>
+                                <textarea id="hidden_dup_ids_${storeId}" class="d-none">${taskData.duplicates.map(d => d.duplicate_id).join(',')}</textarea>
                             </div>
                             <div class="table-responsive border rounded" style="max-height: 250px;">
                                 <table class="table table-sm table-hover mb-0" style="font-size: 0.8rem;">
@@ -270,7 +286,7 @@
                     } else {
                         resultArea.innerHTML = `
                             <div class="alert alert-success py-3 text-center mb-0 border-0 fw-bold">
-                                <i class="bi bi-check-circle-fill me-1"></i> 이 상점은 중복된 판매 상품이 없이 깨끗합니다!
+                                <i class="bi bi-check-circle-fill me-1"></i> 이 상점은 중복된 상품이 없이 깨끗합니다!
                             </div>
                         `;
                     }
@@ -279,14 +295,14 @@
                 resultArea.innerHTML = `
                     <div class="text-center py-4 text-muted border rounded bg-light">
                         <div class="spinner-border text-primary mb-2" role="status" style="width: 2rem; height: 2rem;"></div>
-                        <p class="small mb-0 fw-bold">네이버 스토어에서 판매중인 데이터를 분석하고 있습니다...</p>
+                        <p class="small mb-0 fw-bold">스토어에서 판매중인 데이터를 분석하고 있습니다...</p>
                     </div>
                 `;
             }
         }
         
         btnStopAll.classList.toggle('d-none', !anyRunning);
-        btnRefresh.classList.toggle('d-none', !anyTaskExists); // 작업이 하나라도 있으면 새로고침 표시
+        btnRefresh.classList.toggle('d-none', !anyTaskExists);
         submitBtn.disabled = anyRunning;
         submitBtn.innerHTML = anyRunning ? '<span class="spinner-border spinner-border-sm me-2"></span>백그라운드에서 검사 진행 중...' : '선택 상점 동시 중복 체크 시작';
         
@@ -307,7 +323,7 @@
             const result = await res.json();
             if (result.success) {
                 startPolling(); 
-                fetchStatus(true); // 요청 직후 즉시 1회 강제 갱신
+                fetchStatus(true);
             } else {
                 alert(result.message);
                 submitBtn.disabled = false;
