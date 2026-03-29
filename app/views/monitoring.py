@@ -164,8 +164,7 @@ def get_html_with_bot_spoofing(url):
         if res.status_code == 200: return res.text
         else:
             print(f"[CCTV-DEBUG] ❌ [웹 스크래핑] 네이버 차단됨 (HTTP {res.status_code}) - {url}", flush=True)
-    except Exception:
-        pass
+    except Exception: pass
     return ""
 
 def get_naver_shopping_info(queries, target_mall, find_rank=False):
@@ -223,88 +222,6 @@ def get_naver_shopping_info(queries, target_mall, find_rank=False):
             if find_rank: time.sleep(0.5) 
     return result
 
-# ✨ 핵심 패치: 네이버 API가 엉뚱한 데이터를 줄 때 절대 속지 않는 엄격한 저격수 로직
-def get_exact_product_info_commerce_api(token, keyword, isbn):
-    url = "https://api.commerce.naver.com/external/v1/products/search"
-    headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
-    matched_product = None
-    
-    print(f"\n[CCTV-DEBUG] 🟢 [커머스 API] 엄격한 매칭 모드 가동! (Target ISBN: [{isbn}], Target Keyword: [{keyword}])", flush=True)
-
-    # 1. ISBN으로 조회
-    if isbn and isbn != '-':
-        try:
-            payload = {"page": 1, "size": 50, "sellerManagementCode": isbn}
-            res = requests.post(url, headers=headers, json=payload, timeout=5)
-            if res.status_code == 200:
-                contents = res.json().get('contents', [])
-                if contents:
-                    print(f"[CCTV-DEBUG] 🟢 [커머스 API] ISBN 검색 요청 결과 {len(contents)}개 반환됨. 엄격 검증 시작...", flush=True)
-                    # API가 ISBN을 무시하고 전체 목록을 던져줄 수 있으므로, 결과 안에서 ISBN을 한번 더 확인합니다.
-                    for item in contents:
-                        item_isbn = str(item.get('sellerManagementCode') or '').strip()
-                        if item_isbn == str(isbn).strip():
-                            matched_product = item
-                            c_name = item.get('channelProducts', [{}])[0].get('name', item.get('name', ''))
-                            print(f"[CCTV-DEBUG] 🎯 [커머스 API] ISBN 완벽 일치 상품 발굴! -> [{c_name}]", flush=True)
-                            break
-                    if not matched_product:
-                        print(f"[CCTV-DEBUG] ❌ [커머스 API 방어 성공] 네이버 API가 엉뚱한 {len(contents)}개를 줬으나, ISBN이 일치하는 게 없어서 무시했습니다!", flush=True)
-        except Exception as e:
-            print(f"[CCTV-DEBUG] 💥 [커머스 API] ISBN 검색 에러: {e}", flush=True)
-
-    # 2. ISBN으로 못 찾았을 경우, 이름(키워드)으로 조회
-    if not matched_product and keyword and keyword != '-':
-        try:
-            payload = {"page": 1, "size": 50, "productName": keyword}
-            res = requests.post(url, headers=headers, json=payload, timeout=5)
-            if res.status_code == 200:
-                contents = res.json().get('contents', [])
-                if contents:
-                    for item in contents:
-                        c_name = item.get('channelProducts', [{}])[0].get('name', item.get('name', ''))
-                        # 검색한 키워드가 상품명에 100% 들어있는지 다시 한번 검증
-                        if keyword.replace(" ", "").lower() in c_name.replace(" ", "").lower():
-                            matched_product = item
-                            print(f"[CCTV-DEBUG] 🎯 [커머스 API] 상품명(키워드) 일치 상품 찾음! -> [{c_name}]", flush=True)
-                            break
-                    if not matched_product:
-                        print(f"[CCTV-DEBUG] ❌ [커머스 API 방어 성공] API 결과 중 키워드가 포함된 상품이 없어 무시했습니다!", flush=True)
-        except Exception as e:
-            print(f"[CCTV-DEBUG] 💥 [커머스 API] 키워드 검색 에러: {e}", flush=True)
-
-    result = {}
-    if matched_product:
-        c_no = matched_product.get('channelProducts', [{}])[0].get('channelProductNo')
-        o_no = matched_product.get('originProductNo')
-        
-        if c_no: result['my_link'] = f"https://smartstore.naver.com/main/products/{c_no}"
-        
-        sale_price = matched_product.get('salePrice')
-        if sale_price is not None: result['my_price'] = f"{sale_price:,}원"
-        
-        result['my_title'] = matched_product.get('channelProducts', [{}])[0].get('name', matched_product.get('name'))
-        
-        if o_no:
-            try:
-                detail_url = f"https://api.commerce.naver.com/external/v2/products/origin-products/{o_no}"
-                detail_res = requests.get(detail_url, headers=headers, timeout=5)
-                if detail_res.status_code == 200:
-                    origin_data = detail_res.json()
-                    delivery_fee = origin_data.get('deliveryInfo', {}).get('deliveryFee', {}).get('baseFee')
-                    if delivery_fee is not None:
-                        result['my_shipping'] = "무료" if delivery_fee == 0 else f"{delivery_fee:,}원"
-                    book_info = origin_data.get('detailAttribute', {}).get('bookInfo', {})
-                    if book_info and book_info.get('publisher'):
-                        result['my_publisher'] = book_info.get('publisher')
-            except Exception: pass
-        
-        print(f"[CCTV-DEBUG] 📦 [커머스 API 최종 추출 데이터]: {result}", flush=True)
-    else:
-        print(f"[CCTV-DEBUG] ❌ [커머스 API 결론] 내 상점에 등록된 상품 중 조건이 맞는 상품이 확실하게 존재하지 않습니다!", flush=True)
-
-    return result
-
 def scrape_smartstore_purchase_count(product_link):
     if not product_link or "smartstore.naver.com" not in product_link: return "-"
     try:
@@ -338,6 +255,64 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                 
             db.session.commit()
         except Exception: db.session.rollback()
+
+        # ✨ [궁극의 패치] 네이버 API의 멍청한 검색 필터에 의존하지 않고, 상점 전체를 1번만 가져와서 사전에 올립니다!
+        store_inventory = {}
+        store_inventory_by_name = {}
+        
+        if commerce_token and update_mode in ['all', 'purchase']:
+            print(f"\n[CCTV-DEBUG] 🟢 [커머스 API 풀스캔 가동] 네이버의 검색 오류를 피해 상점 전체를 메모리에 올립니다...", flush=True)
+            url = "https://api.commerce.naver.com/external/v1/products/search"
+            headers = {'Authorization': f'Bearer {commerce_token}', 'Content-Type': 'application/json'}
+            page = 1
+            fetched_count = 0
+            
+            while True:
+                try:
+                    payload = {"page": page, "size": 50, "orderType": "NO"}
+                    res = requests.post(url, headers=headers, json=payload, timeout=10)
+                    if res.status_code == 200:
+                        contents = res.json().get('contents', [])
+                        if not contents: break
+                        
+                        for p in contents:
+                            status_type = str(p.get('statusType', '')).upper()
+                            # 판매중이거나 대기중인 정상 상품만 캐싱!
+                            if status_type in ['SALE', 'WAIT']:
+                                c_prods = p.get('channelProducts', [{}])
+                                name = c_prods[0].get('name', p.get('name', '이름 없는 상품'))
+                                c_no = c_prods[0].get('channelProductNo')
+                                o_no = p.get('originProductNo')
+                                sale_price = p.get('salePrice')
+                                raw_isbn = str(p.get('sellerManagementCode', '')).strip()
+                                
+                                prod_data = {
+                                    'my_link': f"https://smartstore.naver.com/main/products/{c_no}" if c_no else '-',
+                                    'my_price': f"{sale_price:,}원" if sale_price is not None else '-',
+                                    'my_title': name,
+                                    'origin_no': o_no
+                                }
+                                
+                                # 가짜 ISBN 방어막
+                                dummy_isbns = ['isbn없음', '없음', 'none', 'null', '단품', '0', '-', '']
+                                if raw_isbn and raw_isbn.replace(" ", "").lower() not in dummy_isbns:
+                                    store_inventory[raw_isbn] = prod_data
+                                    
+                                clean_name = re.sub(r'[\s\-_\(\)\[\]]', '', name).lower().replace('복사본', '').replace('copy', '')
+                                store_inventory_by_name[clean_name] = prod_data
+                                
+                        fetched_count += len(contents)
+                        print(f"[CCTV-DEBUG] 🟢 [풀스캔] {page}페이지 로드 완료... (현재 {fetched_count}개 누적)", flush=True)
+                        page += 1
+                        time.sleep(0.2)
+                    else:
+                        print(f"[CCTV-DEBUG] ❌ [풀스캔 에러] API 응답 오류: {res.status_code}", flush=True)
+                        break
+                except Exception as e:
+                    print(f"[CCTV-DEBUG] 💥 [풀스캔 치명적 에러]: {e}", flush=True)
+                    break
+                    
+            print(f"[CCTV-DEBUG] ✅ [풀스캔 완료] 총 {len(store_inventory)}개의 고유 ISBN 및 {len(store_inventory_by_name)}개의 고유 상품명 캐싱 완료!", flush=True)
 
         for k_id in target_ids:
             try:
@@ -373,7 +348,7 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                                             break
                         except Exception: pass
 
-                # 2. 완벽한 상품 정보 덮어쓰기
+                # 2. 완벽한 상품 정보 덮어쓰기 (메모리에서 즉시 0.001초 만에 꺼내옵니다)
                 search_list = []
                 if target_isbn: search_list.append(target_isbn)
                 if keyword_text: search_list.append(keyword_text)
@@ -386,7 +361,36 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                 if update_mode == 'all':
                     exact_info = {}
                     if commerce_token:
-                        exact_info = get_exact_product_info_commerce_api(commerce_token, keyword_text, target_isbn)
+                        match = None
+                        # 1순위: ISBN 대조
+                        if target_isbn and target_isbn in store_inventory:
+                            match = store_inventory[target_isbn]
+                            print(f"[CCTV-DEBUG] 🎯 [풀스캔 매칭] ISBN 완벽 일치 상품 발굴! -> [{match['my_title']}]", flush=True)
+                        # 2순위: 상품명 쌩얼 대조
+                        else:
+                            clean_keyword = re.sub(r'[\s\-_\(\)\[\]]', '', keyword_text).lower().replace('복사본', '').replace('copy', '')
+                            if clean_keyword and clean_keyword in store_inventory_by_name:
+                                match = store_inventory_by_name[clean_keyword]
+                                print(f"[CCTV-DEBUG] 🎯 [풀스캔 매칭] 상품명 완벽 일치 상품 발굴! -> [{match['my_title']}]", flush=True)
+
+                        if match:
+                            exact_info = match.copy()
+                            o_no = match.get('origin_no')
+                            if o_no:
+                                try:
+                                    detail_url = f"https://api.commerce.naver.com/external/v2/products/origin-products/{o_no}"
+                                    detail_res = requests.get(detail_url, headers={'Authorization': f'Bearer {commerce_token}', 'Content-Type': 'application/json'}, timeout=5)
+                                    if detail_res.status_code == 200:
+                                        origin_data = detail_res.json()
+                                        delivery_fee = origin_data.get('deliveryInfo', {}).get('deliveryFee', {}).get('baseFee')
+                                        if delivery_fee is not None:
+                                            exact_info['my_shipping'] = "무료" if delivery_fee == 0 else f"{delivery_fee:,}원"
+                                        book_info = origin_data.get('detailAttribute', {}).get('bookInfo', {})
+                                        if book_info and book_info.get('publisher'):
+                                            exact_info['my_publisher'] = book_info.get('publisher')
+                                except Exception: pass
+                        else:
+                            print(f"[CCTV-DEBUG] ❌ [풀스캔 매칭 실패] '{keyword_text}' 에 일치하는 상품이 상점 캐시에 없습니다.", flush=True)
 
                     updates['product_link'] = exact_info.get('my_link') or purchase_info_web.get('my_link') or kw_info_web.get('my_link') or '-'
                     updates['price'] = exact_info.get('my_price') or purchase_info_web.get('my_price') or kw_info_web.get('my_price') or '-'
@@ -439,7 +443,6 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     if hasattr(kw, 'purchase_count') and 'purchase_count' in updates: 
                         kw.purchase_count = updates['purchase_count']
                     if update_mode == 'all':
-                        # 빈칸('-')이 아닌 제대로 된 데이터가 있을 때만 덮어쓰기! (원래 데이터 보호)
                         if updates.get('book_title') and updates['book_title'] != '-': kw.book_title = updates['book_title']
                         if updates.get('publisher') and updates['publisher'] != '-': kw.publisher = updates['publisher']
                         if updates.get('price') and updates['price'] != '-': kw.price = updates['price']
@@ -456,7 +459,8 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     if update_mode in ['all', 'rank']: kw.store_rank = "에러"
                     db.session.commit()
             
-            time.sleep(random.uniform(2.5, 4.0))
+            # API 보호를 위한 딜레이 (풀스캔을 이미 했기 때문에 좀 더 짧게 가져갑니다)
+            time.sleep(1.0)
 
 @monitoring_bp.route('/api/refresh_all_ranks', methods=['POST'])
 @login_required
@@ -496,7 +500,7 @@ def refresh_by_isbn():
     thread = Thread(target=async_refresh_by_isbn, args=(app, user_id, search_id, search_pw, target_ids, update_mode))
     thread.start()
     
-    msg = "데이터 수집을 시작합니다."
+    msg = "데이터 수집을 시작합니다. 상점 전체 목록을 동기화하므로 최초 10~20초 가량 소요될 수 있습니다."
     if update_mode == 'rank': msg = "순위 수집을 시작합니다."
     elif update_mode == 'purchase': msg = "구매수 수집을 시작합니다."
     
