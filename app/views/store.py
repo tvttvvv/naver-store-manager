@@ -11,7 +11,7 @@ from app.naver_api import get_naver_token, find_product_by_isbn, delete_product,
 store_bp = Blueprint('store', __name__)
 
 # ==============================================================================
-# 1. 일괄 삭제 관리용 엔진 (기존 완벽 유지)
+# 1. 일괄 삭제 관리용 엔진
 # ==============================================================================
 global_tasks = {}
 
@@ -211,7 +211,7 @@ def background_delete_job(app, store_id, delete_mode, isbn_list, user_id):
 
 
 # ==============================================================================
-# 2. ✨ 업데이트: 상품 중복 체크용 멀티 엔진 (판매중 필터 + ISBN 추출) ✨
+# 2. 상품 중복 체크용 멀티 엔진
 # ==============================================================================
 global_dup_tasks = {}
 
@@ -275,7 +275,7 @@ def background_duplicate_check_job(app, store_id, user_id):
                 
                 total_fetched += len(contents)
                 
-                # ✨ 핵심: '판매중(SALE)'인 상품만 골라냅니다.
+                # 판매중(SALE)인 상품만 골라냅니다.
                 for p in contents:
                     c_prods = p.get('channelProducts', [{}])
                     if c_prods and c_prods[0].get('saleStateType') == 'SALE':
@@ -303,7 +303,6 @@ def background_duplicate_check_job(app, store_id, user_id):
                 name = channel_product.get('name', '이름 없는 상품')
                 prod_id = channel_product.get('channelProductNo', 'ID 없음')
                 
-                # ✨ 핵심: ISBN(판매자 관리코드) 추출
                 isbn = p.get('sellerManagementCode')
                 if not isbn: isbn = 'ISBN없음'
                 
@@ -417,3 +416,39 @@ def stop_dup_task():
             sid = int(store_id)
             if sid in global_dup_tasks[user_id]: global_dup_tasks[user_id][sid]['is_running'] = False
     return jsonify({'success': True})
+
+# ✨ [신규] 중복 상품 일괄 중지 처리 엔드포인트 ✨
+@store_bp.route('/api/suspend_duplicates', methods=['POST'])
+@login_required
+def suspend_duplicates():
+    store_id = request.form.get('store_id')
+    dup_ids_str = request.form.get('duplicate_ids', '')
+    
+    if not store_id or not dup_ids_str:
+        return jsonify({'success': False, 'message': '필수 파라미터가 누락되었습니다.'})
+        
+    dup_ids = [cid.strip() for cid in dup_ids_str.split(',') if cid.strip()]
+    if not dup_ids:
+        return jsonify({'success': False, 'message': '중지할 유효한 상품 ID가 없습니다.'})
+        
+    user = User.query.get(current_user.id)
+    key = ApiKey.query.filter_by(id=int(store_id), owner=user).first()
+    if not key:
+        return jsonify({'success': False, 'message': '상점 인증 키를 찾을 수 없습니다.'})
+        
+    token = get_naver_token(key.client_id, key.client_secret)
+    if not token:
+        return jsonify({'success': False, 'message': '네이버 API 인증에 실패했습니다. 키를 다시 확인해주세요.'})
+        
+    success_count = 0
+    # 네이버 API 제한을 고려하여 500개씩 쪼개서 처리합니다.
+    for i in range(0, len(dup_ids), 500):
+        batch = dup_ids[i:i+500]
+        res = suspend_products_in_bulk(token, batch)
+        if '완료' in res or '불가' not in res: # suspend_products_in_bulk가 성공 시 '우회 완료'를 포함해 리턴함
+            success_count += len(batch)
+            
+    if success_count > 0:
+        return jsonify({'success': True, 'message': f'총 {success_count}개의 중복 상품이 성공적으로 판매/전시 중지되었습니다!\n\n(※ 네이버 스마트스토어 센터에 반영되기까지 약 1~2분 소요될 수 있습니다)'})
+    else:
+        return jsonify({'success': False, 'message': '상품 중지 처리에 실패했습니다. (API 거절)'})
