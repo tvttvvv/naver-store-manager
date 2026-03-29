@@ -12,7 +12,7 @@ from app.models import User, MonitoredKeyword, ApiKey
 import requests
 import urllib.parse
 import json
-from sqlalchemy import text # ✨ DB 구조 자동 변경을 위한 마법 도구 추가
+from sqlalchemy import text
 
 monitoring_bp = Blueprint('monitoring', __name__)
 
@@ -46,13 +46,11 @@ def receive_webhook():
 @monitoring_bp.route('/api/saved_keywords', methods=['GET'])
 @login_required
 def get_saved_keywords():
-    # ✨ [핵심 방어막] 기존 데이터 손실 없이 DB에 '구매수' 기둥만 몰래 추가합니다!
     try:
         db.session.execute(text("ALTER TABLE monitored_keyword ADD COLUMN purchase_count VARCHAR(50) DEFAULT '-'"))
         db.session.commit()
-        print("[CCTV] 🛠️ DB 자동 복구 성공: 기존 데이터를 살리고 '구매수' 저장 공간을 증축했습니다!", flush=True)
     except Exception:
-        db.session.rollback() # 이미 기둥이 있으면 자연스럽게 넘어갑니다.
+        db.session.rollback()
 
     keywords = MonitoredKeyword.query.filter_by(user_id=current_user.id).order_by(MonitoredKeyword.id.desc()).all()
     return jsonify({'success': True, 'data': [{
@@ -198,7 +196,8 @@ def get_naver_shopping_info(queries, target_mall, find_rank=False):
                                 result['my_price'] = f"{int(p):,}원" if p.isdigit() and p != '0' else "-"
                                 df = prod.get('deliveryFeeContent', prod.get('deliveryFee', '-'))
                                 result['my_shipping'] = '무료' if str(df) == '0' else (f"{int(df):,}원" if str(df).isdigit() else str(df))
-                                pc = prod.get('purchaseCnt', prod.get('keepCnt', '-'))
+                                # 구매건수/리뷰수 등 추출
+                                pc = prod.get('purchaseCnt', prod.get('keepCnt', prod.get('reviewCount', '-')))
                                 if str(pc) != '0' and str(pc) != '-': result['my_purchase'] = str(pc)
                                 return result
                         
@@ -218,7 +217,7 @@ def get_naver_shopping_info(queries, target_mall, find_rank=False):
                             result['my_price'] = f"{int(p):,}원" if p.isdigit() and p != '0' else "-"
                             df = prod.get('deliveryFeeContent', prod.get('deliveryFee', '-'))
                             result['my_shipping'] = '무료' if str(df) == '0' else (f"{int(df):,}원" if str(df).isdigit() else str(df))
-                            pc = prod.get('purchaseCnt', prod.get('keepCnt', '-'))
+                            pc = prod.get('purchaseCnt', prod.get('keepCnt', prod.get('reviewCount', '-')))
                             if str(pc) != '0' and str(pc) != '-': result['my_purchase'] = str(pc)
                             return result
                             
@@ -250,7 +249,7 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                 updates = {}
 
                 # ========================================================
-                # 1️⃣ 순위 파악 로직
+                # 1️⃣ 순위 파악 로직 (웹 크롤링 & API 병행)
                 # ========================================================
                 if update_mode in ['all', 'rank']:
                     updates['store_rank'] = '500위 밖'
@@ -273,7 +272,7 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                             except Exception: pass
 
                 # ========================================================
-                # 2️⃣ 구매수 파악 로직
+                # 2️⃣ 구매수 파악 로직 (웹 크롤링 한정)
                 # ========================================================
                 if update_mode in ['all', 'purchase']:
                     updates['purchase_count'] = '-'
@@ -283,7 +282,7 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                         updates['purchase_count'] = purchase_info['my_purchase']
 
                 # ========================================================
-                # 3️⃣ 상품 100% 원본 이름 및 직링크 강탈 (all 모드)
+                # 3️⃣ 상품 정보 (이름, 링크, 가격, 출판사) - ✨ API 100% 신뢰 로직
                 # ========================================================
                 if update_mode == 'all':
                     updates['product_link'] = '-'
@@ -291,28 +290,40 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     updates['price'] = '-'
                     updates['publisher'] = '-'
                     updates['store_name'] = target_mall_name
+                    updates['shipping_fee'] = purchase_info.get('my_shipping', '-') if 'purchase_info' in locals() else '-'
                     
+                    api_found = False
+
+                    # ✨ 핵심: API를 통해 '내 상점'의 100% 원본 이름과 직링크를 최우선으로 뜯어옵니다!
                     if api_headers and search_client_id:
+                        # ISBN이 있으면 무조건 ISBN만으로 찾습니다. 없으면 키워드로 찾습니다.
                         search_queries_for_exact = [target_isbn] if target_isbn else [keyword_text]
                         
                         for sq in search_queries_for_exact:
-                            if updates['product_link'] != '-': break
+                            if api_found: break
                             try:
                                 api_res = requests.get(f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(sq)}&display=100", headers=api_headers, timeout=3)
                                 if api_res.status_code == 200:
                                     for item in api_res.json().get('items', []):
+                                        # 내 상점(스터디박스)과 이름이 일치하는 데이터만 찾습니다.
                                         if safe_target in item.get('mallName', '').lower().replace(" ", ""):
+                                            # 웹에 잘려있던 이름 무시! <b> 태그 다 떼고 순수 100% 풀네임 장착!
                                             raw_title = re.sub(r'<[^>]*>', '', item.get('title', ''))
                                             updates['book_title'] = html.unescape(raw_title).strip()
                                             
+                                            # 추적 링크(cr.shopping...) 무시! API가 주는 다이렉트 쇼핑몰 링크 장착!
                                             raw_link = item.get('link', '-')
                                             updates['product_link'] = raw_link.replace('http://', 'https://') if raw_link != '-' else '-'
                                             
                                             p = item.get('lprice', '0')
                                             if p.isdigit() and p != '0': updates['price'] = f"{int(p):,}원"
+                                            
+                                            api_found = True
+                                            print(f"[CCTV] 🎯 API 원본 상품정보 매칭 완료! ({updates['book_title']})", flush=True)
                                             break
                             except Exception: pass
 
+                        # 도서 전용 API로 공식 출판사 정보만 쏙 빼옵니다.
                         if target_isbn:
                             try:
                                 book_res = requests.get(f"https://openapi.naver.com/v1/search/book.json?d_isbn={urllib.parse.quote(target_isbn)}", headers=api_headers, timeout=3)
@@ -322,7 +333,7 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                             except Exception: pass
 
                 # ========================================================
-                # DB 저장 로직
+                # DB 저장 로직 (업데이트 된 항목만 선택적으로 저장)
                 # ========================================================
                 kw = db.session.get(MonitoredKeyword, k_id)
                 if kw:
@@ -330,10 +341,12 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     if 'purchase_count' in updates and hasattr(kw, 'purchase_count'): kw.purchase_count = updates['purchase_count']
                     
                     if update_mode == 'all':
+                        # API에서 정보를 성공적으로 가져왔을 때만 덮어씁니다.
                         if updates['book_title'] not in ['-', '⚠️ 매칭 실패']: kw.book_title = updates['book_title']
                         if updates['publisher'] != '-': kw.publisher = updates['publisher']
                         if updates['price'] != '-': kw.price = updates['price']
                         if updates['product_link'] != '-': kw.product_link = updates['product_link']
+                        if updates['shipping_fee'] != '-': kw.shipping_fee = updates['shipping_fee']
                         kw.store_name = updates['store_name']
                     
                     db.session.commit()
