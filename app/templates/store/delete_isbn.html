@@ -176,7 +176,6 @@
     }
 
     let pollingInterval = null;
-
     const submitBtn = document.getElementById('submitBtn');
     const btnStopAll = document.getElementById('btnStopAll');
 
@@ -185,10 +184,7 @@
     }
 
     function stopPolling() {
-        if (pollingInterval) {
-            clearInterval(pollingInterval);
-            pollingInterval = null;
-        }
+        if (pollingInterval) { clearInterval(pollingInterval); pollingInterval = null; }
     }
 
     async function fetchStatus() {
@@ -208,6 +204,10 @@
             const taskData = tasks[storeId];
             if (taskData.is_running) anyRunning = true;
             
+            // ✨ 새로고침해도 체크박스 유지되도록 보정 ✨
+            const cb = document.getElementById(`store_${storeId}`);
+            if (cb && !cb.checked) cb.checked = true;
+
             let card = document.getElementById(`task_card_${storeId}`);
             if (!card) {
                 card = document.createElement('div');
@@ -237,7 +237,6 @@
             const logList = document.getElementById(`log_list_${storeId}`);
             const btnStop = document.getElementById(`btn_stop_${storeId}`);
             
-            // ✨ 버튼 UI 버그 수정 (정지됨 -> 완료됨)
             if (taskData.is_running) {
                 btnStop.disabled = false;
                 btnStop.innerHTML = '개별 정지';
@@ -253,7 +252,6 @@
                 }
             }
 
-            // 메시지 처리
             if (taskData.status === 'error') {
                 statusText.className = 'fw-bold mb-3 text-danger small';
                 statusText.innerText = `오류/정지: ${taskData.message}`;
@@ -265,7 +263,6 @@
                 statusText.innerText = taskData.target_name ? `[${taskData.current}${taskData.total > 0 ? '/' + taskData.total : '번째'}] ${taskData.target_name} 처리 중...` : taskData.message;
             }
 
-            // ✨ 바(Bar) 텍스트 버그 완벽 수정 ✨
             let pColor = taskData.status === 'error' ? 'bg-danger' : (taskData.status === 'done' ? 'bg-success' : 'bg-primary');
             let aClass = taskData.is_running ? 'progress-bar-striped progress-bar-animated' : '';
             let barText = '';
