@@ -212,7 +212,7 @@ def background_delete_job(app, store_id, delete_mode, isbn_list, user_id):
 
 
 # ==============================================================================
-# 2. 상품 중복 체크용 멀티 엔진 (✨ 판매중 필터링 완벽 수정 ✨)
+# 2. 상품 중복 체크용 멀티 엔진 (✨ 안쪽 주머니 명찰 패치 완료 ✨)
 # ==============================================================================
 global_dup_tasks = {}
 
@@ -277,11 +277,15 @@ def background_duplicate_check_job(app, store_id, user_id):
                 total_fetched += len(contents)
                 
                 for p in contents:
-                    # ✨ 치명적 버그 수정: channelProductStatusType 이 아니라, 
-                    # 확실하게 네이버가 보장하는 최상위 상태값(statusType)을 확인합니다!
-                    root_status = str(p.get('statusType', '')).upper()
+                    c_prods = p.get('channelProducts', [{}])
+                    if not c_prods: continue
                     
-                    if root_status == 'SALE':
+                    # ✨ 치명적 버그 완벽 수정: 네이버 검색 API 결과에서는
+                    # 상품 상태 명찰이 바깥이 아니라 'channelProducts' 안쪽에 있습니다![cite: 3]
+                    c_status = str(c_prods[0].get('channelProductStatusType', '')).upper()
+                    
+                    # 오직 "SALE(판매 중)" 인 진짜 살아있는 상품만 검사 Ба구니에 넣습니다!
+                    if c_status == 'SALE':
                         all_products.append(p)
                     
                 update_dup_task(user_id, store_id, status='progress', current=len(all_products), message=f'스캔 중... (스토어 전체: {total_fetched}개 / 실제 판매중: {len(all_products)}개 획득)')
