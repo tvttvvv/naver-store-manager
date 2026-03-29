@@ -212,7 +212,7 @@ def background_delete_job(app, store_id, delete_mode, isbn_list, user_id):
 
 
 # ==============================================================================
-# 2. 상품 중복 체크용 멀티 엔진 (✨ 확실하게 죽은 놈만 빼는 블랙리스트 필터 장착 ✨)
+# 2. 상품 중복 체크용 멀티 엔진 (✨ 순도 100% 판매중 필터 + 짭짜 ISBN 필터 탑재 ✨)
 # ==============================================================================
 global_dup_tasks = {}
 
@@ -248,7 +248,7 @@ def background_duplicate_check_job(app, store_id, user_id):
                 update_dup_task(user_id, store_id, status='error', message='API 인증에 실패했습니다.')
                 return
 
-            update_dup_task(user_id, store_id, status='start', message='전체 상품 목록 수집 시작 (삭제/중지된 상품만 제외)...')
+            update_dup_task(user_id, store_id, status='start', message='순도 100% 판매 중 상품만 스캔 시작...')
             url = "https://api.commerce.naver.com/external/v1/products/search"
             headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
             
@@ -280,22 +280,25 @@ def background_duplicate_check_job(app, store_id, user_id):
                     c_prods = p.get('channelProducts', [{}])
                     if not c_prods: continue
                     
-                    # API가 주는 모든 상태값을 끌어모읍니다.
-                    r_stat = str(p.get('statusType', '')).upper()
-                    c_stat = str(c_prods[0].get('channelProductStatusType', '')).upper()
+                    # ✨ 네이버가 보내는 모든 상태 필드를 싹 다 모아서 판독합니다.
+                    statuses = [
+                        str(p.get('productStatusType', '')).upper(),
+                        str(p.get('statusType', '')).upper(),
+                        str(c_prods[0].get('channelProductStatusType', '')).upper(),
+                        str(c_prods[0].get('saleStatusType', '')).upper()
+                    ]
                     
-                    # 🚨 블랙리스트 명단 (이 상태인 놈들만 중복 검사에서 칼같이 버립니다)
-                    # SUSPEND(판매중지), PROHIBIT(판매금지), DELETED(삭제), REJECT(승인반려)
-                    bad_statuses = ['SUSPEND', 'PROHIBIT', 'DELETED', 'REJECT']
+                    # 1. 품절, 판매중지, 삭제, 금지, 승인대기 등의 찌꺼기 상태가 단 1개라도 묻어있으면 가차없이 버립니다!
+                    bad_statuses = ['SUSPEND', 'PROHIBIT', 'DELETED', 'REJECT', 'OUTOFSTOCK', 'UNADMISSION', 'WAIT']
+                    is_bad = any(s in bad_statuses for s in statuses)
                     
-                    # 만약 루트 상태나 채널 상태 둘 중 하나라도 블랙리스트에 속해있다면? 쓰레기통으로!
-                    if r_stat in bad_statuses or c_stat in bad_statuses:
-                        continue
-                        
-                    # 블랙리스트에 속하지 않은 모든 상품(SALE, OUTOFSTOCK, 빈칸 등)은 정상으로 간주하고 담습니다!
-                    all_products.append(p)
+                    # 2. 나쁜 상태가 아예 없고, 오직 'SALE'이라는 글자만 맑게 존재할 때 진정한 판매중!
+                    is_selling = ('SALE' in statuses) and not is_bad
                     
-                update_dup_task(user_id, store_id, status='progress', current=len(all_products), message=f'스캔 중... (스토어 전체: {total_fetched}개 / 실제 판매대상: {len(all_products)}개 획득)')
+                    if is_selling:
+                        all_products.append(p)
+                    
+                update_dup_task(user_id, store_id, status='progress', current=len(all_products), message=f'스캔 중... (스토어 전체: {total_fetched}개 / 순수 판매중: {len(all_products)}개 추출 완료)')
                 
                 if len(contents) < 50: break
                 page += 1
@@ -305,7 +308,7 @@ def background_duplicate_check_job(app, store_id, user_id):
                 update_dup_task(user_id, store_id, status='error', message='사용자에 의해 검사가 강제 종료되었습니다.')
                 return
 
-            update_dup_task(user_id, store_id, status='info', message=f'수집 완료! 검사 대상인 {len(all_products)}개 상품의 ISBN 및 상품명 정밀 분석 중...')
+            update_dup_task(user_id, store_id, status='info', message=f'수집 완료! 검사 대상인 {len(all_products)}개 상품 정밀 분석 중...')
             
             seen_isbns = {}
             seen_names = {}
@@ -325,15 +328,19 @@ def background_duplicate_check_job(app, store_id, user_id):
                 is_duplicate = False
                 original_id = None
                 
-                # 1. ISBN 완벽 매칭
-                if isbn and isbn != '-' and isbn.lower() != 'none':
+                # ✨ 가짜 ISBN 필터링: 스마트스토어에 대충 적어둔 '없음' 같은 값을 ISBN으로 치고 중복으로 엮지 않도록 방어합니다.
+                dummy_isbns = ['isbn없음', '없음', 'none', 'null', '단품', '0', '-', '']
+                is_valid_isbn = bool(isbn and isbn.replace(" ", "").lower() not in dummy_isbns)
+                
+                # 1. ISBN이 유효하고 똑같으면 무조건 중복!
+                if is_valid_isbn:
                     if isbn in seen_isbns:
                         is_duplicate = True
                         original_id = seen_isbns[isbn]
                     else:
                         seen_isbns[isbn] = prod_id
                 
-                # 2. 상품명 (띄어쓰기/대소문자 무시) 완벽 매칭
+                # 2. ISBN이 가짜거나 달라도, 상품명(공백 무시)이 똑같으면 중복!
                 clean_name = re.sub(r'\s+', '', name).lower()
                 if not is_duplicate:
                     if clean_name in seen_names:
@@ -345,7 +352,7 @@ def background_duplicate_check_job(app, store_id, user_id):
                 if is_duplicate:
                     duplicates.append({
                         'name': name,
-                        'isbn': isbn if isbn else 'ISBN없음',
+                        'isbn': isbn if is_valid_isbn else 'ISBN없음',
                         'original_id': original_id,
                         'duplicate_id': prod_id
                     })
