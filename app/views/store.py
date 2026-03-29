@@ -212,7 +212,7 @@ def background_delete_job(app, store_id, delete_mode, isbn_list, user_id):
 
 
 # ==============================================================================
-# 2. 상품 중복 체크용 멀티 엔진 (✨초정밀 쌍끌이 레이더 패치 완료✨)
+# 2. 상품 중복 체크용 멀티 엔진
 # ==============================================================================
 global_dup_tasks = {}
 
@@ -248,7 +248,7 @@ def background_duplicate_check_job(app, store_id, user_id):
                 update_dup_task(user_id, store_id, status='error', message='API 인증에 실패했습니다.')
                 return
 
-            update_dup_task(user_id, store_id, status='start', message='전체 상품 목록 수집 시작 (중지/금지 상품 제외)...')
+            update_dup_task(user_id, store_id, status='start', message='현재 판매 중인 상품 목록 수집 시작...')
             url = "https://api.commerce.naver.com/external/v1/products/search"
             headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
             
@@ -280,14 +280,15 @@ def background_duplicate_check_job(app, store_id, user_id):
                     c_prods = p.get('channelProducts', [{}])
                     if not c_prods: continue
                     
-                    status_type = c_prods[0].get('channelProductStatusType', '')
-                    sale_type = c_prods[0].get('saleStateType', '')
+                    # 네이버 커머스 API 상태값
+                    status_type = str(c_prods[0].get('channelProductStatusType', '')).upper()
                     
-                    # ✨ 개선점: 이미 판매/전시 중지되거나 삭제된 상품은 굳이 검사할 필요가 없습니다. (품절은 포함)
-                    if status_type not in ['SUSPEND', 'PROHIBIT', 'DELETED'] and sale_type not in ['SUSPEND']:
+                    # ✨ 핵심 패치: 오직 "SALE(판매/전시 중)" 상태인 진짜 살아있는 상품만 검사 바구니에 넣습니다!
+                    # SUSPEND(판매/전시중지), PROHIBIT(금지), DELETED(삭제), OUTOFSTOCK(품절) 전부 제외!
+                    if status_type == 'SALE':
                         all_products.append(p)
                     
-                update_dup_task(user_id, store_id, status='progress', current=len(all_products), message=f'스캔 중... (탐색: {total_fetched}개 / 검사대상: {len(all_products)}개 확보)')
+                update_dup_task(user_id, store_id, status='progress', current=len(all_products), message=f'스캔 중... (스토어 전체: {total_fetched}개 / 판매중 대상: {len(all_products)}개 확보)')
                 
                 if len(contents) < 50: break
                 page += 1
@@ -297,7 +298,7 @@ def background_duplicate_check_job(app, store_id, user_id):
                 update_dup_task(user_id, store_id, status='error', message='사용자에 의해 검사가 강제 종료되었습니다.')
                 return
 
-            update_dup_task(user_id, store_id, status='info', message=f'수집 완료! {len(all_products)}개 상품의 ISBN 및 상품명 정밀 분석 중...')
+            update_dup_task(user_id, store_id, status='info', message=f'수집 완료! 실제 판매중인 {len(all_products)}개 상품의 ISBN 및 상품명 정밀 분석 중...')
             
             seen_isbns = {}
             seen_names = {}
@@ -317,7 +318,7 @@ def background_duplicate_check_job(app, store_id, user_id):
                 is_duplicate = False
                 original_id = None
                 
-                # ✨ 핵심 개선 1: ISBN이 완벽히 똑같으면 무조건 중복!
+                # 1. ISBN 완벽 매칭
                 if isbn and isbn != '-' and isbn.lower() != 'none':
                     if isbn in seen_isbns:
                         is_duplicate = True
@@ -325,7 +326,7 @@ def background_duplicate_check_job(app, store_id, user_id):
                     else:
                         seen_isbns[isbn] = prod_id
                 
-                # ✨ 핵심 개선 2: ISBN이 없거나 달라도, 상품명에서 모든 공백과 대소문자를 뭉갠 뒤 똑같으면 중복!
+                # 2. 상품명 (띄어쓰기/대소문자 무시) 완벽 매칭
                 clean_name = re.sub(r'\s+', '', name).lower()
                 if not is_duplicate:
                     if clean_name in seen_names:
