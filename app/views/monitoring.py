@@ -46,7 +46,6 @@ def receive_webhook():
 @login_required
 def get_saved_keywords():
     keywords = MonitoredKeyword.query.filter_by(user_id=current_user.id).order_by(MonitoredKeyword.id.desc()).all()
-    # getattr를 통해 purchase_count 컬럼이 DB에 없더라도 에러가 나지 않도록 방어
     return jsonify({'success': True, 'data': [{
         'id': k.id, 
         'keyword': k.keyword or '-', 
@@ -93,7 +92,6 @@ def update_keyword():
             if duplicate:
                 return jsonify({'success': False, 'message': f'🚨 경고: 이미 등록된 ISBN입니다!\n\n입력하신 ISBN은 이미 [{duplicate.keyword}] 항목에 등록되어 있습니다.'})
 
-        # ✨ 모든 항목 수동 강제 업데이트 반영
         if request.form.get('keyword'): kw.keyword = request.form.get('keyword')
         kw.publisher = request.form.get('publisher', '-')
         kw.supply_rate = request.form.get('supply_rate', '-')
@@ -104,7 +102,6 @@ def update_keyword():
         kw.product_link = request.form.get('product_link', '-')
         kw.store_rank = request.form.get('store_rank', '-')
         
-        # getattr & setattr로 안전하게 구매수 업데이트
         pc_val = request.form.get('purchase_count', '-')
         if hasattr(kw, 'purchase_count'):
             kw.purchase_count = pc_val
@@ -192,7 +189,6 @@ def get_naver_shopping_info(queries, target_mall, find_rank=False):
                                 result['my_price'] = f"{int(p):,}원" if p.isdigit() and p != '0' else "-"
                                 df = prod.get('deliveryFeeContent', prod.get('deliveryFee', '-'))
                                 result['my_shipping'] = '무료' if str(df) == '0' else (f"{int(df):,}원" if str(df).isdigit() else str(df))
-                                # 구매건수 추출 (catalog 내부에 purchaseCnt 등이 있을 경우)
                                 pc = prod.get('purchaseCnt', prod.get('keepCnt', '-'))
                                 if str(pc) != '0' and str(pc) != '-': result['my_purchase'] = str(pc)
                                 return result
@@ -213,7 +209,6 @@ def get_naver_shopping_info(queries, target_mall, find_rank=False):
                             result['my_price'] = f"{int(p):,}원" if p.isdigit() and p != '0' else "-"
                             df = prod.get('deliveryFeeContent', prod.get('deliveryFee', '-'))
                             result['my_shipping'] = '무료' if str(df) == '0' else (f"{int(df):,}원" if str(df).isdigit() else str(df))
-                            # 구매수 확보
                             pc = prod.get('purchaseCnt', prod.get('keepCnt', '-'))
                             if str(pc) != '0' and str(pc) != '-': result['my_purchase'] = str(pc)
                             return result
@@ -273,7 +268,6 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                 # ========================================================
                 if update_mode in ['all', 'purchase']:
                     updates['purchase_count'] = '-'
-                    # 구매수는 ISBN으로 먼저 찔러보고, 없으면 키워드로 찌릅니다.
                     search_list = [target_isbn] if target_isbn else [keyword_text]
                     purchase_info = get_naver_shopping_info(search_list, target_mall_name, find_rank=False)
                     if purchase_info.get('my_purchase'):
@@ -289,7 +283,6 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     updates['publisher'] = '-'
                     updates['store_name'] = target_mall_name
                     
-                    # ✨ 네이버 공식 쇼핑 API 통신 (100% 직링크, 원본 풀네임 확보)
                     if api_headers and search_client_id:
                         search_queries_for_exact = [target_isbn] if target_isbn else [keyword_text]
                         
@@ -300,7 +293,6 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                                 if api_res.status_code == 200:
                                     for item in api_res.json().get('items', []):
                                         if safe_target in item.get('mallName', '').lower().replace(" ", ""):
-                                            # 원본 풀네임 & 직링크 완벽 복구
                                             raw_title = re.sub(r'<[^>]*>', '', item.get('title', ''))
                                             updates['book_title'] = html.unescape(raw_title).strip()
                                             
@@ -312,7 +304,6 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                                             break
                             except Exception: pass
 
-                        # 도서 API로 출판사 정보 획득
                         if target_isbn:
                             try:
                                 book_res = requests.get(f"https://openapi.naver.com/v1/search/book.json?d_isbn={urllib.parse.quote(target_isbn)}", headers=api_headers, timeout=3)
@@ -361,7 +352,7 @@ def refresh_by_isbn():
     user_id = current_user.id
     
     selected_ids = request.form.getlist('ids[]')
-    update_mode = request.form.get('update_mode', 'all') # ✨ 업데이트 모드 받기
+    update_mode = request.form.get('update_mode', 'all') 
     
     if not selected_ids: return jsonify({'success': False, 'message': '⚠️ 업데이트할 항목을 선택해주세요.'})
         
