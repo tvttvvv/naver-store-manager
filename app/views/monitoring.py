@@ -202,7 +202,7 @@ def get_naver_shopping_info(queries, target_mall, find_rank=False):
             if find_rank: time.sleep(0.5) 
     return result
 
-# ✨ 1단계 핵심: 네이버의 멍청한 검색 필터를 믿지 않고, 페이지를 넘겨가며 직접 찾아내는 무한 탐색 스캐너
+# ✨ 1단계 핵심: 160페이지를 다 뒤지지 않고 네이버 검색망에 다이렉트로 요청하는 초고속 스캐너
 def get_exact_product_info_commerce_api(token, keyword, isbn):
     url = "https://api.commerce.naver.com/external/v1/products/search"
     headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
@@ -213,50 +213,34 @@ def get_exact_product_info_commerce_api(token, keyword, isbn):
     clean_keyword = keyword.replace(" ", "").lower() if keyword and keyword != '-' else ""
     clean_isbn = str(isbn).strip() if isbn and isbn != '-' else ""
     
-    page = 1
-    found = False
-    
-    # 상점의 전체 페이지를 돌면서 내 상품이 나올 때까지 끈질기게 찾습니다.
-    while True:
+    # 1순위: ISBN 번호로 네이버에 다이렉트 검색
+    if clean_isbn:
         try:
-            payload = {"page": page, "size": 50, "orderType": "NO"}
+            payload = {"page": 1, "size": 50, "sellerManagementCode": clean_isbn}
             res = requests.post(url, headers=headers, json=payload, timeout=5)
-            
             if res.status_code == 200:
-                contents = res.json().get('contents', [])
-                if not contents:
-                    break # 상점의 마지막 페이지까지 다 뒤졌음
-                    
-                for item in contents:
-                    item_isbn = str(item.get('sellerManagementCode', '')).strip()
-                    name = str(item.get('name', ''))
-                    clean_name = name.replace(" ", "").lower()
-                    
-                    # 1순위: ISBN이 완벽하게 일치하는가?
-                    if clean_isbn and item_isbn == clean_isbn:
+                for item in res.json().get('contents', []):
+                    if str(item.get('sellerManagementCode', '')).strip() == clean_isbn:
                         matched_product = item
-                        print(f"[CCTV-DEBUG] 🎯 [매칭 성공] {page}페이지에서 ISBN 완벽 일치 상품 발굴!", flush=True)
-                        found = True
+                        print(f"[CCTV-DEBUG] 🎯 [매칭 성공] 다이렉트 ISBN 검색망으로 즉시 검거 완료!", flush=True)
                         break
-                        
-                    # 2순위: 상품명 키워드가 포함되어 있는가?
-                    if clean_keyword and clean_keyword in clean_name:
-                        matched_product = item
-                        print(f"[CCTV-DEBUG] 🎯 [매칭 성공] {page}페이지에서 상품명 일치 상품 발굴!", flush=True)
-                        found = True
-                        break
-                        
-                if found:
-                    break # 찾았으면 즉시 탐색 중지!
-                    
-                page += 1
-                time.sleep(0.2) # 네이버 서버가 화내지 않도록 살짝 쉬어줍니다
-            else:
-                print(f"[CCTV-DEBUG] 💥 API 통신 에러: {res.status_code}", flush=True)
-                break
         except Exception as e:
-            print(f"[CCTV-DEBUG] 💥 탐색 중 에러: {e}", flush=True)
-            break
+            print(f"[CCTV-DEBUG] 💥 ISBN 검색 에러: {e}", flush=True)
+
+    # 2순위: ISBN으로 못 찾았으면 상품명(키워드)으로 다이렉트 검색
+    if not matched_product and clean_keyword:
+        try:
+            payload = {"page": 1, "size": 50, "productName": keyword}
+            res = requests.post(url, headers=headers, json=payload, timeout=5)
+            if res.status_code == 200:
+                for item in res.json().get('contents', []):
+                    name = str(item.get('name', ''))
+                    if clean_keyword in name.replace(" ", "").lower():
+                        matched_product = item
+                        print(f"[CCTV-DEBUG] 🎯 [매칭 성공] 다이렉트 키워드 검색망으로 즉시 검거 완료!", flush=True)
+                        break
+        except Exception as e:
+            print(f"[CCTV-DEBUG] 💥 키워드 검색 에러: {e}", flush=True)
 
     result = {}
     if matched_product:
@@ -271,7 +255,7 @@ def get_exact_product_info_commerce_api(token, keyword, isbn):
         print(f"[CCTV-DEBUG] 📦 [데이터 추출] 상품명: {result.get('my_title')}", flush=True)
         print(f"[CCTV-DEBUG] 📦 [데이터 추출] 직링크: {result.get('my_link')}", flush=True)
     else:
-        print(f"[CCTV-DEBUG] ❌ [매칭 실패] 상점 전체(총 {page-1}페이지)를 뒤졌으나 일치하는 상품을 찾지 못했습니다.", flush=True)
+        print(f"[CCTV-DEBUG] ❌ [매칭 실패] 상점에 해당 상품이 존재하지 않거나 네이버 검색망에 잡히지 않습니다.", flush=True)
 
     return result
 
@@ -322,7 +306,7 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     kw_info_web = get_naver_shopping_info([keyword_text], target_mall_name, find_rank=True)
                     updates['store_rank'] = kw_info_web.get('rank', '500위 밖')
 
-                # ✨ 1단계 핵심: 상품 정보(이름, 링크, 가격) 매칭 적용
+                # ✨ 1단계 핵심: 상품 정보(이름, 링크, 가격) 즉시 매칭 적용
                 if update_mode == 'all':
                     exact_info = {}
                     if commerce_token:
@@ -362,6 +346,7 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     if update_mode in ['all', 'rank']: kw.store_rank = "에러"
                     db.session.commit()
             
+            # API 보호를 위한 짧은 딜레이
             time.sleep(1.0)
 
 @monitoring_bp.route('/api/refresh_all_ranks', methods=['POST'])
