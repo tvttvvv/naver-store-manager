@@ -1,503 +1,479 @@
-import os
+import json
 import time
 import re
-import traceback
-import random
-import html
-from threading import Thread
-from flask import Blueprint, render_template, request, jsonify, current_app
-from flask_login import login_required, current_user
-from app import db
-from app.models import User, MonitoredKeyword, ApiKey
 import requests
-import urllib.parse
-import json
-from sqlalchemy import text
-from app.naver_api import get_naver_token
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, current_app
+from flask_login import login_required, current_user
+from app.models import ApiKey, User
+from app.naver_api import get_naver_token, find_product_by_isbn, delete_product, suspend_products_in_bulk, fetch_all_products
 
-monitoring_bp = Blueprint('monitoring', __name__)
+store_bp = Blueprint('store', __name__)
 
-def clean_text(text):
-    if not text or text == '-': return '-'
-    cleaned = re.sub(r'<[^>]*>', '', str(text))
-    return html.unescape(cleaned).strip()
+# ==============================================================================
+# 1. 일괄 삭제 관리용 엔진
+# ==============================================================================
+global_tasks = {}
 
-@monitoring_bp.route('/')
-@login_required
-def index():
-    return render_template('monitoring/index.html')
-
-@monitoring_bp.route('/api/webhook', methods=['POST'])
-def receive_webhook():
-    data = request.get_json()
-    if not data: return jsonify({'success': False, 'message': 'No data'})
-    grade_str = str(data.get('grade', '')).upper()
-    keyword = data.get('keyword', '')
-    grade_char = 'A'
-    if 'C' in grade_str: grade_char = 'C'
-    elif 'B' in grade_str: grade_char = 'B'
-    elif 'MAIN' in grade_str: grade_char = 'MAIN'
-    
-    if keyword:
-        user = User.query.first()
-        if not user: return jsonify({'success': False, 'message': 'No user found'})
-        existing = MonitoredKeyword.query.filter_by(user_id=user.id, keyword=keyword).first()
-        if not existing:
-            new_kw = MonitoredKeyword(user_id=user.id, keyword=keyword, search_volume=data.get('search_volume', 0), rank_info=grade_char, link=data.get('link', '#'), shipping_fee='-', store_rank=data.get('store_rank', '-'), prev_store_rank='-')
-            db.session.add(new_kw)
-            db.session.commit()
-            return jsonify({'success': True, 'message': 'Saved'})
-    return jsonify({'success': False})
-
-@monitoring_bp.route('/api/saved_keywords', methods=['GET'])
-@login_required
-def get_saved_keywords():
-    try:
-        db.session.execute(text("ALTER TABLE monitored_keyword ADD COLUMN purchase_count VARCHAR(50) DEFAULT '-'"))
-        db.session.commit()
-    except Exception:
-        db.session.rollback()
-
-    keywords = MonitoredKeyword.query.filter_by(user_id=current_user.id).order_by(MonitoredKeyword.id.desc()).all()
-    return jsonify({'success': True, 'data': [{
-        'id': k.id, 
-        'keyword': k.keyword or '-', 
-        'search_volume': k.search_volume or 0, 
-        'grade': 'A' if k.rank_info == '최상단 노출' else (k.rank_info if k.rank_info in ['A', 'B', 'C', 'MAIN'] else 'A'), 
-        'link': k.link or '#', 
-        'publisher': k.publisher or '-', 
-        'supply_rate': k.supply_rate or '-', 
-        'isbn': k.isbn or '-', 
-        'price': k.price or '-', 
-        'shipping_fee': k.shipping_fee or '-', 
-        'store_name': k.store_name or '-', 
-        'book_title': k.book_title or '-', 
-        'product_link': k.product_link or '-', 
-        'store_rank': k.store_rank or '-', 
-        'prev_store_rank': k.prev_store_rank or '-',
-        'purchase_count': getattr(k, 'purchase_count', '-')
-    } for k in keywords]})
-
-@monitoring_bp.route('/api/delete_keyword', methods=['POST'])
-@login_required
-def delete_keyword():
-    kw_id = request.form.get('id')
-    kw = MonitoredKeyword.query.filter_by(id=kw_id, user_id=current_user.id).first()
-    if kw:
-        db.session.delete(kw)
-        db.session.commit()
-    return jsonify({'success': True})
-
-@monitoring_bp.route('/api/update_keyword', methods=['POST'])
-@login_required
-def update_keyword():
-    kw_id = request.form.get('id')
-    kw = MonitoredKeyword.query.filter_by(id=kw_id, user_id=current_user.id).first()
-    if kw:
-        new_isbn = request.form.get('isbn', '-').strip()
-        if new_isbn and new_isbn != '-':
-            duplicate = MonitoredKeyword.query.filter(
-                MonitoredKeyword.user_id == current_user.id,
-                MonitoredKeyword.isbn == new_isbn,
-                MonitoredKeyword.id != kw.id
-            ).first()
-            if duplicate:
-                return jsonify({'success': False, 'message': f'🚨 경고: 이미 등록된 ISBN입니다!\n\n입력하신 ISBN은 이미 [{duplicate.keyword}] 항목에 등록되어 있습니다.'})
-
-        if request.form.get('keyword'): kw.keyword = request.form.get('keyword')
-        kw.publisher = request.form.get('publisher', '-')
-        kw.supply_rate = request.form.get('supply_rate', '-')
-        kw.isbn = new_isbn
-        kw.price = request.form.get('price', '-')
-        kw.shipping_fee = request.form.get('shipping_fee', '-') 
-        kw.book_title = request.form.get('book_title', '-')
-        kw.product_link = request.form.get('product_link', '-')
-        kw.store_rank = request.form.get('store_rank', '-')
-        
-        pc_val = request.form.get('purchase_count', '-')
-        if hasattr(kw, 'purchase_count'):
-            kw.purchase_count = pc_val
-            
-        db.session.commit()
-        return jsonify({'success': True})
-    return jsonify({'success': False, 'message': '데이터를 찾을 수 없습니다.'})
-
-@monitoring_bp.route('/api/change_grade', methods=['POST'])
-@login_required
-def change_grade():
-    user_id = current_user.id
-    selected_ids = request.form.getlist('ids[]')
-    new_grade = request.form.get('grade', 'A')
-    if not selected_ids: return jsonify({'success': False, 'message': '이동할 항목을 선택해주세요.'})
-    keywords = MonitoredKeyword.query.filter(MonitoredKeyword.id.in_(selected_ids), MonitoredKeyword.user_id==user_id).all()
-    for kw in keywords: kw.rank_info = new_grade
-    db.session.commit()
-    return jsonify({'success': True, 'message': f'✅ 선택한 {len(keywords)}개 항목이 {new_grade}등급으로 이동되었습니다.'})
-
-@monitoring_bp.route('/api/clear_data', methods=['POST'])
-@login_required
-def clear_data():
-    user_id = current_user.id
-    selected_ids = request.form.getlist('ids[]')
-    query = MonitoredKeyword.query.filter_by(user_id=user_id)
-    if selected_ids: query = query.filter(MonitoredKeyword.id.in_(selected_ids))
-    for kw in query.all():
-        kw.store_rank = '-'
-        kw.prev_store_rank = '-'
-        kw.product_link = '-'
-        kw.price = '-'
-        kw.shipping_fee = '-'
-        kw.store_name = '-'
-        kw.book_title = '-'
-        if hasattr(kw, 'purchase_count'): kw.purchase_count = '-'
-    db.session.commit()
-    return jsonify({'success': True, 'message': f'✅ 선택한 항목의 검색 정보가 초기화되었습니다.'})
-
-def get_html_with_bot_spoofing(url):
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-        "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+def init_task(user_id, store_id, store_name, delete_mode):
+    if user_id not in global_tasks: global_tasks[user_id] = {}
+    global_tasks[user_id][store_id] = {
+        'is_running': True, 'store_name': store_name, 'mode': delete_mode,
+        'status': 'start', 'message': '작업을 준비 중입니다...',
+        'current': 0, 'total': 0, 'target_name': '', 'result_status': '',
+        'success_count': 0, 'fail_count': 0, 'logs': []
     }
-    try:
-        res = requests.get(url, headers=headers, timeout=5)
-        if res.status_code == 200: return res.text
-        else:
-            print(f"[CCTV-DEBUG] ❌ [웹 스크래핑] 네이버 차단됨 (HTTP {res.status_code}) - {url}", flush=True)
-    except Exception:
-        pass
-    return ""
 
-def get_naver_shopping_info(queries, target_mall, find_rank=False):
-    result = {}
-    safe_target = target_mall.lower().replace(" ", "")
+def update_task(user_id, store_id, status=None, message=None, current=None, total=None, target_name=None, result_status=None, s_count=None, f_count=None):
+    if user_id not in global_tasks or store_id not in global_tasks[user_id]: return
+    t = global_tasks[user_id][store_id]
+    if status: t['status'] = status
+    if message: t['message'] = message
+    if current is not None: t['current'] = current
+    if total is not None: t['total'] = total
+    if target_name: t['target_name'] = target_name
+    if result_status: t['result_status'] = result_status
+    if s_count is not None: t['success_count'] = s_count
+    if f_count is not None: t['fail_count'] = f_count
 
-    for q in queries:
-        if not q: continue
-        max_pages = 10 if find_rank else 1 
-        for page in range(1, max_pages + 1):
-            url = f"https://search.shopping.naver.com/book/search?query={urllib.parse.quote(q)}&pagingIndex={page}&pagingSize=40"
-            html_text = get_html_with_bot_spoofing(url)
-            if not html_text: break
-            
-            match = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', html_text, re.DOTALL)
-            if match:
-                try:
-                    data = json.loads(match.group(1))
-                    state = data.get('props', {}).get('pageProps', {}).get('initialState', {})
-                    if 'catalog' in state and state['catalog'].get('info'):
-                        products = state['catalog'].get('products', [])
-                        for idx, prod in enumerate(products):
-                            mall = prod.get('mallName', '')
-                            if safe_target in mall.lower().replace(" ", ""):
-                                result['rank'] = str((page - 1) * 40 + idx + 1)
-                                p = str(prod.get('price', 0))
-                                result['my_price'] = f"{int(p):,}원" if p.isdigit() and p != '0' else "-"
-                                df = prod.get('deliveryFeeContent', prod.get('deliveryFee', '-'))
-                                result['my_shipping'] = '무료' if str(df) == '0' else (f"{int(df):,}원" if str(df).isdigit() else str(df))
-                                pc = prod.get('purchaseCnt', prod.get('keepCnt', prod.get('reviewCount', '-')))
-                                if str(pc) != '0' and str(pc) != '-': result['my_purchase'] = str(pc)
-                                result['my_link'] = prod.get('mallPcUrl', prod.get('mallProductUrl', prod.get('pcUrl', '-')))
-                                result['my_title'] = clean_text(prod.get('productTitle', prod.get('bookTitle', '')))
-                                return result
-                        if not find_rank: return result 
-                        else: break 
+    if target_name and result_status:
+        log_type = 'success' if '완료' in result_status or '우회' in result_status else 'danger'
+        if '안내' in target_name or '에러' in target_name: log_type = 'info' if '안내' in target_name else 'danger'
+        t['logs'].append({'type': log_type, 'target': target_name, 'statusMsg': result_status})
+        if len(t['logs']) > 50: t['logs'].pop(0)
 
-                    book_list = state.get('book', {}).get('list', [])
-                    if not book_list: break 
-                    for idx, item in enumerate(book_list):
-                        prod = item.get('item', item)
-                        mall = prod.get('mallName', '')
-                        if safe_target in mall.lower().replace(" ", ""):
-                            result['rank'] = str((page - 1) * 40 + idx + 1)
-                            p = str(prod.get('lowPrice', prod.get('price', 0)))
-                            result['my_price'] = f"{int(p):,}원" if p.isdigit() and p != '0' else "-"
-                            df = prod.get('deliveryFeeContent', prod.get('deliveryFee', '-'))
-                            result['my_shipping'] = '무료' if str(df) == '0' else (f"{int(df):,}원" if str(df).isdigit() else str(df))
-                            pc = prod.get('purchaseCnt', prod.get('keepCnt', prod.get('reviewCount', '-')))
-                            if str(pc) != '0' and str(pc) != '-': result['my_purchase'] = str(pc)
-                            result['my_link'] = prod.get('mallPcUrl', prod.get('mallProductUrl', prod.get('pcUrl', '-')))
-                            result['my_title'] = clean_text(prod.get('productTitle', prod.get('bookTitle', '')))
-                            return result
-                except Exception: pass
-            if find_rank: time.sleep(0.5) 
-    return result
-
-# ✨ 핵심 패치: 네이버 API가 엉뚱한 데이터를 줄 때 절대 속지 않는 엄격한 저격수 로직
-def get_exact_product_info_commerce_api(token, keyword, isbn):
-    url = "https://api.commerce.naver.com/external/v1/products/search"
-    headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
-    matched_product = None
-    
-    print(f"\n[CCTV-DEBUG] 🟢 [커머스 API] 엄격한 매칭 모드 가동! (Target ISBN: [{isbn}], Target Keyword: [{keyword}])", flush=True)
-
-    # 1. ISBN으로 조회
-    if isbn and isbn != '-':
-        try:
-            payload = {"page": 1, "size": 50, "sellerManagementCode": isbn}
-            res = requests.post(url, headers=headers, json=payload, timeout=5)
-            if res.status_code == 200:
-                contents = res.json().get('contents', [])
-                if contents:
-                    print(f"[CCTV-DEBUG] 🟢 [커머스 API] ISBN 검색 요청 결과 {len(contents)}개 반환됨. 엄격 검증 시작...", flush=True)
-                    # API가 ISBN을 무시하고 전체 목록을 던져줄 수 있으므로, 결과 안에서 ISBN을 한번 더 확인합니다.
-                    for item in contents:
-                        item_isbn = str(item.get('sellerManagementCode') or '').strip()
-                        if item_isbn == str(isbn).strip():
-                            matched_product = item
-                            c_name = item.get('channelProducts', [{}])[0].get('name', item.get('name', ''))
-                            print(f"[CCTV-DEBUG] 🎯 [커머스 API] ISBN 완벽 일치 상품 발굴! -> [{c_name}]", flush=True)
-                            break
-                    if not matched_product:
-                        print(f"[CCTV-DEBUG] ❌ [커머스 API 방어 성공] 네이버 API가 엉뚱한 {len(contents)}개를 줬으나, ISBN이 일치하는 게 없어서 무시했습니다!", flush=True)
-        except Exception as e:
-            print(f"[CCTV-DEBUG] 💥 [커머스 API] ISBN 검색 에러: {e}", flush=True)
-
-    # 2. ISBN으로 못 찾았을 경우, 이름(키워드)으로 조회
-    if not matched_product and keyword and keyword != '-':
-        try:
-            payload = {"page": 1, "size": 50, "productName": keyword}
-            res = requests.post(url, headers=headers, json=payload, timeout=5)
-            if res.status_code == 200:
-                contents = res.json().get('contents', [])
-                if contents:
-                    for item in contents:
-                        c_name = item.get('channelProducts', [{}])[0].get('name', item.get('name', ''))
-                        # 검색한 키워드가 상품명에 100% 들어있는지 다시 한번 검증
-                        if keyword.replace(" ", "").lower() in c_name.replace(" ", "").lower():
-                            matched_product = item
-                            print(f"[CCTV-DEBUG] 🎯 [커머스 API] 상품명(키워드) 일치 상품 찾음! -> [{c_name}]", flush=True)
-                            break
-                    if not matched_product:
-                        print(f"[CCTV-DEBUG] ❌ [커머스 API 방어 성공] API 결과 중 키워드가 포함된 상품이 없어 무시했습니다!", flush=True)
-        except Exception as e:
-            print(f"[CCTV-DEBUG] 💥 [커머스 API] 키워드 검색 에러: {e}", flush=True)
-
-    result = {}
-    if matched_product:
-        c_no = matched_product.get('channelProducts', [{}])[0].get('channelProductNo')
-        o_no = matched_product.get('originProductNo')
-        
-        if c_no: result['my_link'] = f"https://smartstore.naver.com/main/products/{c_no}"
-        
-        sale_price = matched_product.get('salePrice')
-        if sale_price is not None: result['my_price'] = f"{sale_price:,}원"
-        
-        result['my_title'] = matched_product.get('channelProducts', [{}])[0].get('name', matched_product.get('name'))
-        
-        if o_no:
-            try:
-                detail_url = f"https://api.commerce.naver.com/external/v2/products/origin-products/{o_no}"
-                detail_res = requests.get(detail_url, headers=headers, timeout=5)
-                if detail_res.status_code == 200:
-                    origin_data = detail_res.json()
-                    delivery_fee = origin_data.get('deliveryInfo', {}).get('deliveryFee', {}).get('baseFee')
-                    if delivery_fee is not None:
-                        result['my_shipping'] = "무료" if delivery_fee == 0 else f"{delivery_fee:,}원"
-                    book_info = origin_data.get('detailAttribute', {}).get('bookInfo', {})
-                    if book_info and book_info.get('publisher'):
-                        result['my_publisher'] = book_info.get('publisher')
-            except Exception: pass
-        
-        print(f"[CCTV-DEBUG] 📦 [커머스 API 최종 추출 데이터]: {result}", flush=True)
-    else:
-        print(f"[CCTV-DEBUG] ❌ [커머스 API 결론] 내 상점에 등록된 상품 중 조건이 맞는 상품이 확실하게 존재하지 않습니다!", flush=True)
-
-    return result
-
-def scrape_smartstore_purchase_count(product_link):
-    if not product_link or "smartstore.naver.com" not in product_link: return "-"
-    try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Mobile Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-            "Referer": "https://m.shopping.naver.com/"
-        }
-        res = requests.get(product_link, headers=headers, timeout=5)
-        if res.status_code == 200:
-            sell_match = re.search(r'"sellCount"\s*:\s*(\d+)', res.text)
-            if sell_match: return sell_match.group(1)
-            review_match = re.search(r'"reviewCount"\s*:\s*(\d+)', res.text)
-            if review_match: return review_match.group(1)
-        elif res.status_code == 429:
-            print(f"[CCTV-DEBUG] 🚨 [구매수 429 에러] 네이버가 일시적으로 IP의 상점 접속을 차단했습니다. 잠시 후 시도해야 합니다.", flush=True)
-    except Exception: pass
-    return "-"
-
-def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, target_ids, update_mode):
+def background_delete_job(app, store_id, delete_mode, isbn_list, user_id):
     with app.app_context():
         try:
-            api_key = ApiKey.query.filter_by(user_id=user_id).first()
-            target_mall_name = api_key.store_name if api_key else "스터디박스"
-            api_headers = {"X-Naver-Client-Id": search_client_id, "X-Naver-Client-Secret": search_client_secret} if search_client_id else {}
-            safe_target = target_mall_name.lower().replace(" ", "")
-            
-            commerce_token = None
-            if api_key:
-                commerce_token = get_naver_token(api_key.client_id, api_key.client_secret)
-                
-            db.session.commit()
-        except Exception: db.session.rollback()
+            user = User.query.get(user_id)
+            selected_key = ApiKey.query.filter_by(id=store_id, owner=user).first()
+            if not selected_key:
+                update_task(user_id, store_id, status='error', message='상점 정보가 유효하지 않습니다.')
+                return
 
-        for k_id in target_ids:
-            try:
-                kw = db.session.get(MonitoredKeyword, k_id)
-                if not kw: 
-                    db.session.commit()
+            update_task(user_id, store_id, status='info', message='네이버 API 인증 토큰 발급 중...', target_name='시스템 안내', result_status='토큰 발급 중...')
+            token = get_naver_token(selected_key.client_id, selected_key.client_secret)
+            if not token:
+                update_task(user_id, store_id, status='error', message='API 인증 실패', target_name='시스템 에러', result_status='인증 실패')
+                return
+
+            if delete_mode == 'isbn':
+                update_task(user_id, store_id, status='start', total=len(isbn_list), message='대상 상품 완전 삭제 시도 중...')
+                success_count, fail_count, current_count = 0, 0, 0
+                targets_info, suspend_targets, item_details = [], [], {}
+
+                with ThreadPoolExecutor(max_workers=3) as executor:
+                    future_to_isbn = {executor.submit(find_product_by_isbn, token, isbn): isbn for isbn in isbn_list}
+                    for future in as_completed(future_to_isbn):
+                        if not global_tasks[user_id][store_id]['is_running']: break
+                        isbn = future_to_isbn[future]
+                        origin_no, channel_no = future.result()
+                        targets_info.append((isbn, origin_no, channel_no))
+                
+                with ThreadPoolExecutor(max_workers=3) as executor:
+                    future_to_del = {}
+                    for isbn, origin_no, channel_no in targets_info:
+                        if origin_no or channel_no:
+                            future_to_del[executor.submit(delete_product, token, origin_no, channel_no)] = (isbn, origin_no, channel_no)
+                        else:
+                            current_count += 1
+                            fail_count += 1
+                            update_task(user_id, store_id, status='progress', current=current_count, target_name=f'ISBN: {isbn}', result_status="조회 불가", s_count=success_count, f_count=fail_count)
+
+                    for future in as_completed(future_to_del):
+                        if not global_tasks[user_id][store_id]['is_running']: break
+                        isbn, origin_no, channel_no = future_to_del[future]
+                        res_status = future.result()
+                        current_count += 1
+                        
+                        if '완료' in res_status: success_count += 1
+                        else:
+                            if channel_no:
+                                suspend_targets.append(channel_no)
+                                item_details[channel_no] = isbn
+                            else: fail_count += 1
+                        update_task(user_id, store_id, status='progress', current=current_count, target_name=f'ISBN: {isbn}', result_status=res_status, s_count=success_count, f_count=fail_count)
+
+                if suspend_targets and global_tasks[user_id][store_id]['is_running']:
+                    for i in range(0, len(suspend_targets), 500):
+                        if not global_tasks[user_id][store_id]['is_running']: break
+                        batch = suspend_targets[i:i+500]
+                        update_task(user_id, store_id, status='info', message=f'실패 상품 {len(batch)}개 묶음 중지 처리 중...')
+                        suspend_res = suspend_products_in_bulk(token, batch)
+                        
+                        for c_no in batch:
+                            isbn = item_details[c_no]
+                            current_count += 1
+                            if '완료' in suspend_res or '우회' in suspend_res: success_count += 1
+                            else: fail_count += 1
+                            res_msg = suspend_res if ('완료' in suspend_res or '우회' in suspend_res) else f'최종 실패 ({suspend_res})'
+                            update_task(user_id, store_id, status='progress', current=current_count, target_name=f'ISBN: {isbn}', result_status=res_msg, s_count=success_count, f_count=fail_count)
+                
+                if not global_tasks[user_id][store_id]['is_running']: update_task(user_id, store_id, status='error', message='긴급 정지됨.')
+                else: update_task(user_id, store_id, status='done', message='작업 완료!')
+
+            elif delete_mode == 'all':
+                update_task(user_id, store_id, status='start', total=0, message='1차: 완전삭제 ➡️ 2차: 중지 하이브리드 가동!')
+                url = "https://api.commerce.naver.com/external/v1/products/search"
+                headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
+                processed_ids = set()
+                page = 1
+                current_count, success_count, fail_count = 0, 0, 0
+                found_any_in_sweep = False  
+                session = requests.Session()
+                
+                while True:
+                    if not global_tasks[user_id][store_id]['is_running']: break
+                    
+                    payload = {"page": page, "size": 50, "orderType": "NO"}
+                    try: res = session.post(url, headers=headers, json=payload, timeout=10)
+                    except Exception:
+                        update_task(user_id, store_id, status='info', message=f'응답 지연... 재시도 중 ({page}페이지)')
+                        time.sleep(2)
+                        continue
+
+                    if res.status_code != 200:
+                        update_task(user_id, store_id, status='error', message=f'API 호출 실패 ({res.status_code})')
+                        return
+                        
+                    contents = res.json().get('contents', [])
+                    if not contents:
+                        if found_any_in_sweep:
+                            page = 1
+                            found_any_in_sweep = False
+                            continue
+                        else: break 
+                            
+                    new_items = [p for p in contents if p.get('originProductNo') not in processed_ids]
+                    if not new_items:
+                        page += 1
+                        update_task(user_id, store_id, status='info', message=f'잔여 데이터 스캔 및 최종 점검 중... ({page}페이지)')
+                        time.sleep(0.1)
+                        continue
+                        
+                    found_any_in_sweep = True
+                    suspend_targets, item_details = [], {}
+                    
+                    with ThreadPoolExecutor(max_workers=3) as executor:
+                        future_to_item = {}
+                        for p in new_items:
+                            origin_no = p.get('originProductNo')
+                            channel_no = p.get('channelProducts', [{}])[0].get('channelProductNo') if p.get('channelProducts') else None
+                            name = p.get('channelProducts', [{}])[0].get('name', '이름 없음') if p.get('channelProducts') else '이름 없음'
+                            future = executor.submit(delete_product, token, origin_no, channel_no)
+                            future_to_item[future] = (origin_no, channel_no, name)
+                            
+                        for future in as_completed(future_to_item):
+                            if not global_tasks[user_id][store_id]['is_running']: break
+                            origin_no, channel_no, name = future_to_item[future]
+                            processed_ids.add(origin_no) 
+                            
+                            try: res_status = future.result()
+                            except: res_status = "시스템 오류"
+                                
+                            if '완료' in res_status:
+                                current_count += 1
+                                success_count += 1
+                                update_task(user_id, store_id, status='progress', current=current_count, target_name=f'[{origin_no}] {name[:15]}...', result_status=res_status, s_count=success_count, f_count=fail_count)
+                            else:
+                                if channel_no:
+                                    suspend_targets.append(channel_no)
+                                    item_details[channel_no] = (origin_no, name)
+                                else:
+                                    current_count += 1
+                                    fail_count += 1
+                                    update_task(user_id, store_id, status='progress', current=current_count, target_name=f'[{origin_no}] {name[:15]}...', result_status=res_status, s_count=success_count, f_count=fail_count)
+                                    
+                    if suspend_targets and global_tasks[user_id][store_id]['is_running']:
+                        for i in range(0, len(suspend_targets), 500):
+                            if not global_tasks[user_id][store_id]['is_running']: break
+                            batch = suspend_targets[i:i+500]
+                            suspend_res = suspend_products_in_bulk(token, batch)
+                            
+                            for c_no in batch:
+                                origin_no, name = item_details[c_no]
+                                current_count += 1
+                                if '완료' in suspend_res or '우회' in suspend_res: success_count += 1
+                                else: fail_count += 1
+                                update_task(user_id, store_id, status='progress', current=current_count, target_name=f'[{origin_no}] {name[:15]}...', result_status=suspend_res, s_count=success_count, f_count=fail_count)
+                            
+                    page += 1 
+                    time.sleep(0.5)
+                    
+                if not global_tasks[user_id][store_id]['is_running']: update_task(user_id, store_id, status='error', message='긴급 정지됨.')
+                else: update_task(user_id, store_id, status='done', message='상점 내 모든 상품 하이브리드 작업 완료!')
+
+        except Exception as e:
+            update_task(user_id, store_id, status='error', message=f'서버 내부 오류: {str(e)}')
+        finally:
+            if user_id in global_tasks and store_id in global_tasks[user_id]:
+                global_tasks[user_id][store_id]['is_running'] = False
+
+
+# ==============================================================================
+# 2. 상품 중복 체크용 멀티 엔진 (✨ 안쪽 주머니 명찰 패치 완료 ✨)
+# ==============================================================================
+global_dup_tasks = {}
+
+def init_dup_task(user_id, store_id, store_name):
+    if user_id not in global_dup_tasks: global_dup_tasks[user_id] = {}
+    global_dup_tasks[user_id][store_id] = {
+        'is_running': True, 'store_name': store_name,
+        'status': 'start', 'message': '상점 정보 확인 중...',
+        'current': 0, 'total': 0, 'duplicates': []
+    }
+
+def update_dup_task(user_id, store_id, status=None, message=None, current=None, total=None, duplicates=None):
+    if user_id not in global_dup_tasks or store_id not in global_dup_tasks[user_id]: return
+    t = global_dup_tasks[user_id][store_id]
+    if status: t['status'] = status
+    if message: t['message'] = message
+    if current is not None: t['current'] = current
+    if total is not None: t['total'] = total
+    if duplicates is not None: t['duplicates'] = duplicates
+
+def background_duplicate_check_job(app, store_id, user_id):
+    with app.app_context():
+        try:
+            user = User.query.get(user_id)
+            selected_key = ApiKey.query.filter_by(id=store_id, owner=user).first()
+            if not selected_key:
+                update_dup_task(user_id, store_id, status='error', message='상점 정보가 유효하지 않습니다.')
+                return
+
+            update_dup_task(user_id, store_id, status='info', message='네이버 API 인증 중...')
+            token = get_naver_token(selected_key.client_id, selected_key.client_secret)
+            if not token:
+                update_dup_task(user_id, store_id, status='error', message='API 인증에 실패했습니다.')
+                return
+
+            update_dup_task(user_id, store_id, status='start', message='현재 "판매 중(SALE)"인 상품 목록만 수집 시작...')
+            url = "https://api.commerce.naver.com/external/v1/products/search"
+            headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
+            
+            all_products = []
+            total_fetched = 0
+            page = 1
+            session = requests.Session()
+            
+            while True:
+                if not global_dup_tasks[user_id][store_id]['is_running']: break
+                
+                payload = {"page": page, "size": 50, "orderType": "NO"}
+                try: res = session.post(url, headers=headers, json=payload, timeout=10)
+                except Exception:
+                    update_dup_task(user_id, store_id, status='info', message=f'응답 지연... 재시도 중 ({page}페이지)')
+                    time.sleep(2)
                     continue
+
+                if res.status_code != 200:
+                    update_dup_task(user_id, store_id, status='error', message=f'API 통신 실패 ({res.status_code})')
+                    return
                     
-                keyword_text = str(kw.keyword or "")
-                target_isbn = str(kw.isbn).strip().replace('-', '') if kw.isbn and kw.isbn != '-' else ""
+                contents = res.json().get('contents', [])
+                if not contents: break
                 
-                db.session.commit()
-
-                updates = {}
-
-                # 1. 순위 파악
-                kw_info_web = {}
-                if update_mode in ['all', 'rank']:
-                    kw_info_web = get_naver_shopping_info([keyword_text], target_mall_name, find_rank=True)
-                    updates['store_rank'] = kw_info_web.get('rank', '500위 밖')
+                total_fetched += len(contents)
+                
+                for p in contents:
+                    c_prods = p.get('channelProducts', [{}])
+                    if not c_prods: continue
                     
-                    if updates['store_rank'] == '500위 밖' and api_headers:
-                        found_rank = False
-                        try:
-                            for start_idx in range(1, 402, 100):
-                                if found_rank: break
-                                api_res = requests.get(f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(keyword_text)}&display=100&start={start_idx}", headers=api_headers, timeout=3)
-                                if api_res.status_code == 200:
-                                    for idx, item in enumerate(api_res.json().get('items', [])):
-                                        if safe_target in item.get('mallName', '').lower().replace(" ", ""):
-                                            updates['store_rank'] = str(start_idx + idx)
-                                            found_rank = True
-                                            break
-                        except Exception: pass
-
-                # 2. 완벽한 상품 정보 덮어쓰기
-                search_list = []
-                if target_isbn: search_list.append(target_isbn)
-                if keyword_text: search_list.append(keyword_text)
-                
-                purchase_info_web = {}
-                
-                if update_mode in ['all', 'purchase']:
-                    purchase_info_web = get_naver_shopping_info(search_list, target_mall_name, find_rank=False)
-
-                if update_mode == 'all':
-                    exact_info = {}
-                    if commerce_token:
-                        exact_info = get_exact_product_info_commerce_api(commerce_token, keyword_text, target_isbn)
-
-                    updates['product_link'] = exact_info.get('my_link') or purchase_info_web.get('my_link') or kw_info_web.get('my_link') or '-'
-                    updates['price'] = exact_info.get('my_price') or purchase_info_web.get('my_price') or kw_info_web.get('my_price') or '-'
-                    updates['shipping_fee'] = exact_info.get('my_shipping') or purchase_info_web.get('my_shipping') or kw_info_web.get('my_shipping') or '-'
-                    updates['book_title'] = exact_info.get('my_title') or purchase_info_web.get('my_title') or kw_info_web.get('my_title') or '-'
-                    updates['publisher'] = exact_info.get('my_publisher') or '-'
-                    updates['store_name'] = target_mall_name
-
-                    if updates['book_title'] == '-' or updates['price'] == '-' or updates['product_link'] == '-':
-                        if api_headers:
-                            for sq in search_list:
-                                try:
-                                    api_res = requests.get(f"https://openapi.naver.com/v1/search/shop.json?query={urllib.parse.quote(sq)}&display=100", headers=api_headers, timeout=3)
-                                    if api_res.status_code == 200:
-                                        for item in api_res.json().get('items', []):
-                                            if safe_target in item.get('mallName', '').lower().replace(" ", ""):
-                                                if updates['book_title'] == '-':
-                                                    clean_t = clean_text(item.get('title', ''))
-                                                    if clean_t: updates['book_title'] = clean_t
-                                                if updates['price'] == '-':
-                                                    p = item.get('lprice', '0')
-                                                    if p.isdigit() and p != '0': updates['price'] = f"{int(p):,}원"
-                                                if updates['product_link'] == '-':
-                                                    raw_link = item.get('link', '-')
-                                                    if raw_link != '-': updates['product_link'] = raw_link.replace('http://', 'https://')
-                                                break
-                                except: pass
-
-                    if updates['publisher'] == '-' and target_isbn and api_headers:
-                        try:
-                            book_res = requests.get(f"https://openapi.naver.com/v1/search/book.json?d_isbn={urllib.parse.quote(target_isbn)}", headers=api_headers, timeout=3)
-                            if book_res.status_code == 200 and book_res.json().get('items'):
-                                b_item = book_res.json()['items'][0]
-                                updates['publisher'] = clean_text(b_item.get('publisher', '-'))
-                        except: pass
-
-                # 3. 구매수 획득
-                if update_mode in ['all', 'purchase']:
-                    pc = purchase_info_web.get('my_purchase', '-')
-                    if pc == '-' and 'product_link' in updates and updates['product_link'] != '-':
-                        pc = scrape_smartstore_purchase_count(updates['product_link'])
-                    elif pc == '-' and kw.product_link and kw.product_link != '-':
-                        pc = scrape_smartstore_purchase_count(kw.product_link)
-                    updates['purchase_count'] = pc
-
-                # DB 저장
-                kw = db.session.get(MonitoredKeyword, k_id)
-                if kw:
-                    if 'store_rank' in updates: kw.store_rank = updates['store_rank']
-                    if hasattr(kw, 'purchase_count') and 'purchase_count' in updates: 
-                        kw.purchase_count = updates['purchase_count']
-                    if update_mode == 'all':
-                        # 빈칸('-')이 아닌 제대로 된 데이터가 있을 때만 덮어쓰기! (원래 데이터 보호)
-                        if updates.get('book_title') and updates['book_title'] != '-': kw.book_title = updates['book_title']
-                        if updates.get('publisher') and updates['publisher'] != '-': kw.publisher = updates['publisher']
-                        if updates.get('price') and updates['price'] != '-': kw.price = updates['price']
-                        if updates.get('product_link') and updates['product_link'] != '-': kw.product_link = updates['product_link']
-                        if updates.get('shipping_fee') and updates['shipping_fee'] != '-': kw.shipping_fee = updates['shipping_fee']
-                        kw.store_name = updates.get('store_name', target_mall_name)
+                    # ✨ 치명적 버그 완벽 수정: 네이버 검색 API 결과에서는
+                    # 상품 상태 명찰이 바깥이 아니라 'channelProducts' 안쪽에 있습니다![cite: 3]
+                    c_status = str(c_prods[0].get('channelProductStatusType', '')).upper()
                     
-                    db.session.commit()
+                    # 오직 "SALE(판매 중)" 인 진짜 살아있는 상품만 검사 Ба구니에 넣습니다!
+                    if c_status == 'SALE':
+                        all_products.append(p)
+                    
+                update_dup_task(user_id, store_id, status='progress', current=len(all_products), message=f'스캔 중... (스토어 전체: {total_fetched}개 / 실제 판매중: {len(all_products)}개 획득)')
+                
+                if len(contents) < 50: break
+                page += 1
+                time.sleep(0.2)
 
-            except Exception as e:
-                db.session.rollback()
-                kw = db.session.get(MonitoredKeyword, k_id)
-                if kw:
-                    if update_mode in ['all', 'rank']: kw.store_rank = "에러"
-                    db.session.commit()
+            if not global_dup_tasks[user_id][store_id]['is_running']:
+                update_dup_task(user_id, store_id, status='error', message='사용자에 의해 검사가 강제 종료되었습니다.')
+                return
+
+            update_dup_task(user_id, store_id, status='info', message=f'수집 완료! 실제 판매중인 {len(all_products)}개 상품의 ISBN 및 상품명 정밀 분석 중...')
             
-            time.sleep(random.uniform(2.5, 4.0))
+            seen_isbns = {}
+            seen_names = {}
+            duplicates = []
+            
+            for p in all_products:
+                channel_products = p.get('channelProducts', [{}])
+                if not channel_products: continue
+                    
+                channel_product = channel_products[0]
+                name = channel_product.get('name', p.get('name', '이름 없는 상품'))
+                prod_id = channel_product.get('channelProductNo', 'ID 없음')
+                
+                raw_isbn = p.get('sellerManagementCode', '')
+                isbn = str(raw_isbn).strip() if raw_isbn else ''
+                
+                is_duplicate = False
+                original_id = None
+                
+                # 1. ISBN 완벽 매칭
+                if isbn and isbn != '-' and isbn.lower() != 'none':
+                    if isbn in seen_isbns:
+                        is_duplicate = True
+                        original_id = seen_isbns[isbn]
+                    else:
+                        seen_isbns[isbn] = prod_id
+                
+                # 2. 상품명 (띄어쓰기/대소문자 무시) 완벽 매칭
+                clean_name = re.sub(r'\s+', '', name).lower()
+                if not is_duplicate:
+                    if clean_name in seen_names:
+                        is_duplicate = True
+                        original_id = seen_names[clean_name]
+                    else:
+                        seen_names[clean_name] = prod_id
+                        
+                if is_duplicate:
+                    duplicates.append({
+                        'name': name,
+                        'isbn': isbn if isbn else 'ISBN없음',
+                        'original_id': original_id,
+                        'duplicate_id': prod_id
+                    })
+                    
+            update_dup_task(user_id, store_id, status='done', current=len(all_products), total=len(all_products), duplicates=duplicates, message='중복 검사 완료!')
 
-@monitoring_bp.route('/api/refresh_all_ranks', methods=['POST'])
-@login_required
-def refresh_all_ranks():
-    return jsonify({'success': False, 'message': '체크박스로 항목을 선택한 뒤 업데이트 버튼을 사용해주세요!'})
+        except Exception as e:
+            update_dup_task(user_id, store_id, status='error', message=f'서버 내부 오류: {str(e)}')
+        finally:
+            if user_id in global_dup_tasks and store_id in global_dup_tasks[user_id]:
+                global_dup_tasks[user_id][store_id]['is_running'] = False
 
-@monitoring_bp.route('/api/refresh_by_isbn', methods=['POST'])
+
+# ==============================================================================
+# 3. 라우터 엔드포인트
+# ==============================================================================
+@store_bp.route('/')
 @login_required
-def refresh_by_isbn():
-    search_id = os.environ.get("NAVER_CLIENT_ID", "")
-    search_pw = os.environ.get("NAVER_CLIENT_SECRET", "")
-    app = current_app._get_current_object()
+def index(): return render_template('store/index.html', store_count=len(current_user.api_keys))
+
+@store_bp.route('/delete_isbn', methods=['GET'])
+@login_required
+def delete_isbn(): return render_template('store/delete_isbn.html', api_keys=current_user.api_keys)
+
+@store_bp.route('/api/get_task_status', methods=['GET'])
+@login_required
+def get_task_status():
     user_id = current_user.id
+    if user_id in global_tasks and global_tasks[user_id]: return jsonify({'status': 'active', 'tasks': global_tasks[user_id]})
+    return jsonify({'status': 'empty'})
+
+@store_bp.route('/api/start_task', methods=['POST'])
+@login_required
+def start_task():
+    store_ids = request.form.getlist('selected_stores')
+    if not store_ids: return jsonify({'success': False, 'message': '상점을 하나 이상 선택해주세요.'})
+    user_id = current_user.id
+    delete_mode = request.form.get('delete_mode', 'isbn')
+    isbn_input = request.form.get('isbn_list', '')
+    isbn_list = [isbn.strip() for isbn in isbn_input.replace(',', '\n').split('\n') if isbn.strip()] if delete_mode == 'isbn' else []
+    app = current_app._get_current_object()
+    for sid_str in store_ids:
+        store_id = int(sid_str)
+        key = ApiKey.query.filter_by(id=store_id, owner=current_user).first()
+        if not key: continue
+        if user_id in global_tasks and store_id in global_tasks[user_id] and global_tasks[user_id][store_id]['is_running']: continue
+        init_task(user_id, store_id, key.store_name, delete_mode)
+        threading.Thread(target=background_delete_job, args=(app, store_id, delete_mode, isbn_list, user_id)).start()
+    return jsonify({'success': True})
+
+@store_bp.route('/api/stop_task', methods=['POST'])
+@login_required
+def stop_task():
+    store_id = request.form.get('store_id') 
+    user_id = current_user.id
+    if user_id in global_tasks:
+        if store_id == 'all':
+            for sid in global_tasks[user_id]: global_tasks[user_id][sid]['is_running'] = False
+        else:
+            sid = int(store_id)
+            if sid in global_tasks[user_id]: global_tasks[user_id][sid]['is_running'] = False
+    return jsonify({'success': True})
+
+@store_bp.route('/check_duplicates', methods=['GET'])
+@login_required
+def check_duplicates(): 
+    return render_template('store/check_duplicates.html', api_keys=current_user.api_keys)
+
+@store_bp.route('/api/start_dup_task', methods=['POST'])
+@login_required
+def start_dup_task():
+    store_ids = request.form.getlist('selected_stores')
+    if not store_ids: return jsonify({'success': False, 'message': '상점을 하나 이상 선택해주세요.'})
+    user_id = current_user.id
+    app = current_app._get_current_object()
+    for sid_str in store_ids:
+        store_id = int(sid_str)
+        key = ApiKey.query.filter_by(id=store_id, owner=current_user).first()
+        if not key: continue
+        if user_id in global_dup_tasks and store_id in global_dup_tasks[user_id] and global_dup_tasks[user_id][store_id]['is_running']: continue
+        init_dup_task(user_id, store_id, key.store_name)
+        threading.Thread(target=background_duplicate_check_job, args=(app, store_id, user_id)).start()
+    return jsonify({'success': True})
+
+@store_bp.route('/api/get_dup_task_status', methods=['GET'])
+@login_required
+def get_dup_task_status():
+    user_id = current_user.id
+    if user_id in global_dup_tasks and global_dup_tasks[user_id]:
+        return jsonify({'status': 'active', 'tasks': global_dup_tasks[user_id]})
+    return jsonify({'status': 'empty'})
+
+@store_bp.route('/api/stop_dup_task', methods=['POST'])
+@login_required
+def stop_dup_task():
+    store_id = request.form.get('store_id') 
+    user_id = current_user.id
+    if user_id in global_dup_tasks:
+        if store_id == 'all':
+            for sid in global_dup_tasks[user_id]: global_dup_tasks[user_id][sid]['is_running'] = False
+        else:
+            sid = int(store_id)
+            if sid in global_dup_tasks[user_id]: global_dup_tasks[user_id][sid]['is_running'] = False
+    return jsonify({'success': True})
+
+@store_bp.route('/api/suspend_duplicates', methods=['POST'])
+@login_required
+def suspend_duplicates():
+    store_id = request.form.get('store_id')
+    dup_ids_str = request.form.get('duplicate_ids', '')
     
-    selected_ids = request.form.getlist('ids[]')
-    update_mode = request.form.get('update_mode', 'all') 
-    
-    if not selected_ids: return jsonify({'success': False, 'message': '⚠️ 업데이트할 항목을 선택해주세요.'})
+    if not store_id or not dup_ids_str:
+        return jsonify({'success': False, 'message': '필수 파라미터가 누락되었습니다.'})
         
-    keywords = MonitoredKeyword.query.filter(MonitoredKeyword.id.in_(selected_ids), MonitoredKeyword.user_id==user_id).all()
-    target_ids = []
-    
-    for kw in keywords:
-        if update_mode in ['all', 'rank']:
-            if "갱신중" not in str(kw.store_rank) and "매칭중" not in str(kw.store_rank):
-                kw.prev_store_rank = kw.store_rank
-            kw.store_rank = "⏳ 수집중..."
+    dup_ids = [cid.strip() for cid in dup_ids_str.split(',') if cid.strip()]
+    if not dup_ids:
+        return jsonify({'success': False, 'message': '중지할 유효한 상품 ID가 없습니다.'})
         
-        if update_mode in ['all', 'purchase'] and hasattr(kw, 'purchase_count'):
-            kw.purchase_count = "⏳ 수집중..."
+    user = User.query.get(current_user.id)
+    key = ApiKey.query.filter_by(id=int(store_id), owner=user).first()
+    if not key:
+        return jsonify({'success': False, 'message': '상점 인증 키를 찾을 수 없습니다.'})
+        
+    token = get_naver_token(key.client_id, key.client_secret)
+    if not token:
+        return jsonify({'success': False, 'message': '네이버 API 인증에 실패했습니다. 키를 다시 확인해주세요.'})
+        
+    success_count = 0
+    for i in range(0, len(dup_ids), 500):
+        batch = dup_ids[i:i+500]
+        res = suspend_products_in_bulk(token, batch)
+        if '완료' in res or '불가' not in res: 
+            success_count += len(batch)
             
-        target_ids.append(kw.id)
-            
-    db.session.commit()
-    if not target_ids: return jsonify({'success': False, 'message': '⚠️ 선택한 항목이 없습니다.'})
-        
-    thread = Thread(target=async_refresh_by_isbn, args=(app, user_id, search_id, search_pw, target_ids, update_mode))
-    thread.start()
-    
-    msg = "데이터 수집을 시작합니다."
-    if update_mode == 'rank': msg = "순위 수집을 시작합니다."
-    elif update_mode == 'purchase': msg = "구매수 수집을 시작합니다."
-    
-    return jsonify({'success': True, 'message': f'✅ {msg} 잠시 후 새로고침 해주세요.'})
+    if success_count > 0:
+        return jsonify({'success': True, 'message': f'총 {success_count}개의 중복 상품이 성공적으로 판매/전시 중지되었습니다!\n\n(※ 네이버 스마트스토어 센터에 반영되기까지 약 1~2분 소요될 수 있습니다)'})
+    else:
+        return jsonify({'success': False, 'message': '상품 중지 처리에 실패했습니다. (API 거절)'})
