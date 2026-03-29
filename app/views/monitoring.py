@@ -202,7 +202,7 @@ def get_naver_shopping_info(queries, target_mall, find_rank=False):
             if find_rank: time.sleep(0.5) 
     return result
 
-# ✨ 1단계 핵심: X-Ray 분석 바탕으로 정확한 이름과 링크만 쏙 뽑아오는 직결 스캐너
+# ✨ 1단계 핵심: 네이버의 멍청한 검색 필터를 믿지 않고, 페이지를 넘겨가며 직접 찾아내는 무한 탐색 스캐너
 def get_exact_product_info_commerce_api(token, keyword, isbn):
     url = "https://api.commerce.naver.com/external/v1/products/search"
     headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
@@ -210,64 +210,68 @@ def get_exact_product_info_commerce_api(token, keyword, isbn):
     
     print(f"\n[CCTV-DEBUG] 🟢 [1단계: 상품/링크 탐색] 시작 - 타겟 ISBN: [{isbn}], 타겟 키워드: [{keyword}]", flush=True)
 
-    # 1순위: ISBN(관리코드)으로 검색
-    if isbn and isbn != '-':
+    clean_keyword = keyword.replace(" ", "").lower() if keyword and keyword != '-' else ""
+    clean_isbn = str(isbn).strip() if isbn and isbn != '-' else ""
+    
+    page = 1
+    found = False
+    
+    # 상점의 전체 페이지를 돌면서 내 상품이 나올 때까지 끈질기게 찾습니다.
+    while True:
         try:
-            payload = {"page": 1, "size": 50, "sellerManagementCode": isbn}
+            payload = {"page": page, "size": 50, "orderType": "NO"}
             res = requests.post(url, headers=headers, json=payload, timeout=5)
+            
             if res.status_code == 200:
                 contents = res.json().get('contents', [])
+                if not contents:
+                    break # 상점의 마지막 페이지까지 다 뒤졌음
+                    
                 for item in contents:
-                    # ✨ X-Ray 확인 완료: sellerManagementCode는 루트에 존재함!
                     item_isbn = str(item.get('sellerManagementCode', '')).strip()
-                    if item_isbn == str(isbn).strip():
-                        matched_product = item
-                        print(f"[CCTV-DEBUG] 🎯 [매칭 성공] ISBN 번호가 정확히 일치하는 상품을 찾았습니다!", flush=True)
-                        break
-        except Exception as e:
-            print(f"[CCTV-DEBUG] 💥 ISBN 검색 통신 에러: {e}", flush=True)
-
-    # 2순위: ISBN이 없거나 일치하는 게 없으면 상품명(키워드)으로 검색
-    if not matched_product and keyword and keyword != '-':
-        try:
-            payload = {"page": 1, "size": 50, "productName": keyword}
-            res = requests.post(url, headers=headers, json=payload, timeout=5)
-            if res.status_code == 200:
-                contents = res.json().get('contents', [])
-                for item in contents:
-                    # ✨ X-Ray 확인 완료: name도 루트에 존재함!
                     name = str(item.get('name', ''))
-                    clean_keyword = keyword.replace(" ", "").lower()
                     clean_name = name.replace(" ", "").lower()
                     
-                    if clean_keyword in clean_name:
+                    # 1순위: ISBN이 완벽하게 일치하는가?
+                    if clean_isbn and item_isbn == clean_isbn:
                         matched_product = item
-                        print(f"[CCTV-DEBUG] 🎯 [매칭 성공] 상품명이 일치하는 상품을 찾았습니다!", flush=True)
+                        print(f"[CCTV-DEBUG] 🎯 [매칭 성공] {page}페이지에서 ISBN 완벽 일치 상품 발굴!", flush=True)
+                        found = True
                         break
+                        
+                    # 2순위: 상품명 키워드가 포함되어 있는가?
+                    if clean_keyword and clean_keyword in clean_name:
+                        matched_product = item
+                        print(f"[CCTV-DEBUG] 🎯 [매칭 성공] {page}페이지에서 상품명 일치 상품 발굴!", flush=True)
+                        found = True
+                        break
+                        
+                if found:
+                    break # 찾았으면 즉시 탐색 중지!
+                    
+                page += 1
+                time.sleep(0.2) # 네이버 서버가 화내지 않도록 살짝 쉬어줍니다
+            else:
+                print(f"[CCTV-DEBUG] 💥 API 통신 에러: {res.status_code}", flush=True)
+                break
         except Exception as e:
-            print(f"[CCTV-DEBUG] 💥 키워드 검색 통신 에러: {e}", flush=True)
+            print(f"[CCTV-DEBUG] 💥 탐색 중 에러: {e}", flush=True)
+            break
 
     result = {}
     if matched_product:
-        # ✨ X-Ray 확인 완료: name, channelProductNo 모두 루트에 존재함!
         name = matched_product.get('name', '이름 없음')
         c_no = matched_product.get('channelProductNo')
         sale_price = matched_product.get('salePrice')
         
         result['my_title'] = name
-        
-        if c_no: 
-            result['my_link'] = f"https://smartstore.naver.com/main/products/{c_no}"
-        else:
-            result['my_link'] = "-"
-            
-        if sale_price is not None:
-            result['my_price'] = f"{sale_price:,}원"
+        result['my_link'] = f"https://smartstore.naver.com/main/products/{c_no}" if c_no else "-"
+        result['my_price'] = f"{sale_price:,}원" if sale_price is not None else "-"
         
         print(f"[CCTV-DEBUG] 📦 [데이터 추출] 상품명: {result.get('my_title')}", flush=True)
         print(f"[CCTV-DEBUG] 📦 [데이터 추출] 직링크: {result.get('my_link')}", flush=True)
     else:
-        print(f"[CCTV-DEBUG] ❌ [매칭 실패] 상점에서 일치하는 상품을 찾지 못했습니다.", flush=True)
+        print(f"[CCTV-DEBUG] ❌ [매칭 실패] 상점 전체(총 {page-1}페이지)를 뒤졌으나 일치하는 상품을 찾지 못했습니다.", flush=True)
 
     return result
 
