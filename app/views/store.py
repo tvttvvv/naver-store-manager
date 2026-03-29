@@ -212,7 +212,7 @@ def background_delete_job(app, store_id, delete_mode, isbn_list, user_id):
 
 
 # ==============================================================================
-# 2. 상품 중복 체크용 멀티 엔진 (✨ 안쪽 주머니 명찰 패치 완료 ✨)
+# 2. 상품 중복 체크용 멀티 엔진 (✨ 확실하게 죽은 놈만 빼는 블랙리스트 필터 장착 ✨)
 # ==============================================================================
 global_dup_tasks = {}
 
@@ -248,7 +248,7 @@ def background_duplicate_check_job(app, store_id, user_id):
                 update_dup_task(user_id, store_id, status='error', message='API 인증에 실패했습니다.')
                 return
 
-            update_dup_task(user_id, store_id, status='start', message='현재 "판매 중(SALE)"인 상품 목록만 수집 시작...')
+            update_dup_task(user_id, store_id, status='start', message='전체 상품 목록 수집 시작 (삭제/중지된 상품만 제외)...')
             url = "https://api.commerce.naver.com/external/v1/products/search"
             headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
             
@@ -280,15 +280,22 @@ def background_duplicate_check_job(app, store_id, user_id):
                     c_prods = p.get('channelProducts', [{}])
                     if not c_prods: continue
                     
-                    # ✨ 치명적 버그 완벽 수정: 네이버 검색 API 결과에서는
-                    # 상품 상태 명찰이 바깥이 아니라 'channelProducts' 안쪽에 있습니다![cite: 3]
-                    c_status = str(c_prods[0].get('channelProductStatusType', '')).upper()
+                    # API가 주는 모든 상태값을 끌어모읍니다.
+                    r_stat = str(p.get('statusType', '')).upper()
+                    c_stat = str(c_prods[0].get('channelProductStatusType', '')).upper()
                     
-                    # 오직 "SALE(판매 중)" 인 진짜 살아있는 상품만 검사 Ба구니에 넣습니다!
-                    if c_status == 'SALE':
-                        all_products.append(p)
+                    # 🚨 블랙리스트 명단 (이 상태인 놈들만 중복 검사에서 칼같이 버립니다)
+                    # SUSPEND(판매중지), PROHIBIT(판매금지), DELETED(삭제), REJECT(승인반려)
+                    bad_statuses = ['SUSPEND', 'PROHIBIT', 'DELETED', 'REJECT']
                     
-                update_dup_task(user_id, store_id, status='progress', current=len(all_products), message=f'스캔 중... (스토어 전체: {total_fetched}개 / 실제 판매중: {len(all_products)}개 획득)')
+                    # 만약 루트 상태나 채널 상태 둘 중 하나라도 블랙리스트에 속해있다면? 쓰레기통으로!
+                    if r_stat in bad_statuses or c_stat in bad_statuses:
+                        continue
+                        
+                    # 블랙리스트에 속하지 않은 모든 상품(SALE, OUTOFSTOCK, 빈칸 등)은 정상으로 간주하고 담습니다!
+                    all_products.append(p)
+                    
+                update_dup_task(user_id, store_id, status='progress', current=len(all_products), message=f'스캔 중... (스토어 전체: {total_fetched}개 / 실제 판매대상: {len(all_products)}개 획득)')
                 
                 if len(contents) < 50: break
                 page += 1
@@ -298,7 +305,7 @@ def background_duplicate_check_job(app, store_id, user_id):
                 update_dup_task(user_id, store_id, status='error', message='사용자에 의해 검사가 강제 종료되었습니다.')
                 return
 
-            update_dup_task(user_id, store_id, status='info', message=f'수집 완료! 실제 판매중인 {len(all_products)}개 상품의 ISBN 및 상품명 정밀 분석 중...')
+            update_dup_task(user_id, store_id, status='info', message=f'수집 완료! 검사 대상인 {len(all_products)}개 상품의 ISBN 및 상품명 정밀 분석 중...')
             
             seen_isbns = {}
             seen_names = {}
