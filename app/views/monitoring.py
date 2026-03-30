@@ -202,7 +202,7 @@ def get_naver_shopping_info(queries, target_mall, find_rank=False):
             if find_rank: time.sleep(0.5) 
     return result
 
-# ✨ 핵심 업데이트: 상품명(풀네임) 추출 추가 및 출판사/제조사 탐색 로직 강화
+# ✨ 핵심 업데이트: 7중 탐색망을 통한 출판사명 완전 색출 로직 탑재
 def get_exact_product_info_commerce_api(token, isbn):
     if not token:
         return {}
@@ -217,7 +217,6 @@ def get_exact_product_info_commerce_api(token, isbn):
 
     print(f"\n[CCTV-DEBUG] 🟢 [정밀 탐색] 오직 ISBN({pure_isbn})으로만 다이렉트 검색을 시도합니다.", flush=True)
 
-    # 1. 완벽한 규칙으로 판매자 관리 코드 요청
     try:
         payload = {
             "searchKeywordType": "SELLER_CODE", 
@@ -238,7 +237,6 @@ def get_exact_product_info_commerce_api(token, isbn):
     except Exception as e:
         print(f"[CCTV-DEBUG] 💥 판매자 관리 코드 검색 에러: {e}", flush=True)
 
-    # 2. 스토어 최근 상품 이름 검색 (Fallback)
     if not matched_product:
         try:
             payload = {"page": 1, "size": 50}
@@ -256,7 +254,6 @@ def get_exact_product_info_commerce_api(token, isbn):
         except Exception as e:
             pass
 
-    # 데이터 추출 (상품명, 상품링크, 출판사명/제조사명, 가격)
     result = {}
     if matched_product:
         c_prod = matched_product.get('channelProducts', [{}])[0]
@@ -264,14 +261,12 @@ def get_exact_product_info_commerce_api(token, isbn):
         o_no = matched_product.get('originProductNo')
         sale_price = c_prod.get('salePrice')
         
-        # ✨ 1. 상품명(풀네임) 추출
         result['my_title'] = c_prod.get('name', matched_product.get('name', '-'))
-        
-        # 2. 상품 링크
         result['my_link'] = f"https://smartstore.naver.com/main/products/{c_no}" if c_no else "-"
         
-        # 3. 출판사 및 가격 보완을 위한 상세 정보 호출
+        # ✨ 출판사명 7중 탐색 변수 초기화
         publisher = ""
+        
         if o_no:
             try:
                 detail_url = f"https://api.commerce.naver.com/external/v2/products/origin-products/{o_no}"
@@ -284,18 +279,25 @@ def get_exact_product_info_commerce_api(token, isbn):
 
                     detail_attr = origin_data.get('detailAttribute', {})
                     
-                    # ✨ 출판사명/제조사명 샅샅이 찾기
-                    # 1순위: 도서 정보의 출판사
+                    # 1~5순위: 세부 속성 안에서 샅샅이 뒤지기
                     publisher = detail_attr.get('bookInfo', {}).get('publisher')
-                    # 2순위: 일반 상품의 제조사
-                    if not publisher:
-                        publisher = detail_attr.get('customInfo', {}).get('manufacturer')
-                    # 3순위: 기본 제공되는 브랜드 또는 제조사 이름
-                    if not publisher:
-                        publisher = origin_data.get('brandName') or origin_data.get('manufacturerName')
+                    if not publisher: publisher = detail_attr.get('customInfo', {}).get('manufacturer')
+                    if not publisher: publisher = detail_attr.get('customInfo', {}).get('brand')
+                    if not publisher: publisher = detail_attr.get('naverShoppingSearchInfo', {}).get('manufacturerName')
+                    if not publisher: publisher = detail_attr.get('naverShoppingSearchInfo', {}).get('brandName')
+                    
+                    # 6~7순위: 바깥쪽 원본 데이터에서 뒤지기
+                    if not publisher: publisher = origin_data.get('manufacturerName')
+                    if not publisher: publisher = origin_data.get('brandName')
                         
             except Exception as e:
                 print(f"[CCTV-DEBUG] 💥 상세 데이터 조회 에러: {e}", flush=True)
+        
+        # 8~11순위: 상세 API에서도 못 찾았다면, 검색된 기본 목록 데이터 안에서 마지막으로 한 번 더 뒤지기
+        if not publisher: publisher = matched_product.get('manufacturerName')
+        if not publisher: publisher = matched_product.get('brandName')
+        if not publisher: publisher = c_prod.get('manufacturerName')
+        if not publisher: publisher = c_prod.get('brandName')
         
         result['my_publisher'] = publisher if publisher else "-"
         result['my_price'] = f"{sale_price:,}원" if sale_price is not None else "-"
@@ -330,13 +332,11 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                 db.session.commit()
                 updates = {}
 
-                # 핵심 기능만 남긴 업데이트 (상품명, 링크, 가격, 출판사명)
                 if update_mode == 'all':
                     exact_info = {}
                     if commerce_token and target_isbn:
                         exact_info = get_exact_product_info_commerce_api(commerce_token, target_isbn)
 
-                    # ✨ DB 업데이트 목록에 상품명(book_title) 추가
                     if exact_info.get('my_title'): updates['book_title'] = exact_info['my_title']
                     if exact_info.get('my_link'): updates['product_link'] = exact_info['my_link']
                     if exact_info.get('my_price'): updates['price'] = exact_info['my_price']
@@ -345,7 +345,6 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                 kw = db.session.get(MonitoredKeyword, k_id)
                 if kw:
                     if update_mode == 'all':
-                        # ✨ 추출한 정보들을 실제 DB 열에 적용
                         if updates.get('book_title') and updates['book_title'] != '-': kw.book_title = updates['book_title']
                         if updates.get('product_link') and updates['product_link'] != '-': kw.product_link = updates['product_link']
                         if updates.get('price') and updates['price'] != '-': kw.price = updates['price']
