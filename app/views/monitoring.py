@@ -303,49 +303,42 @@ def get_exact_product_info_commerce_api(token, isbn):
 
     return result
 
-# ✨ 핵심 업데이트: 모바일 우회 접속 및 그물망 정규식 적용
+# ✨ 핵심 업데이트: 심층 데이터 파싱 및 초강력 정규식 탐색 로직
 def scrape_smartstore_purchase_count(product_link):
     if not product_link or "smartstore.naver.com" not in product_link: 
         return "-"
     try:
-        # PC 링크를 모바일 링크로 강제 변환 (구조가 훨씬 단순하여 크롤링에 유리함)
-        mobile_link = product_link.replace("https://smartstore.naver.com", "https://m.smartstore.naver.com")
-        
-        # 모바일 기기인 척 속이는 헤더 장착
+        # PC 버전 통신을 유지하되, 헤더를 보강하여 차단을 우회합니다.
         headers = {
-            "User-Agent": "Mozilla/5.0 (Linux; Android 13; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Mobile Safari/537.36",
-            "Accept-Language": "ko-KR,ko;q=0.9",
-            "Cache-Control": "no-cache"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
         }
-        res = requests.get(mobile_link, headers=headers, timeout=7)
+        res = requests.get(product_link, headers=headers, timeout=5)
         
         if res.status_code == 200:
             html_text = res.text
             
-            # 1. 구매수 1순위 타겟 (결제건수) - 네이버가 사용하는 다양한 이름표들
-            purchase_patterns = [
-                r'"payReferenceCount"\s*:\s*(\d+)',
-                r'"purchaseCount"\s*:\s*(\d+)',
+            # 1. 구매수 집중 탐색망: 네이버가 쓰는 모든 데이터 키워드를 포착합니다.
+            sale_patterns = [
                 r'"totalSaleCount"\s*:\s*(\d+)',
                 r'"sellCount"\s*:\s*(\d+)',
-                r'"saleAmount"\s*:\s*(\d+)',
-                r'구매\s*</span><em[^>]*>([\d,]+)</em>',
-                r'구매\s*<em>([\d,]+)</em>'
+                r'"purchaseCount"\s*:\s*(\d+)',
+                r'"payReferenceCount"\s*:\s*(\d+)'
             ]
             
-            for pattern in purchase_patterns:
+            for pattern in sale_patterns:
                 match = re.search(pattern, html_text)
                 if match:
                     val = match.group(1).replace(',', '')
                     if val.isdigit() and int(val) > 0:
                         return f"{int(val):,}건"
             
-            # 2. 구매수가 0이거나 아예 감춰져 있을 때 최후의 보루로 리뷰수를 찾습니다.
+            # 2. 구매수(판매수)가 0이거나 아예 감춰진 상태라면 리뷰수를 차선책으로 긁어옵니다.
             review_patterns = [
                 r'"reviewCount"\s*:\s*(\d+)',
                 r'"totalReviewCount"\s*:\s*(\d+)',
-                r'리뷰\s*</span><em[^>]*>([\d,]+)</em>',
-                r'리뷰\s*<em>([\d,]+)</em>'
+                r'리뷰\s*([0-9,]+)'
             ]
             
             for pattern in review_patterns:
@@ -358,6 +351,7 @@ def scrape_smartstore_purchase_count(product_link):
     except Exception as e:
         print(f"[CCTV-DEBUG] 💥 구매수 스크래핑 에러: {e}", flush=True)
         
+    # 모든 조건을 뚫고도 못 찾았다면, 해당 상품의 구매 내역이 0이거나 노출되지 않는 상태입니다.
     return "-"
 
 def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, target_ids, update_mode):
@@ -384,7 +378,7 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                 db.session.commit()
                 updates = {}
 
-                # 1. API 데이터 추출 (상품명, 링크, 가격, 출판사명)
+                # 1. API 데이터 추출
                 if update_mode == 'all':
                     exact_info = {}
                     if commerce_token and target_isbn:
@@ -395,7 +389,7 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     if exact_info.get('my_price'): updates['price'] = exact_info['my_price']
                     if exact_info.get('my_publisher'): updates['publisher'] = exact_info['my_publisher']
 
-                # 2. 강력해진 구매수 추출 로직 실행
+                # 2. 구매수 스크래핑 실행
                 if update_mode in ['all', 'purchase']:
                     current_link = updates.get('product_link') or kw.product_link
                     if current_link and current_link != '-':
