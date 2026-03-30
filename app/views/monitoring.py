@@ -202,79 +202,81 @@ def get_naver_shopping_info(queries, target_mall, find_rank=False):
             if find_rank: time.sleep(0.5) 
     return result
 
-# ✨ 핵심 업데이트: 정확한 원인 파악을 위한 통계 로깅 및 100개 정밀 탐색 추가
+
+# ✨ 1단계 핵심: 하이픈/공백 무시 초강력 유연 매칭 (Flexible Matching) 알고리즘
 def get_exact_product_info_commerce_api(token, keyword, isbn):
+    if not token:
+        print("[CCTV-DEBUG] 🚨 커머스 API 토큰이 없습니다. API 연동을 확인하세요.", flush=True)
+        return {}
+
     url = "https://api.commerce.naver.com/external/v1/products/search"
     headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
     matched_product = None
     
-    clean_keyword = keyword.replace(" ", "").lower() if keyword and keyword != '-' else ""
-    # ISBN의 하이픈(-)을 완전히 제거하여 검색 확률을 높입니다.
-    clean_isbn = str(isbn).strip().replace('-', '') if isbn and isbn != '-' else ""
+    # 숫자만 남긴 순수 ISBN (비교용)
+    pure_isbn = str(isbn).strip().replace('-', '') if isbn and isbn != '-' else ""
+    # 키워드를 단어 단위로 쪼갬 (예: "바리스타 교재" -> ["바리스타", "교재"])
+    keyword_words = str(keyword).strip().split() if keyword and keyword != '-' else []
     
-    print(f"\n[CCTV-DEBUG] 🟢 [1단계: 상품 탐색] 시작 - 타겟 ISBN: [{clean_isbn}], 타겟 키워드: [{keyword}]", flush=True)
+    print(f"\n[CCTV-DEBUG] 🟢 [1단계: 상품 탐색] 시작 - 타겟 순수ISBN: [{pure_isbn}], 타겟 키워드: {keyword_words}", flush=True)
 
-    # 1순위: ISBN(판매자 관리 코드) 직접 검색
-    if clean_isbn:
+    # 판단 함수: 이 상품이 우리가 찾는 상품이 맞는지 아주 너그럽게 검사합니다.
+    def is_match(item):
+        name = str(item.get('name', '')).lower()
+        mgmt_code = str(item.get('sellerManagementCode', '')).strip().replace('-', '')
+        
+        # 1. ISBN 숫자가 완벽 일치하는가?
+        if pure_isbn and pure_isbn == mgmt_code:
+            print(f"[CCTV-DEBUG] 🎯 매칭 성공! 판매자코드({mgmt_code})와 ISBN이 일치합니다.", flush=True)
+            return True
+            
+        # 2. 상품 이름에 ISBN 번호가 포함되어 있는가?
+        if pure_isbn and pure_isbn in name.replace('-', ''):
+            print(f"[CCTV-DEBUG] 🎯 매칭 성공! 상품명 안에 ISBN이 포함되어 있습니다.", flush=True)
+            return True
+            
+        # 3. 키워드의 모든 단어가 상품명에 들어가 있는가? (순서, 띄어쓰기 무관)
+        if keyword_words and all(w.lower() in name for w in keyword_words):
+            print(f"[CCTV-DEBUG] 🎯 매칭 성공! 키워드의 모든 단어가 상품명({name})에 포함되어 있습니다.", flush=True)
+            return True
+            
+        return False
+
+    # 전략 1: 키워드의 '첫 번째 단어'로 먼저 검색해서 속도를 높입니다.
+    if keyword_words:
+        first_word = keyword_words[0]
         try:
-            payload = {"page": 1, "size": 50, "sellerManagementCode": clean_isbn}
+            payload = {"page": 1, "size": 50, "productName": first_word}
             res = requests.post(url, headers=headers, json=payload, timeout=5)
             if res.status_code == 200:
-                contents = res.json().get('contents', [])
-                print(f"[CCTV-DEBUG] 📡 ISBN 조회 완료! 네이버가 스토어에서 [{len(contents)}개]의 상품을 건네주었습니다.", flush=True)
-                for item in contents:
-                    if str(item.get('sellerManagementCode', '')).strip() == clean_isbn:
+                for item in res.json().get('contents', []):
+                    if is_match(item):
                         matched_product = item
-                        print(f"[CCTV-DEBUG] 🎯 [매칭 성공] ISBN으로 완벽하게 일치하는 상품을 찾았습니다!", flush=True)
                         break
-            else:
-                print(f"[CCTV-DEBUG] ⚠️ API 권한 거부됨: HTTP {res.status_code} - {res.text}", flush=True)
         except Exception as e:
-            print(f"[CCTV-DEBUG] 💥 네트워크 에러: {e}", flush=True)
+            print(f"[CCTV-DEBUG] 💥 키워드 검색 에러: {e}", flush=True)
 
-    # 2순위: 상품명 검색
-    if not matched_product and keyword:
-        try:
-            payload = {"page": 1, "size": 50, "productName": keyword}
-            res = requests.post(url, headers=headers, json=payload, timeout=5)
-            if res.status_code == 200:
-                contents = res.json().get('contents', [])
-                print(f"[CCTV-DEBUG] 📡 키워드 조회 완료! 네이버가 스토어에서 [{len(contents)}개]의 상품을 건네주었습니다.", flush=True)
-                for item in contents:
-                    name = str(item.get('name', ''))
-                    if clean_isbn and clean_isbn in name:
-                        matched_product = item
-                        print(f"[CCTV-DEBUG] 🎯 [매칭 성공] 상품 이름 안에서 ISBN을 발견했습니다!", flush=True)
-                        break
-                    if clean_keyword in name.replace(" ", "").lower():
-                        matched_product = item
-                        print(f"[CCTV-DEBUG] 🎯 [매칭 성공] 상품 이름 안에서 타겟 키워드를 발견했습니다!", flush=True)
-                        break
-        except Exception:
-            pass
-
-    # 3순위: 그래도 없으면 최근 100개 상품 무식하게 다 뒤지기 (이름이나 코드가 조금 다를 때 대비)
+    # 전략 2: 못 찾았다면, 내 스토어의 최근 상품 250개를 무식하게 전부 꺼내서 검사합니다.
     if not matched_product:
-        print(f"[CCTV-DEBUG] 🔍 기본 검색 실패. 내 스토어의 최근 상품 100개를 하나씩 뜯어보는 정밀 탐색을 시작합니다...", flush=True)
+        print(f"[CCTV-DEBUG] 🔍 기본 검색 실패. 내 스토어의 최근 상품 250개를 하나씩 뜯어보는 정밀 탐색을 시작합니다...", flush=True)
         try:
-            for page in range(1, 3):  # 1페이지, 2페이지 (총 100개)
+            for page in range(1, 6):  # 1~5페이지 (총 250개 상품)
                 payload = {"page": page, "size": 50, "orderType": "NO"}
                 res = requests.post(url, headers=headers, json=payload, timeout=5)
                 if res.status_code == 200:
                     contents = res.json().get('contents', [])
+                    if not contents: break # 더 이상 상품이 없으면 중단
+                    
                     for item in contents:
-                        name = str(item.get('name', '')).replace(" ", "").lower()
-                        mgmt_code = str(item.get('sellerManagementCode', '')).strip()
-                        # 이름에 키워드가 있거나, 판매자코드에 ISBN이 있거나, 이름에 ISBN이 있으면 매칭!
-                        if (clean_isbn and clean_isbn == mgmt_code) or \
-                           (clean_isbn and clean_isbn in name) or \
-                           (clean_keyword and clean_keyword in name):
+                        if is_match(item):
                             matched_product = item
-                            print(f"[CCTV-DEBUG] 🎯 [매칭 성공] 정밀 탐색망을 통해 숨어있던 상품을 찾아냈습니다!", flush=True)
                             break
                     if matched_product: break
-        except Exception:
-            pass
+                else:
+                    print(f"[CCTV-DEBUG] ⚠️ API 권한 거부됨 (페이지 {page}): HTTP {res.status_code} - {res.text}", flush=True)
+                    break
+        except Exception as e:
+            print(f"[CCTV-DEBUG] 💥 정밀 탐색 에러: {e}", flush=True)
 
     # 결과 취합
     result = {}
@@ -308,8 +310,7 @@ def get_exact_product_info_commerce_api(token, keyword, isbn):
         print(f"[CCTV-DEBUG] 📦 [데이터 추출] 상품명: {result.get('my_title')}", flush=True)
         print(f"[CCTV-DEBUG] 📦 [데이터 추출] 직링크: {result.get('my_link')}", flush=True)
     else:
-        # 실패 이유를 더 명확하게 안내
-        print(f"[CCTV-DEBUG] ❌ [매칭 실패] 대표님의 스마트스토어에 ISBN({clean_isbn})이나 키워드({keyword})가 포함된 상품이 존재하지 않거나, 아직 검색에 반영되지 않았습니다.", flush=True)
+        print(f"[CCTV-DEBUG] ❌ [매칭 실패] 상품을 찾지 못했습니다. 상품이 등록된지 너무 오래되었거나, 키워드가 완전히 다릅니다.", flush=True)
 
     return result
 
@@ -338,6 +339,8 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
             commerce_token = None
             if api_key:
                 commerce_token = get_naver_token(api_key.client_id, api_key.client_secret)
+                if not commerce_token:
+                    print("[CCTV-DEBUG] 🚨 커머스 API 토큰 발급에 실패했습니다. 'API 관리' 탭에서 키가 올바른지 확인해주세요.", flush=True)
                 
             db.session.commit()
         except Exception: db.session.rollback()
@@ -350,7 +353,6 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     continue
                     
                 keyword_text = str(kw.keyword or "")
-                # 여기도 일관되게 대시를 제거해 줍니다.
                 target_isbn = str(kw.isbn).strip().replace('-', '') if kw.isbn and kw.isbn != '-' else ""
                 
                 db.session.commit()
