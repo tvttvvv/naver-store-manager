@@ -327,6 +327,12 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                 keyword_name = kw.keyword or f"ID:{k_id}"
                 db.session.commit()
                 
+                # ✨ 핵심 최적화: ISBN이 비어있으면 1초 대기도 없이 즉시 스킵하여 속도를 비약적으로 단축합니다.
+                if not target_isbn:
+                    monitoring_tasks[user_id]["current"] += 1
+                    monitoring_tasks[user_id]["logs"].append(f"[{keyword_name}] ⏩ ISBN 없음 (초고속 스킵)")
+                    continue 
+
                 updates = {}
 
                 if update_mode in ['all', 'info']:
@@ -347,10 +353,9 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
 
                 kw = db.session.get(MonitoredKeyword, k_id)
                 if kw:
-                    # 빈 칸만 채우기 로직 처리
                     def should_update(current_val):
-                        if not fill_empty_only: return True # 체크 안되어있으면 무조건 덮어쓰기
-                        return current_val in [None, '', '-'] # 체크 되어있으면 비어있을 때만
+                        if not fill_empty_only: return True 
+                        return current_val in [None, '', '-'] 
 
                     if update_mode in ['all', 'info']:
                         if updates.get('book_title') and should_update(kw.book_title): kw.book_title = updates['book_title']
@@ -365,13 +370,14 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     db.session.commit()
                     
                 monitoring_tasks[user_id]["current"] += 1
-                monitoring_tasks[user_id]["logs"].append(f"[{keyword_name}] 스캔 및 업데이트 완료")
+                monitoring_tasks[user_id]["logs"].append(f"[{keyword_name}] ✅ 업데이트 완료")
 
             except Exception as e:
                 db.session.rollback()
                 monitoring_tasks[user_id]["current"] += 1
-                monitoring_tasks[user_id]["logs"].append(f"[{keyword_name}] 작업 중 오류 발생")
+                monitoring_tasks[user_id]["logs"].append(f"[{keyword_name}] ❌ 작업 중 오류 발생")
             
+            # ISBN이 존재해서 네이버 크롤링/API를 실제로 호출한 항목에 한해서만 차단 방지용 1초 대기를 줍니다.
             time.sleep(1.0)
             
     monitoring_tasks[user_id]["is_running"] = False
