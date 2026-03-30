@@ -202,8 +202,7 @@ def get_naver_shopping_info(queries, target_mall, find_rank=False):
             if find_rank: time.sleep(0.5) 
     return result
 
-
-# ✨ 1단계 핵심: 오직 ISBN에만 의존하는 초경량/초정밀 다이렉트 검색 로직
+# ✨ 핵심 로직: 100% 일치 검증 및 강제 가격 추출 탑재
 def get_exact_product_info_commerce_api(token, isbn):
     if not token:
         return {}
@@ -221,48 +220,62 @@ def get_exact_product_info_commerce_api(token, isbn):
 
     print(f"\n[CCTV-DEBUG] 🟢 [정밀 탐색] 오직 ISBN({pure_isbn})으로만 다이렉트 검색을 시도합니다.", flush=True)
 
-    # 1. 판매자 관리 코드(sellerManagementCode)로 다이렉트 검색
+    # 1. 판매자 관리 코드(sellerManagementCode)로 다이렉트 검색 및 100% 일치 검증
     try:
-        payload = {"page": 1, "size": 10, "sellerManagementCode": pure_isbn}
+        payload = {"page": 1, "size": 50, "sellerManagementCode": pure_isbn}
         res = requests.post(url, headers=headers, json=payload, timeout=5)
         if res.status_code == 200:
             contents = res.json().get('contents', [])
-            if contents:
-                matched_product = contents[0]
-                print("[CCTV-DEBUG] 🎯 [매칭 성공] 판매자 관리 코드에서 ISBN을 즉시 찾았습니다!", flush=True)
+            for item in contents:
+                item_code = str(item.get('sellerManagementCode', '')).strip().replace('-', '')
+                # 무조건 첫 번째를 고르지 않고, 코드가 정확히 일치하는 녀석만 골라냅니다!
+                if item_code == pure_isbn:
+                    matched_product = item
+                    print(f"[CCTV-DEBUG] 🎯 [매칭 성공] 정확히 일치하는 ISBN({pure_isbn})을 찾았습니다!", flush=True)
+                    break
     except Exception as e:
         print(f"[CCTV-DEBUG] 💥 판매자 관리 코드 검색 에러: {e}", flush=True)
 
     # 2. 만약 1번에서 못 찾았다면, 상품명에 ISBN이 포함되어 있는지 다이렉트 검색
     if not matched_product:
         try:
-            payload = {"page": 1, "size": 10, "productName": pure_isbn}
+            payload = {"page": 1, "size": 50, "productName": pure_isbn}
             res = requests.post(url, headers=headers, json=payload, timeout=5)
             if res.status_code == 200:
                 contents = res.json().get('contents', [])
-                if contents:
-                    matched_product = contents[0]
-                    print("[CCTV-DEBUG] 🎯 [매칭 성공] 상품명 검색을 통해 ISBN을 즉시 찾았습니다!", flush=True)
+                for item in contents:
+                    name = str(item.get('name', '')).replace('-', '')
+                    # 이름 안에 해당 ISBN이 포함되어 있을 때만 골라냅니다!
+                    if pure_isbn in name:
+                        matched_product = item
+                        print(f"[CCTV-DEBUG] 🎯 [매칭 성공] 상품명에서 완벽하게 일치하는 ISBN을 찾았습니다!", flush=True)
+                        break
         except Exception as e:
             print(f"[CCTV-DEBUG] 💥 상품명 검색 에러: {e}", flush=True)
 
-    # 데이터 추출 (상품링크, 출판사명/제조사명, 가격 까지만!)
+    # 데이터 추출 (상품링크, 출판사명/제조사명, 가격)
     result = {}
     if matched_product:
         c_no = matched_product.get('channelProducts', [{}])[0].get('channelProductNo')
         o_no = matched_product.get('originProductNo')
+        
+        # 1차적으로 겉면에 있는 가격을 잡아봅니다.
         sale_price = matched_product.get('salePrice')
         
         result['my_link'] = f"https://smartstore.naver.com/main/products/{c_no}" if c_no else "-"
-        result['my_price'] = f"{sale_price:,}원" if sale_price is not None else "-"
         
-        # 출판사명(제조사명) 조회를 위한 상세 API 호출
+        # 상세 데이터 API 호출 (출판사 조회를 위해 무조건 실행, 겸사겸사 숨겨진 가격도 가져옴)
         if o_no:
             try:
                 detail_url = f"https://api.commerce.naver.com/external/v2/products/origin-products/{o_no}"
                 detail_res = requests.get(detail_url, headers=headers, timeout=5)
                 if detail_res.status_code == 200:
                     origin_data = detail_res.json()
+                    
+                    # 겉면에 가격이 안 적혀 있었다면 속에서 강제로 꺼내옵니다.
+                    if sale_price is None:
+                        sale_price = origin_data.get('salePrice') or origin_data.get('price')
+
                     detail_attr = origin_data.get('detailAttribute', {})
                     
                     # 1순위: 도서 정보의 출판사 확인
@@ -276,9 +289,12 @@ def get_exact_product_info_commerce_api(token, isbn):
             except Exception as e:
                 print(f"[CCTV-DEBUG] 💥 상세 데이터 조회 에러: {e}", flush=True)
         
+        # 최종적으로 정리된 가격을 문자로 만듭니다.
+        result['my_price'] = f"{sale_price:,}원" if sale_price is not None else "-"
+        
         print(f"[CCTV-DEBUG] 📦 [데이터 추출] 가격: {result.get('my_price')} / 링크: {result.get('my_link')} / 출판사(제조사): {result.get('my_publisher', '-')}", flush=True)
     else:
-        print("[CCTV-DEBUG] ❌ [매칭 실패] ISBN으로 검색했지만 상품을 찾지 못했습니다.", flush=True)
+        print("[CCTV-DEBUG] ❌ [매칭 실패] ISBN으로 검색했지만 정확히 일치하는 상품을 찾지 못했습니다.", flush=True)
 
     return result
 
@@ -323,7 +339,6 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                         if updates.get('product_link') and updates['product_link'] != '-': kw.product_link = updates['product_link']
                         if updates.get('price') and updates['price'] != '-': kw.price = updates['price']
                         if updates.get('publisher') and updates['publisher'] != '-': kw.publisher = updates['publisher']
-                        # 불필요한 검색을 줄였으므로, 사용하지 않는 값은 유지하거나 초기화하지 않고 그대로 둡니다.
                     
                     db.session.commit()
                     print(f"[CCTV-DEBUG] ✅ DB 업데이트 성공 (ID: {k_id})", flush=True)
@@ -332,7 +347,6 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                 print(f"[CCTV-DEBUG] 💥 작업 처리 중 에러 발생: {e}", flush=True)
                 db.session.rollback()
             
-            # API 보호를 위한 딜레이 유지
             time.sleep(1.0)
 
 @monitoring_bp.route('/api/refresh_all_ranks', methods=['POST'])
@@ -365,5 +379,5 @@ def refresh_by_isbn():
     thread = Thread(target=async_refresh_by_isbn, args=(app, user_id, search_id, search_pw, target_ids, update_mode))
     thread.start()
     
-    msg = "빠른 데이터 수집(링크, 출판사, 가격)을 시작합니다."
+    msg = "정밀 매칭 데이터 수집(링크, 출판사, 가격)을 시작합니다."
     return jsonify({'success': True, 'message': f'✅ {msg} 잠시 후 새로고침 해주세요.'})
