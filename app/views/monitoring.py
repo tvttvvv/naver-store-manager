@@ -202,7 +202,7 @@ def get_naver_shopping_info(queries, target_mall, find_rank=False):
             if find_rank: time.sleep(0.5) 
     return result
 
-# ✨ 1단계 핵심: 160페이지를 다 뒤지지 않고 네이버 검색망에 다이렉트로 요청하는 초고속 스캐너
+# ✨ 1단계 핵심: 네이버 커머스 API 상품/링크 탐색 로직 (출판사, 배송비, 링크 버그 완벽 수정 적용됨)
 def get_exact_product_info_commerce_api(token, keyword, isbn):
     url = "https://api.commerce.naver.com/external/v1/products/search"
     headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
@@ -242,15 +242,50 @@ def get_exact_product_info_commerce_api(token, keyword, isbn):
         except Exception as e:
             print(f"[CCTV-DEBUG] 💥 키워드 검색 에러: {e}", flush=True)
 
+    # 3순위: 그래도 없으면 최근 50개 상품 중에서 유사한 이름/ISBN 필터링 (Fallback)
+    if not matched_product:
+        try:
+            payload = {"page": 1, "size": 50, "orderType": "NO"}
+            res = requests.post(url, headers=headers, json=payload, timeout=5)
+            if res.status_code == 200:
+                for item in res.json().get('contents', []):
+                    name = str(item.get('name', '')).replace(" ", "").lower()
+                    if (clean_keyword and clean_keyword in name) or (clean_isbn and clean_isbn in name):
+                        matched_product = item
+                        print(f"[CCTV-DEBUG] 🎯 [매칭 성공] 최근 등록 목록에서 매칭 완료!", flush=True)
+                        break
+        except Exception:
+            pass
+
     result = {}
     if matched_product:
         name = matched_product.get('name', '이름 없음')
-        c_no = matched_product.get('channelProductNo')
+        # 버그 수정: channelProductNo는 channelProducts 리스트 안에 있습니다.
+        c_no = matched_product.get('channelProducts', [{}])[0].get('channelProductNo')
+        o_no = matched_product.get('originProductNo')
         sale_price = matched_product.get('salePrice')
         
         result['my_title'] = name
         result['my_link'] = f"https://smartstore.naver.com/main/products/{c_no}" if c_no else "-"
         result['my_price'] = f"{sale_price:,}원" if sale_price is not None else "-"
+        
+        # 누락되었던 상세 데이터(출판사, 배송비) 조회를 위해 원본 상품 상세 API 호출 추가!
+        if o_no:
+            try:
+                detail_url = f"https://api.commerce.naver.com/external/v2/products/origin-products/{o_no}"
+                detail_res = requests.get(detail_url, headers=headers, timeout=5)
+                if detail_res.status_code == 200:
+                    origin_data = detail_res.json()
+                    delivery_fee = origin_data.get('deliveryInfo', {}).get('deliveryFee', {}).get('baseFee')
+                    if delivery_fee is not None:
+                        result['my_shipping_fee'] = "무료" if delivery_fee == 0 else f"{delivery_fee:,}원"
+                        
+                    book_info = origin_data.get('detailAttribute', {}).get('bookInfo', {})
+                    if book_info:
+                        if book_info.get('publisher'): result['my_publisher'] = book_info.get('publisher')
+                        if book_info.get('isbn'): result['my_isbn'] = book_info.get('isbn')
+            except Exception as e:
+                print(f"[CCTV-DEBUG] 💥 상세 데이터 조회 에러: {e}", flush=True)
         
         print(f"[CCTV-DEBUG] 📦 [데이터 추출] 상품명: {result.get('my_title')}", flush=True)
         print(f"[CCTV-DEBUG] 📦 [데이터 추출] 직링크: {result.get('my_link')}", flush=True)
@@ -274,6 +309,7 @@ def scrape_smartstore_purchase_count(product_link):
     except Exception: pass
     return "-"
 
+# ✨ 수집 실행 엔진 (DB에 출판사, 배송비 업데이트 반영 적용됨)
 def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, target_ids, update_mode):
     with app.app_context():
         try:
@@ -306,7 +342,7 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     kw_info_web = get_naver_shopping_info([keyword_text], target_mall_name, find_rank=True)
                     updates['store_rank'] = kw_info_web.get('rank', '500위 밖')
 
-                # ✨ 1단계 핵심: 상품 정보(이름, 링크, 가격) 즉시 매칭 적용
+                # ✨ 1단계 핵심: 상품 정보(이름, 링크, 가격, 배송비, 출판사) 즉시 매칭 적용
                 if update_mode == 'all':
                     exact_info = {}
                     if commerce_token:
@@ -316,6 +352,8 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     if exact_info.get('my_title'): updates['book_title'] = exact_info['my_title']
                     if exact_info.get('my_link'): updates['product_link'] = exact_info['my_link']
                     if exact_info.get('my_price'): updates['price'] = exact_info['my_price']
+                    if exact_info.get('my_publisher'): updates['publisher'] = exact_info['my_publisher']
+                    if exact_info.get('my_shipping_fee'): updates['shipping_fee'] = exact_info['my_shipping_fee']
                     updates['store_name'] = target_mall_name
 
                 # 구매수 직접 추적
@@ -333,6 +371,8 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                         if updates.get('book_title') and updates['book_title'] != '-': kw.book_title = updates['book_title']
                         if updates.get('product_link') and updates['product_link'] != '-': kw.product_link = updates['product_link']
                         if updates.get('price') and updates['price'] != '-': kw.price = updates['price']
+                        if updates.get('publisher') and updates['publisher'] != '-': kw.publisher = updates['publisher']
+                        if updates.get('shipping_fee') and updates['shipping_fee'] != '-': kw.shipping_fee = updates['shipping_fee']
                         kw.store_name = updates.get('store_name', target_mall_name)
                     
                     db.session.commit()
