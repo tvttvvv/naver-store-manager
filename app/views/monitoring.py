@@ -202,7 +202,6 @@ def get_naver_shopping_info(queries, target_mall, find_rank=False):
             if find_rank: time.sleep(0.5) 
     return result
 
-# ✨ 핵심 업데이트: 7중 탐색망을 통한 출판사명 완전 색출 로직 탑재
 def get_exact_product_info_commerce_api(token, isbn):
     if not token:
         return {}
@@ -264,7 +263,6 @@ def get_exact_product_info_commerce_api(token, isbn):
         result['my_title'] = c_prod.get('name', matched_product.get('name', '-'))
         result['my_link'] = f"https://smartstore.naver.com/main/products/{c_no}" if c_no else "-"
         
-        # ✨ 출판사명 7중 탐색 변수 초기화
         publisher = ""
         
         if o_no:
@@ -279,21 +277,18 @@ def get_exact_product_info_commerce_api(token, isbn):
 
                     detail_attr = origin_data.get('detailAttribute', {})
                     
-                    # 1~5순위: 세부 속성 안에서 샅샅이 뒤지기
                     publisher = detail_attr.get('bookInfo', {}).get('publisher')
                     if not publisher: publisher = detail_attr.get('customInfo', {}).get('manufacturer')
                     if not publisher: publisher = detail_attr.get('customInfo', {}).get('brand')
                     if not publisher: publisher = detail_attr.get('naverShoppingSearchInfo', {}).get('manufacturerName')
                     if not publisher: publisher = detail_attr.get('naverShoppingSearchInfo', {}).get('brandName')
                     
-                    # 6~7순위: 바깥쪽 원본 데이터에서 뒤지기
                     if not publisher: publisher = origin_data.get('manufacturerName')
                     if not publisher: publisher = origin_data.get('brandName')
                         
             except Exception as e:
                 print(f"[CCTV-DEBUG] 💥 상세 데이터 조회 에러: {e}", flush=True)
         
-        # 8~11순위: 상세 API에서도 못 찾았다면, 검색된 기본 목록 데이터 안에서 마지막으로 한 번 더 뒤지기
         if not publisher: publisher = matched_product.get('manufacturerName')
         if not publisher: publisher = matched_product.get('brandName')
         if not publisher: publisher = c_prod.get('manufacturerName')
@@ -307,6 +302,30 @@ def get_exact_product_info_commerce_api(token, isbn):
         print("[CCTV-DEBUG] ❌ [매칭 실패] 대표님의 스토어에서 해당 ISBN을 가진 상품을 찾지 못했습니다.", flush=True)
 
     return result
+
+# ✨ 구매수 추출 함수 (스토어 페이지 몰래 방문해서 숫자만 훔쳐오기)
+def scrape_smartstore_purchase_count(product_link):
+    if not product_link or "smartstore.naver.com" not in product_link: 
+        return "-"
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36"
+        }
+        res = requests.get(product_link, headers=headers, timeout=5)
+        if res.status_code == 200:
+            # 숨겨진 코드 속에서 sellCount 글자 찾기
+            sell_match = re.search(r'"sellCount"\s*:\s*(\d+)', res.text)
+            if sell_match: 
+                return sell_match.group(1)
+            
+            # 구매수가 없으면 리뷰수로 대체 확인
+            review_match = re.search(r'"reviewCount"\s*:\s*(\d+)', res.text)
+            if review_match: 
+                return review_match.group(1)
+    except Exception as e:
+        print(f"[CCTV-DEBUG] 💥 구매수 스크래핑 에러: {e}", flush=True)
+        pass
+    return "-"
 
 def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, target_ids, update_mode):
     with app.app_context():
@@ -332,6 +351,7 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                 db.session.commit()
                 updates = {}
 
+                # 1. API 데이터 추출 (상품명, 링크, 가격, 출판사명)
                 if update_mode == 'all':
                     exact_info = {}
                     if commerce_token and target_isbn:
@@ -342,6 +362,15 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     if exact_info.get('my_price'): updates['price'] = exact_info['my_price']
                     if exact_info.get('my_publisher'): updates['publisher'] = exact_info['my_publisher']
 
+                # ✨ 2. 구매수 추출 로직 추가
+                if update_mode in ['all', 'purchase']:
+                    # 방금 가져온 새 링크가 있으면 쓰고, 없으면 기존 링크 사용
+                    current_link = updates.get('product_link') or kw.product_link
+                    if current_link and current_link != '-':
+                        pc = scrape_smartstore_purchase_count(current_link)
+                        updates['purchase_count'] = pc
+                        print(f"[CCTV-DEBUG] 🛒 [구매수 조회] 성공! 결과: {pc}", flush=True)
+
                 kw = db.session.get(MonitoredKeyword, k_id)
                 if kw:
                     if update_mode == 'all':
@@ -349,6 +378,10 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                         if updates.get('product_link') and updates['product_link'] != '-': kw.product_link = updates['product_link']
                         if updates.get('price') and updates['price'] != '-': kw.price = updates['price']
                         if updates.get('publisher') and updates['publisher'] != '-': kw.publisher = updates['publisher']
+                    
+                    # 구매수 데이터 DB 저장
+                    if updates.get('purchase_count'):
+                        kw.purchase_count = updates['purchase_count']
                     
                     db.session.commit()
                     print(f"[CCTV-DEBUG] ✅ DB 업데이트 완료 (ID: {k_id})", flush=True)
@@ -389,5 +422,5 @@ def refresh_by_isbn():
     thread = Thread(target=async_refresh_by_isbn, args=(app, user_id, search_id, search_pw, target_ids, update_mode))
     thread.start()
     
-    msg = "정밀 매칭 데이터 수집(상품명, 링크, 출판사, 가격)을 시작합니다."
+    msg = "정밀 매칭 데이터 수집(상품명, 링크, 출판사, 가격, 구매수)을 시작합니다."
     return jsonify({'success': True, 'message': f'✅ {msg} 잠시 후 새로고침 해주세요.'})
