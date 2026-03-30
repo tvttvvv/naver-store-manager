@@ -33,12 +33,11 @@
                             </div>
                             <button class="btn btn-outline-warning fw-bold shadow-sm w-100 w-md-auto" onclick="clearSelectedData()"><i class="bi bi-eraser"></i> 데이터 초기화</button>
                             
-                            <!-- ✨ 완벽한 드롭다운 UI 복구! -->
                             <div class="btn-group shadow-sm w-100 w-md-auto">
-                                <button type="button" class="btn btn-success fw-bold" onclick="refreshByIsbn('all', event)">
+                                <button type="button" id="mainUpdateBtn" class="btn btn-success fw-bold" onclick="refreshByIsbn('all', event)">
                                     <i class="bi bi-upc-scan"></i> 모두 업데이트
                                 </button>
-                                <button type="button" class="btn btn-success dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false">
+                                <button type="button" id="subUpdateBtn" class="btn btn-success dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false">
                                     <span class="visually-hidden">Toggle Dropdown</span>
                                 </button>
                                 <ul class="dropdown-menu dropdown-menu-end border-success shadow">
@@ -51,8 +50,21 @@
                         </div>
                     </div>
 
+                    <div id="progressContainer" class="d-none mb-3 p-3 bg-light rounded border border-success shadow-sm">
+                        <div class="d-flex justify-content-between mb-1">
+                            <h6 class="fw-bold text-success mb-0" id="progressStatusText">데이터 수집 로딩 중...</h6>
+                            <span class="text-muted small fw-bold" id="progressCount">0 / 0</span>
+                        </div>
+                        <div class="progress mb-2" style="height: 20px;">
+                            <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-success" role="progressbar" style="width: 0%;">0%</div>
+                        </div>
+                        <div class="bg-white border rounded p-2 overflow-auto" style="height: 100px;">
+                            <ul id="logList" class="list-unstyled mb-0 small text-muted font-monospace">
+                            </ul>
+                        </div>
+                    </div>
+
                     <div class="d-flex flex-column flex-md-row align-items-md-center mb-2 p-2 bg-light rounded border gap-2 search-area">
-                        <!-- ✨ 네이버 카운트 직접 입력 필터 기능 -->
                         <div class="d-flex align-items-center bg-white rounded border border-secondary px-2 py-1 w-100 w-md-auto mb-2 mb-md-0 shadow-sm" style="min-width: 200px;">
                             <span class="small text-secondary fw-bold me-2 text-nowrap"><i class="bi bi-funnel"></i> 검색량:</span>
                             <input type="number" id="minVolume" class="form-control form-control-sm border-0 px-1 text-center fw-bold text-primary" placeholder="최소" min="0" style="width: 65px; box-shadow: none;">
@@ -178,6 +190,9 @@
     let lastCheckedCheckbox = null;
     let currentPage = 1;
     let itemsPerPage = 50;
+    
+    // ✨ 폴링 타이머 변수
+    let pollingInterval = null;
 
     function updateTabCounts() {
         let countA = allKeywordsData.filter(k => k.grade === 'A').length;
@@ -481,6 +496,7 @@
         } catch(e) { alert('이동 중 오류가 발생했습니다.'); }
     }
 
+    // ✨ 업데이트 로직을 화면과 폴링 시스템에 연결
     async function refreshByIsbn(mode, event) {
         if(event) event.preventDefault();
         
@@ -499,12 +515,77 @@
 
         if(!confirm(`선택한 ${checkedIds.size}개 항목을 [${modeText}] 업데이트 하시겠습니까?`)) return;
 
+        // 버튼 비활성화 및 UI 노출
+        document.getElementById('mainUpdateBtn').disabled = true;
+        document.getElementById('subUpdateBtn').disabled = true;
+        document.getElementById('progressContainer').classList.remove('d-none');
+        document.getElementById('logList').innerHTML = '';
+
         try {
             const res = await fetch("{{ url_for('monitoring.refresh_by_isbn') }}", { method: 'POST', body: fd });
             const result = await res.json();
-            alert(result.message);
-            loadSavedKeywords();
-        } catch(e) { alert('서버 에러가 발생했습니다.'); } 
+            
+            if(result.success) {
+                // 백그라운드 작업이 시작되었으므로 주기적으로 상태를 물어봅니다.
+                pollingInterval = setInterval(checkTaskStatus, 1000);
+            } else {
+                alert(result.message);
+                resetUpdateUI();
+            }
+        } catch(e) { 
+            alert('서버 에러가 발생했습니다.');
+            resetUpdateUI();
+        } 
+    }
+
+    // ✨ 서버에 진행 상태를 물어보는 함수
+    function checkTaskStatus() {
+        fetch("{{ url_for('monitoring.get_task_status') }}")
+            .then(res => res.json())
+            .then(data => {
+                const progressBar = document.getElementById('progressBar');
+                const progressStatusText = document.getElementById('progressStatusText');
+                const progressCount = document.getElementById('progressCount');
+                const logList = document.getElementById('logList');
+
+                // 진행률 계산
+                let percent = 0;
+                if (data.total > 0) {
+                    percent = Math.round((data.current / data.total) * 100);
+                }
+                
+                progressBar.style.width = percent + '%';
+                progressBar.innerText = percent + '%';
+                progressCount.innerText = `${data.current} / ${data.total}`;
+                
+                // 로그 렌더링
+                if (data.logs && data.logs.length > 0) {
+                    logList.innerHTML = data.logs.map(log => `<li><i class="bi bi-check2-circle text-success me-1"></i>${log}</li>`).join('');
+                    logList.parentElement.scrollTop = logList.parentElement.scrollHeight;
+                }
+
+                // 완료 감지
+                if (!data.is_running && data.total > 0 && data.current >= data.total) {
+                    clearInterval(pollingInterval);
+                    progressStatusText.innerText = "✨ 업데이트가 모두 완료되었습니다!";
+                    
+                    // 2초 뒤 UI 복구 및 표 새로고침
+                    setTimeout(() => {
+                        resetUpdateUI();
+                        loadSavedKeywords();
+                    }, 2000);
+                } else {
+                    progressStatusText.innerText = `데이터 수집 및 매칭 중...`;
+                }
+            })
+            .catch(err => console.error(err));
+    }
+
+    function resetUpdateUI() {
+        document.getElementById('mainUpdateBtn').disabled = false;
+        document.getElementById('subUpdateBtn').disabled = false;
+        document.getElementById('progressContainer').classList.add('d-none');
+        if(pollingInterval) clearInterval(pollingInterval);
     }
 
     async function clearSelectedData() {
