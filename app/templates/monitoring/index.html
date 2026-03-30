@@ -41,7 +41,6 @@
                                     <span class="visually-hidden">Toggle Dropdown</span>
                                 </button>
                                 <ul class="dropdown-menu dropdown-menu-end border-success shadow" style="min-width: 220px;">
-                                    <!-- 빈 칸 채우기 토글 옵션 -->
                                     <li class="px-3 py-2 bg-light border-bottom mb-1" onclick="event.stopPropagation();">
                                         <div class="form-check form-switch mb-0">
                                             <input class="form-check-input" type="checkbox" id="fillEmptyOnly" style="cursor: pointer;">
@@ -126,7 +125,10 @@
                                     <th>키워드</th>
                                     <th>네이버카운트</th>
                                     <th>순위</th>
+                                    
+                                    <th class="text-primary fw-bold">상점 선택</th>
                                     <th>구매수</th>
+                                    
                                     <th>키워드검색</th>
                                     <th>상품링크</th>
                                     <th>출판사명<br><small class="text-muted">(제조사명)</small></th>
@@ -139,7 +141,7 @@
                                 </tr>
                             </thead>
                             <tbody id="savedKeywordsBody">
-                                <tr><td colspan="15" class="text-center py-5 text-muted">데이터를 가져오는 중입니다...</td></tr>
+                                <tr><td colspan="16" class="text-center py-5 text-muted">데이터를 가져오는 중입니다...</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -393,6 +395,17 @@
                 let searchLink = `https://search.naver.com/search.naver?where=nexearch&query=${encodeURIComponent(k.keyword || '')}`;
                 let gradeBadge = isGlobalSearch ? `<br><span class="badge bg-secondary mt-1">${k.grade}</span>` : '';
 
+                // ✨ 상점 선택 셀 동적 생성
+                let storeOptions = ['-', '데일리러닝', '스터디박스'];
+                let currentStore = k.store_name || '-';
+                let storeSelectHtml = `<select class="form-select form-select-sm border-secondary fw-bold text-dark store-select shadow-sm" data-id="${k.id}" style="width: 105px; cursor:pointer;">`;
+                storeOptions.forEach(opt => {
+                    let selected = currentStore === opt ? 'selected' : '';
+                    let label = opt === '-' ? '선택 안됨' : opt;
+                    storeSelectHtml += `<option value="${opt}" ${selected}>${label}</option>`;
+                });
+                storeSelectHtml += `</select>`;
+
                 return `
                 <tr class="${isChecked ? 'row-selected' : ''}">
                     <td class="align-middle bg-light"><input type="checkbox" class="form-check-input row-checkbox" value="${k.id}" onclick="handleRowCheck(event, this)" style="cursor: pointer;" ${isChecked}></td>
@@ -400,7 +413,10 @@
                     <td class="align-middle ${kwBgColor} fw-bold editable-cell" data-id="${k.id}" data-field="keyword" title="더블클릭하여 수정">${k.keyword || '-'}${gradeBadge}</td>
                     <td class="align-middle ${kwBgColor} fs-6">${(k.search_volume || 0).toLocaleString()}</td>
                     <td class="align-middle ${kwBgColor} text-dark editable-cell" data-id="${k.id}" data-field="store_rank" data-val="${safeRank}" title="더블클릭하여 수정">${rankDisplay}</td>
+                    
+                    <td class="align-middle bg-light">${storeSelectHtml}</td>
                     <td class="align-middle text-primary fw-bold editable-cell" data-id="${k.id}" data-field="purchase_count" title="더블클릭하여 수정">${k.purchase_count || '-'}</td>
+                    
                     <td class="align-middle"><a href="${searchLink}" target="_blank" class="btn btn-sm btn-outline-secondary py-0 px-2 text-decoration-none"><i class="bi bi-search"></i> 검색</a></td>
                     <td class="align-middle editable-cell" data-id="${k.id}" data-field="product_link" data-val="${plink_val}" title="더블클릭하여 링크 수정">${linkBtn}</td>
                     <td class="align-middle text-muted editable-cell" data-id="${k.id}" data-field="publisher" title="더블클릭하여 수정">${k.publisher || '-'}</td>
@@ -415,11 +431,36 @@
             }).join('');
             renderPagination(totalItems);
         } else {
-            tbody.innerHTML = `<tr><td colspan="15" class="text-center py-5 text-muted">해당하는 데이터가 없습니다.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="16" class="text-center py-5 text-muted">해당하는 데이터가 없습니다.</td></tr>`;
             document.getElementById('paginationContainer').innerHTML = ''; 
         }
         renderTableColors();
     }
+
+    // ✨ 상점 선택 드롭다운 값 변경 시 즉각적으로 서버에 자동 저장
+    document.addEventListener('change', async function(e) {
+        if (e.target && e.target.classList.contains('store-select')) {
+            let id = e.target.getAttribute('data-id');
+            let newStore = e.target.value;
+            let item = allKeywordsData.find(i => i.id == id);
+            
+            const fd = new FormData();
+            fd.append('id', id);
+            fd.append('store_name', newStore);
+
+            try {
+                const res = await fetch("{{ url_for('monitoring.update_keyword') }}", { method: 'POST', body: fd });
+                const result = await res.json();
+                if (result.success) { 
+                    item.store_name = newStore;
+                } else { 
+                    alert(result.message); 
+                }
+            } catch(error) { 
+                alert('상점 정보 저장 중 오류가 발생했습니다.'); 
+            }
+        }
+    });
 
     document.getElementById('savedKeywordsBody').addEventListener('dblclick', function(e) {
         let td = e.target.closest('.editable-cell');
@@ -464,16 +505,9 @@
 
             const fd = new FormData();
             fd.append('id', id);
-            fd.append('keyword', field === 'keyword' ? newVal : (item.keyword || '-'));
-            fd.append('store_rank', field === 'store_rank' ? newVal : (item.store_rank || '-'));
-            fd.append('product_link', field === 'product_link' ? newVal : (item.product_link || '-'));
-            fd.append('publisher', field === 'publisher' ? newVal : (item.publisher || '-'));
-            fd.append('supply_rate', field === 'supply_rate' ? newVal : (item.supply_rate || '-'));
-            fd.append('isbn', field === 'isbn' ? newVal : (item.isbn || '-'));
-            fd.append('price', field === 'price' ? newVal : (item.price || '-'));
-            fd.append('shipping_fee', field === 'shipping_fee' ? newVal : (item.shipping_fee || '-'));
-            fd.append('book_title', field === 'book_title' ? newVal : (item.book_title || '-'));
-            fd.append('purchase_count', field === 'purchase_count' ? newVal : (item.purchase_count || '-'));
+            
+            // ✨ 부분 업데이트를 위해 입력된 값만 보냄
+            fd.append(field, newVal || '-');
 
             try {
                 const res = await fetch("{{ url_for('monitoring.update_keyword') }}", { method: 'POST', body: fd });
@@ -521,7 +555,6 @@
             return;
         }
 
-        // 새롭게 추가된 빈 칸 채우기 토글 상태를 가져와서 서버로 보냅니다.
         let fillEmptyOnly = document.getElementById('fillEmptyOnly').checked;
 
         const fd = new FormData();
