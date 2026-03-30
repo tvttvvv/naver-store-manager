@@ -94,29 +94,29 @@ def update_keyword():
     kw_id = request.form.get('id')
     kw = MonitoredKeyword.query.filter_by(id=kw_id, user_id=current_user.id).first()
     if kw:
-        new_isbn = request.form.get('isbn', '-').strip()
-        if new_isbn and new_isbn != '-':
-            duplicate = MonitoredKeyword.query.filter(
-                MonitoredKeyword.user_id == current_user.id,
-                MonitoredKeyword.isbn == new_isbn,
-                MonitoredKeyword.id != kw.id
-            ).first()
-            if duplicate:
-                return jsonify({'success': False, 'message': f'🚨 경고: 이미 등록된 ISBN입니다!\n\n입력하신 ISBN은 이미 [{duplicate.keyword}] 항목에 등록되어 있습니다.'})
+        # ✨ 부분 업데이트 최적화: 전달된 데이터만 변경하여 기존 데이터 증발 방지
+        if 'isbn' in request.form:
+            new_isbn = request.form.get('isbn', '-').strip()
+            if new_isbn and new_isbn != '-':
+                duplicate = MonitoredKeyword.query.filter(
+                    MonitoredKeyword.user_id == current_user.id,
+                    MonitoredKeyword.isbn == new_isbn,
+                    MonitoredKeyword.id != kw.id
+                ).first()
+                if duplicate:
+                    return jsonify({'success': False, 'message': f'🚨 경고: 이미 등록된 ISBN입니다!\n\n입력하신 ISBN은 이미 [{duplicate.keyword}] 항목에 등록되어 있습니다.'})
+            kw.isbn = new_isbn
 
-        if request.form.get('keyword'): kw.keyword = request.form.get('keyword')
-        kw.publisher = request.form.get('publisher', '-')
-        kw.supply_rate = request.form.get('supply_rate', '-')
-        kw.isbn = new_isbn
-        kw.price = request.form.get('price', '-')
-        kw.shipping_fee = request.form.get('shipping_fee', '-') 
-        kw.book_title = request.form.get('book_title', '-')
-        kw.product_link = request.form.get('product_link', '-')
-        kw.store_rank = request.form.get('store_rank', '-')
-        
-        pc_val = request.form.get('purchase_count', '-')
-        if hasattr(kw, 'purchase_count'):
-            kw.purchase_count = pc_val
+        if 'keyword' in request.form: kw.keyword = request.form.get('keyword')
+        if 'publisher' in request.form: kw.publisher = request.form.get('publisher')
+        if 'supply_rate' in request.form: kw.supply_rate = request.form.get('supply_rate')
+        if 'price' in request.form: kw.price = request.form.get('price')
+        if 'shipping_fee' in request.form: kw.shipping_fee = request.form.get('shipping_fee')
+        if 'book_title' in request.form: kw.book_title = request.form.get('book_title')
+        if 'product_link' in request.form: kw.product_link = request.form.get('product_link')
+        if 'store_rank' in request.form: kw.store_rank = request.form.get('store_rank')
+        if 'purchase_count' in request.form: kw.purchase_count = request.form.get('purchase_count')
+        if 'store_name' in request.form: kw.store_name = request.form.get('store_name') # 상점 선택 값 저장
             
         db.session.commit()
         return jsonify({'success': True})
@@ -162,45 +162,6 @@ def get_html_with_bot_spoofing(url):
         if res.status_code == 200: return res.text
     except Exception: pass
     return ""
-
-def get_naver_shopping_info(queries, target_mall, find_rank=False):
-    result = {}
-    safe_target = target_mall.lower().replace(" ", "")
-
-    for q in queries:
-        if not q: continue
-        max_pages = 10 if find_rank else 1 
-        for page in range(1, max_pages + 1):
-            url = f"https://search.shopping.naver.com/book/search?query={urllib.parse.quote(q)}&pagingIndex={page}&pagingSize=40"
-            html_text = get_html_with_bot_spoofing(url)
-            if not html_text: break
-            
-            match = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', html_text, re.DOTALL)
-            if match:
-                try:
-                    data = json.loads(match.group(1))
-                    state = data.get('props', {}).get('pageProps', {}).get('initialState', {})
-                    if 'catalog' in state and state['catalog'].get('info'):
-                        products = state['catalog'].get('products', [])
-                        for idx, prod in enumerate(products):
-                            mall = prod.get('mallName', '')
-                            if safe_target in mall.lower().replace(" ", ""):
-                                result['rank'] = str((page - 1) * 40 + idx + 1)
-                                return result
-                        if not find_rank: return result 
-                        else: break 
-
-                    book_list = state.get('book', {}).get('list', [])
-                    if not book_list: break 
-                    for idx, item in enumerate(book_list):
-                        prod = item.get('item', item)
-                        mall = prod.get('mallName', '')
-                        if safe_target in mall.lower().replace(" ", ""):
-                            result['rank'] = str((page - 1) * 40 + idx + 1)
-                            return result
-                except Exception: pass
-            if find_rank: time.sleep(0.5) 
-    return result
 
 def get_exact_product_info_commerce_api(token, isbn):
     if not token: return {}
@@ -297,7 +258,7 @@ def scrape_smartstore_purchase_count(product_link):
 
 monitoring_tasks = {}
 
-def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, target_ids, update_mode, fill_empty_only):
+def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only):
     global monitoring_tasks
     monitoring_tasks[user_id] = {
         "is_running": True,
@@ -308,30 +269,37 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
     }
 
     with app.app_context():
-        try:
-            api_key = ApiKey.query.filter_by(user_id=user_id).first()
-            commerce_token = None
-            if api_key: commerce_token = get_naver_token(api_key.client_id, api_key.client_secret)
-            db.session.commit()
-        except Exception: db.session.rollback()
+        # ✨ 사용자가 등록한 모든 상점의 API 키를 미리 발급받아 캐싱합니다.
+        api_keys = ApiKey.query.filter_by(user_id=user_id).all()
+        store_tokens = {}
+        for key in api_keys:
+            token = get_naver_token(key.client_id, key.client_secret)
+            if token:
+                store_tokens[key.store_name] = token
+                
+        fallback_token = list(store_tokens.values())[0] if store_tokens else None
 
         for k_id in target_ids:
             try:
                 kw = db.session.get(MonitoredKeyword, k_id)
                 if not kw: 
-                    db.session.commit()
                     monitoring_tasks[user_id]["current"] += 1
                     continue
                     
                 target_isbn = str(kw.isbn).strip() if kw.isbn and kw.isbn != '-' else ""
                 keyword_name = kw.keyword or f"ID:{k_id}"
-                db.session.commit()
                 
-                # ✨ 핵심 최적화: ISBN이 비어있으면 1초 대기도 없이 즉시 스킵하여 속도를 비약적으로 단축합니다.
+                # ISBN이 없으면 즉시 건너뛰기
                 if not target_isbn:
                     monitoring_tasks[user_id]["current"] += 1
                     monitoring_tasks[user_id]["logs"].append(f"[{keyword_name}] ⏩ ISBN 없음 (초고속 스킵)")
                     continue 
+
+                # ✨ 선택된 상점명에 일치하는 토큰 사용 (없으면 첫 번째 토큰 폴백)
+                target_store = kw.store_name
+                commerce_token = store_tokens.get(target_store)
+                if not commerce_token:
+                    commerce_token = fallback_token
 
                 updates = {}
 
@@ -370,14 +338,14 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     db.session.commit()
                     
                 monitoring_tasks[user_id]["current"] += 1
-                monitoring_tasks[user_id]["logs"].append(f"[{keyword_name}] ✅ 업데이트 완료")
+                store_label = f"({target_store})" if target_store and target_store != '-' else ""
+                monitoring_tasks[user_id]["logs"].append(f"[{keyword_name}] ✅ {store_label} 업데이트 완료")
 
             except Exception as e:
                 db.session.rollback()
                 monitoring_tasks[user_id]["current"] += 1
                 monitoring_tasks[user_id]["logs"].append(f"[{keyword_name}] ❌ 작업 중 오류 발생")
             
-            # ISBN이 존재해서 네이버 크롤링/API를 실제로 호출한 항목에 한해서만 차단 방지용 1초 대기를 줍니다.
             time.sleep(1.0)
             
     monitoring_tasks[user_id]["is_running"] = False
@@ -390,8 +358,6 @@ def refresh_all_ranks():
 @monitoring_bp.route('/api/refresh_by_isbn', methods=['POST'])
 @login_required
 def refresh_by_isbn():
-    search_id = os.environ.get("NAVER_CLIENT_ID", "")
-    search_pw = os.environ.get("NAVER_CLIENT_SECRET", "")
     app = current_app._get_current_object()
     user_id = current_user.id
     
@@ -410,7 +376,7 @@ def refresh_by_isbn():
     db.session.commit()
     if not target_ids: return jsonify({'success': False, 'message': '⚠️ 선택한 항목이 없습니다.'})
         
-    thread = Thread(target=async_refresh_by_isbn, args=(app, user_id, search_id, search_pw, target_ids, update_mode, fill_empty_only))
+    thread = Thread(target=async_refresh_by_isbn, args=(app, user_id, target_ids, update_mode, fill_empty_only))
     thread.start()
     
     return jsonify({'success': True, 'message': '✅ 백그라운드 스캔 작업이 시작되었습니다.'})
