@@ -202,7 +202,7 @@ def get_naver_shopping_info(queries, target_mall, find_rank=False):
             if find_rank: time.sleep(0.5) 
     return result
 
-# ✨ 1단계 핵심: 네이버 커머스 API 상품/링크 탐색 로직 (출판사, 배송비, 링크 버그 완벽 수정 적용됨)
+# ✨ 1단계 핵심: 네이버 커머스 API 에러 상세 로깅 추가
 def get_exact_product_info_commerce_api(token, keyword, isbn):
     url = "https://api.commerce.naver.com/external/v1/products/search"
     headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
@@ -224,8 +224,10 @@ def get_exact_product_info_commerce_api(token, keyword, isbn):
                         matched_product = item
                         print(f"[CCTV-DEBUG] 🎯 [매칭 성공] 다이렉트 ISBN 검색망으로 즉시 검거 완료!", flush=True)
                         break
+            else:
+                print(f"[CCTV-DEBUG] ⚠️ API 거부됨 (ISBN 검색): HTTP {res.status_code} - {res.text}", flush=True)
         except Exception as e:
-            print(f"[CCTV-DEBUG] 💥 ISBN 검색 에러: {e}", flush=True)
+            print(f"[CCTV-DEBUG] 💥 ISBN 검색 네트워크 에러: {e}", flush=True)
 
     # 2순위: ISBN으로 못 찾았으면 상품명(키워드)으로 다이렉트 검색
     if not matched_product and clean_keyword:
@@ -239,8 +241,10 @@ def get_exact_product_info_commerce_api(token, keyword, isbn):
                         matched_product = item
                         print(f"[CCTV-DEBUG] 🎯 [매칭 성공] 다이렉트 키워드 검색망으로 즉시 검거 완료!", flush=True)
                         break
+            else:
+                print(f"[CCTV-DEBUG] ⚠️ API 거부됨 (키워드 검색): HTTP {res.status_code} - {res.text}", flush=True)
         except Exception as e:
-            print(f"[CCTV-DEBUG] 💥 키워드 검색 에러: {e}", flush=True)
+            print(f"[CCTV-DEBUG] 💥 키워드 검색 네트워크 에러: {e}", flush=True)
 
     # 3순위: 그래도 없으면 최근 50개 상품 중에서 유사한 이름/ISBN 필터링 (Fallback)
     if not matched_product:
@@ -260,7 +264,6 @@ def get_exact_product_info_commerce_api(token, keyword, isbn):
     result = {}
     if matched_product:
         name = matched_product.get('name', '이름 없음')
-        # 버그 수정: channelProductNo는 channelProducts 리스트 안에 있습니다.
         c_no = matched_product.get('channelProducts', [{}])[0].get('channelProductNo')
         o_no = matched_product.get('originProductNo')
         sale_price = matched_product.get('salePrice')
@@ -269,7 +272,6 @@ def get_exact_product_info_commerce_api(token, keyword, isbn):
         result['my_link'] = f"https://smartstore.naver.com/main/products/{c_no}" if c_no else "-"
         result['my_price'] = f"{sale_price:,}원" if sale_price is not None else "-"
         
-        # 누락되었던 상세 데이터(출판사, 배송비) 조회를 위해 원본 상품 상세 API 호출 추가!
         if o_no:
             try:
                 detail_url = f"https://api.commerce.naver.com/external/v2/products/origin-products/{o_no}"
@@ -290,7 +292,7 @@ def get_exact_product_info_commerce_api(token, keyword, isbn):
         print(f"[CCTV-DEBUG] 📦 [데이터 추출] 상품명: {result.get('my_title')}", flush=True)
         print(f"[CCTV-DEBUG] 📦 [데이터 추출] 직링크: {result.get('my_link')}", flush=True)
     else:
-        print(f"[CCTV-DEBUG] ❌ [매칭 실패] 상점에 해당 상품이 존재하지 않거나 네이버 검색망에 잡히지 않습니다.", flush=True)
+        print(f"[CCTV-DEBUG] ❌ [매칭 실패] 상점에 해당 상품이 없거나, API 권한/IP 차단으로 인해 검색망에 잡히지 않았습니다.", flush=True)
 
     return result
 
@@ -309,7 +311,6 @@ def scrape_smartstore_purchase_count(product_link):
     except Exception: pass
     return "-"
 
-# ✨ 수집 실행 엔진 (DB에 출판사, 배송비 업데이트 반영 적용됨)
 def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, target_ids, update_mode):
     with app.app_context():
         try:
@@ -337,18 +338,15 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                 db.session.commit()
                 updates = {}
 
-                # 순위 스크래핑 (418 차단 중이면 500위 밖 처리)
                 if update_mode in ['all', 'rank']:
                     kw_info_web = get_naver_shopping_info([keyword_text], target_mall_name, find_rank=True)
                     updates['store_rank'] = kw_info_web.get('rank', '500위 밖')
 
-                # ✨ 1단계 핵심: 상품 정보(이름, 링크, 가격, 배송비, 출판사) 즉시 매칭 적용
                 if update_mode == 'all':
                     exact_info = {}
                     if commerce_token:
                         exact_info = get_exact_product_info_commerce_api(commerce_token, keyword_text, target_isbn)
 
-                    # API에서 가져온 값이 있으면 업데이트 준비
                     if exact_info.get('my_title'): updates['book_title'] = exact_info['my_title']
                     if exact_info.get('my_link'): updates['product_link'] = exact_info['my_link']
                     if exact_info.get('my_price'): updates['price'] = exact_info['my_price']
@@ -356,12 +354,10 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     if exact_info.get('my_shipping_fee'): updates['shipping_fee'] = exact_info['my_shipping_fee']
                     updates['store_name'] = target_mall_name
 
-                # 구매수 직접 추적
                 if update_mode in ['all', 'purchase']:
                     current_link = updates.get('product_link') or kw.product_link
                     updates['purchase_count'] = scrape_smartstore_purchase_count(current_link)
 
-                # DB 저장 (기존 데이터가 비어있지 않으면 덮어씀)
                 kw = db.session.get(MonitoredKeyword, k_id)
                 if kw:
                     if 'store_rank' in updates: kw.store_rank = updates['store_rank']
@@ -386,7 +382,6 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     if update_mode in ['all', 'rank']: kw.store_rank = "에러"
                     db.session.commit()
             
-            # API 보호를 위한 짧은 딜레이
             time.sleep(1.0)
 
 @monitoring_bp.route('/api/refresh_all_ranks', methods=['POST'])
