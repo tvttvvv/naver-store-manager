@@ -94,7 +94,6 @@ def update_keyword():
     kw_id = request.form.get('id')
     kw = MonitoredKeyword.query.filter_by(id=kw_id, user_id=current_user.id).first()
     if kw:
-        # ✨ 부분 업데이트 최적화: 전달된 데이터만 변경하여 기존 데이터 증발 방지
         if 'isbn' in request.form:
             new_isbn = request.form.get('isbn', '-').strip()
             if new_isbn and new_isbn != '-':
@@ -116,7 +115,7 @@ def update_keyword():
         if 'product_link' in request.form: kw.product_link = request.form.get('product_link')
         if 'store_rank' in request.form: kw.store_rank = request.form.get('store_rank')
         if 'purchase_count' in request.form: kw.purchase_count = request.form.get('purchase_count')
-        if 'store_name' in request.form: kw.store_name = request.form.get('store_name') # 상점 선택 값 저장
+        if 'store_name' in request.form: kw.store_name = request.form.get('store_name') 
             
         db.session.commit()
         return jsonify({'success': True})
@@ -269,7 +268,6 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
     }
 
     with app.app_context():
-        # ✨ 사용자가 등록한 모든 상점의 API 키를 미리 발급받아 캐싱합니다.
         api_keys = ApiKey.query.filter_by(user_id=user_id).all()
         store_tokens = {}
         for key in api_keys:
@@ -277,7 +275,7 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
             if token:
                 store_tokens[key.store_name] = token
                 
-        fallback_token = list(store_tokens.values())[0] if store_tokens else None
+        # ✨ 문제가 되던 자동 폴백(fallback) 로직을 완전히 삭제했습니다!
 
         for k_id in target_ids:
             try:
@@ -289,17 +287,24 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                 target_isbn = str(kw.isbn).strip() if kw.isbn and kw.isbn != '-' else ""
                 keyword_name = kw.keyword or f"ID:{k_id}"
                 
-                # ISBN이 없으면 즉시 건너뛰기
                 if not target_isbn:
                     monitoring_tasks[user_id]["current"] += 1
                     monitoring_tasks[user_id]["logs"].append(f"[{keyword_name}] ⏩ ISBN 없음 (초고속 스킵)")
                     continue 
 
-                # ✨ 선택된 상점명에 일치하는 토큰 사용 (없으면 첫 번째 토큰 폴백)
-                target_store = kw.store_name
+                # ✨ 상점이 선택되지 않았으면 즉시 건너뛰기!
+                target_store = kw.store_name or '-'
+                if target_store == '-':
+                    monitoring_tasks[user_id]["current"] += 1
+                    monitoring_tasks[user_id]["logs"].append(f"[{keyword_name}] ⏩ 상점 미선택 (스킵)")
+                    continue
+
+                # ✨ 선택한 상점의 API 키가 없으면 건너뛰기!
                 commerce_token = store_tokens.get(target_store)
                 if not commerce_token:
-                    commerce_token = fallback_token
+                    monitoring_tasks[user_id]["current"] += 1
+                    monitoring_tasks[user_id]["logs"].append(f"[{keyword_name}] ❌ [{target_store}] 토큰 오류")
+                    continue
 
                 updates = {}
 
@@ -339,7 +344,7 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                     
                 monitoring_tasks[user_id]["current"] += 1
                 store_label = f"({target_store})" if target_store and target_store != '-' else ""
-                monitoring_tasks[user_id]["logs"].append(f"[{keyword_name}] ✅ {store_label} 업데이트 완료")
+                monitoring_tasks[user_id]["logs"].append(f"[{keyword_name}] ✅ {store_label} 완료")
 
             except Exception as e:
                 db.session.rollback()
