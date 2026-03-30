@@ -303,37 +303,58 @@ def get_exact_product_info_commerce_api(token, isbn):
 
     return result
 
-# ✨ 핵심 업데이트: 다중 패턴 탐색으로 구매수 완벽 색출
+# ✨ 핵심 업데이트: 모바일 우회 접속 및 그물망 정규식 적용
 def scrape_smartstore_purchase_count(product_link):
     if not product_link or "smartstore.naver.com" not in product_link: 
         return "-"
     try:
+        # PC 링크를 모바일 링크로 강제 변환 (구조가 훨씬 단순하여 크롤링에 유리함)
+        mobile_link = product_link.replace("https://smartstore.naver.com", "https://m.smartstore.naver.com")
+        
+        # 모바일 기기인 척 속이는 헤더 장착
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            "User-Agent": "Mozilla/5.0 (Linux; Android 13; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Mobile Safari/537.36",
+            "Accept-Language": "ko-KR,ko;q=0.9",
+            "Cache-Control": "no-cache"
         }
-        res = requests.get(product_link, headers=headers, timeout=5)
+        res = requests.get(mobile_link, headers=headers, timeout=7)
+        
         if res.status_code == 200:
             html_text = res.text
             
-            # 1. 네이버가 사용할 만한 모든 종류의 구매수 변수명을 샅샅이 뒤집니다.
-            sale_patterns = [
+            # 1. 구매수 1순위 타겟 (결제건수) - 네이버가 사용하는 다양한 이름표들
+            purchase_patterns = [
+                r'"payReferenceCount"\s*:\s*(\d+)',
+                r'"purchaseCount"\s*:\s*(\d+)',
                 r'"totalSaleCount"\s*:\s*(\d+)',
                 r'"sellCount"\s*:\s*(\d+)',
-                r'"saleCount"\s*:\s*(\d+)',
-                r'"cumulativeSaleCount"\s*:\s*(\d+)'
+                r'"saleAmount"\s*:\s*(\d+)',
+                r'구매\s*</span><em[^>]*>([\d,]+)</em>',
+                r'구매\s*<em>([\d,]+)</em>'
             ]
             
-            for pattern in sale_patterns:
+            for pattern in purchase_patterns:
                 match = re.search(pattern, html_text)
                 if match:
-                    # 숫자를 찾으면 즉시 반환합니다.
-                    return match.group(1)
+                    val = match.group(1).replace(',', '')
+                    if val.isdigit() and int(val) > 0:
+                        return f"{int(val):,}건"
             
-            # 2. 만약 구매수가 0이거나 아예 표시되지 않는 상품이라면, 리뷰수(reviewCount)라도 찾아옵니다.
-            review_match = re.search(r'"reviewCount"\s*:\s*(\d+)', html_text)
-            if review_match: 
-                return f"리뷰 {review_match.group(1)}"
-                
+            # 2. 구매수가 0이거나 아예 감춰져 있을 때 최후의 보루로 리뷰수를 찾습니다.
+            review_patterns = [
+                r'"reviewCount"\s*:\s*(\d+)',
+                r'"totalReviewCount"\s*:\s*(\d+)',
+                r'리뷰\s*</span><em[^>]*>([\d,]+)</em>',
+                r'리뷰\s*<em>([\d,]+)</em>'
+            ]
+            
+            for pattern in review_patterns:
+                match = re.search(pattern, html_text)
+                if match:
+                    val = match.group(1).replace(',', '')
+                    if val.isdigit() and int(val) > 0:
+                        return f"리뷰 {int(val):,}건"
+                        
     except Exception as e:
         print(f"[CCTV-DEBUG] 💥 구매수 스크래핑 에러: {e}", flush=True)
         
@@ -374,7 +395,7 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     if exact_info.get('my_price'): updates['price'] = exact_info['my_price']
                     if exact_info.get('my_publisher'): updates['publisher'] = exact_info['my_publisher']
 
-                # 2. 구매수 추출 
+                # 2. 강력해진 구매수 추출 로직 실행
                 if update_mode in ['all', 'purchase']:
                     current_link = updates.get('product_link') or kw.product_link
                     if current_link and current_link != '-':
