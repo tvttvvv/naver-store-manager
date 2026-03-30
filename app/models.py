@@ -28,12 +28,12 @@ class MonitoredKeyword(db.Model):
     isbn = db.Column(db.String(50), default='-')
     price = db.Column(db.String(50), default='-')
     shipping_fee = db.Column(db.String(50), default='-')
-    store_name = db.Column(db.String(255), default='-')
+    
+    # ✨ 선택한 대상 상점(데일리러닝, 스터디박스 등)을 저장
+    store_name = db.Column(db.String(255), default='-') 
+    
     book_title = db.Column(db.String(255), default='-')
     product_link = db.Column(db.String(500), default='-')
     store_rank = db.Column(db.String(50), default='-')
     prev_store_rank = db.Column(db.String(50), default='-')
-    purchase_count = db.Column(db.String(50), default='-') # ✨ 구매수 저장 공간 완벽 추가!
-    
-    # ✨ [신규] 변동폭을 계산하기 위한 '과거 순위' 저장 공간
-    prev_store_rank = db.Column(db.String(50), default="-")
+    purchase_count = db.Column(db.String(50), default='-')
