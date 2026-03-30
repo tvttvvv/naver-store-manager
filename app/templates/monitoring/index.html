@@ -395,7 +395,6 @@
                 let searchLink = `https://search.naver.com/search.naver?where=nexearch&query=${encodeURIComponent(k.keyword || '')}`;
                 let gradeBadge = isGlobalSearch ? `<br><span class="badge bg-secondary mt-1">${k.grade}</span>` : '';
 
-                // ✨ 상점 선택 셀 동적 생성
                 let storeOptions = ['-', '데일리러닝', '스터디박스'];
                 let currentStore = k.store_name || '-';
                 let storeSelectHtml = `<select class="form-select form-select-sm border-secondary fw-bold text-dark store-select shadow-sm" data-id="${k.id}" style="width: 105px; cursor:pointer;">`;
@@ -437,7 +436,6 @@
         renderTableColors();
     }
 
-    // ✨ 상점 선택 드롭다운 값 변경 시 즉각적으로 서버에 자동 저장
     document.addEventListener('change', async function(e) {
         if (e.target && e.target.classList.contains('store-select')) {
             let id = e.target.getAttribute('data-id');
@@ -505,8 +503,6 @@
 
             const fd = new FormData();
             fd.append('id', id);
-            
-            // ✨ 부분 업데이트를 위해 입력된 값만 보냄
             fd.append(field, newVal || '-');
 
             try {
@@ -652,9 +648,9 @@
         } catch(e) { alert('초기화 중 오류가 발생했습니다.'); }
     }
 
+    // ✨ 화면 로딩 시 자동 새로고침 없이 최초 1회만 로드합니다.
     document.addEventListener("DOMContentLoaded", () => {
-        loadSavedKeywords();
-        setInterval(loadSavedKeywords, 2000); 
+        loadSavedKeywords(); 
     });
 </script>
 {% endblock %}
