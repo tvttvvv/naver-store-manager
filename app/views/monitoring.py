@@ -17,9 +17,6 @@ from app.naver_api import get_naver_token
 
 monitoring_bp = Blueprint('monitoring', __name__)
 
-# ✨ 백그라운드 작업 상태를 저장하는 전역 딕셔너리 (사용자 ID별로 관리)
-monitoring_tasks = {}
-
 def clean_text(text):
     if not text or text == '-': return '-'
     cleaned = re.sub(r'<[^>]*>', '', str(text))
@@ -298,8 +295,9 @@ def scrape_smartstore_purchase_count(product_link):
     except Exception: pass
     return "-"
 
-# ✨ 진행 상태 초기화 및 데이터 갱신 스레드
-def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, target_ids, update_mode):
+monitoring_tasks = {}
+
+def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, target_ids, update_mode, fill_empty_only):
     global monitoring_tasks
     monitoring_tasks[user_id] = {
         "is_running": True,
@@ -331,7 +329,7 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                 
                 updates = {}
 
-                if update_mode == 'all':
+                if update_mode in ['all', 'info']:
                     exact_info = {}
                     if commerce_token and target_isbn:
                         exact_info = get_exact_product_info_commerce_api(commerce_token, target_isbn)
@@ -349,18 +347,23 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
 
                 kw = db.session.get(MonitoredKeyword, k_id)
                 if kw:
-                    if update_mode == 'all':
-                        if updates.get('book_title') and updates['book_title'] != '-': kw.book_title = updates['book_title']
-                        if updates.get('product_link') and updates['product_link'] != '-': kw.product_link = updates['product_link']
-                        if updates.get('price') and updates['price'] != '-': kw.price = updates['price']
-                        if updates.get('publisher') and updates['publisher'] != '-': kw.publisher = updates['publisher']
+                    # 빈 칸만 채우기 로직 처리
+                    def should_update(current_val):
+                        if not fill_empty_only: return True # 체크 안되어있으면 무조건 덮어쓰기
+                        return current_val in [None, '', '-'] # 체크 되어있으면 비어있을 때만
+
+                    if update_mode in ['all', 'info']:
+                        if updates.get('book_title') and should_update(kw.book_title): kw.book_title = updates['book_title']
+                        if updates.get('product_link') and should_update(kw.product_link): kw.product_link = updates['product_link']
+                        if updates.get('price') and should_update(kw.price): kw.price = updates['price']
+                        if updates.get('publisher') and should_update(kw.publisher): kw.publisher = updates['publisher']
                     
-                    if updates.get('purchase_count'):
-                        kw.purchase_count = updates['purchase_count']
+                    if update_mode in ['all', 'purchase']:
+                        if updates.get('purchase_count') and should_update(kw.purchase_count):
+                            kw.purchase_count = updates['purchase_count']
                     
                     db.session.commit()
                     
-                # 작업 카운트 및 로그 기록 추가
                 monitoring_tasks[user_id]["current"] += 1
                 monitoring_tasks[user_id]["logs"].append(f"[{keyword_name}] 스캔 및 업데이트 완료")
 
@@ -371,7 +374,6 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
             
             time.sleep(1.0)
             
-    # 모든 반복 종료 후 완료 처리
     monitoring_tasks[user_id]["is_running"] = False
 
 @monitoring_bp.route('/api/refresh_all_ranks', methods=['POST'])
@@ -387,12 +389,12 @@ def refresh_by_isbn():
     app = current_app._get_current_object()
     user_id = current_user.id
     
-    # 이미 해당 유저의 작업이 실행 중인지 확인
     if monitoring_tasks.get(user_id, {}).get("is_running", False):
         return jsonify({'success': False, 'message': '⚠️ 이미 다른 업데이트 작업이 진행 중입니다. 잠시만 기다려주세요.'})
         
     selected_ids = request.form.getlist('ids[]')
     update_mode = request.form.get('update_mode', 'all') 
+    fill_empty_only = request.form.get('fill_empty_only') == 'true'
     
     if not selected_ids: return jsonify({'success': False, 'message': '⚠️ 업데이트할 항목을 선택해주세요.'})
         
@@ -402,12 +404,11 @@ def refresh_by_isbn():
     db.session.commit()
     if not target_ids: return jsonify({'success': False, 'message': '⚠️ 선택한 항목이 없습니다.'})
         
-    thread = Thread(target=async_refresh_by_isbn, args=(app, user_id, search_id, search_pw, target_ids, update_mode))
+    thread = Thread(target=async_refresh_by_isbn, args=(app, user_id, search_id, search_pw, target_ids, update_mode, fill_empty_only))
     thread.start()
     
     return jsonify({'success': True, 'message': '✅ 백그라운드 스캔 작업이 시작되었습니다.'})
 
-# ✨ 실시간 진행 상황을 확인하는 API 엔드포인트 추가
 @monitoring_bp.route('/api/task_status', methods=['GET'])
 @login_required
 def get_task_status():
