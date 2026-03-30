@@ -303,28 +303,40 @@ def get_exact_product_info_commerce_api(token, isbn):
 
     return result
 
-# ✨ 구매수 추출 함수 (스토어 페이지 몰래 방문해서 숫자만 훔쳐오기)
+# ✨ 핵심 업데이트: 다중 패턴 탐색으로 구매수 완벽 색출
 def scrape_smartstore_purchase_count(product_link):
     if not product_link or "smartstore.naver.com" not in product_link: 
         return "-"
     try:
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
         res = requests.get(product_link, headers=headers, timeout=5)
         if res.status_code == 200:
-            # 숨겨진 코드 속에서 sellCount 글자 찾기
-            sell_match = re.search(r'"sellCount"\s*:\s*(\d+)', res.text)
-            if sell_match: 
-                return sell_match.group(1)
+            html_text = res.text
             
-            # 구매수가 없으면 리뷰수로 대체 확인
-            review_match = re.search(r'"reviewCount"\s*:\s*(\d+)', res.text)
+            # 1. 네이버가 사용할 만한 모든 종류의 구매수 변수명을 샅샅이 뒤집니다.
+            sale_patterns = [
+                r'"totalSaleCount"\s*:\s*(\d+)',
+                r'"sellCount"\s*:\s*(\d+)',
+                r'"saleCount"\s*:\s*(\d+)',
+                r'"cumulativeSaleCount"\s*:\s*(\d+)'
+            ]
+            
+            for pattern in sale_patterns:
+                match = re.search(pattern, html_text)
+                if match:
+                    # 숫자를 찾으면 즉시 반환합니다.
+                    return match.group(1)
+            
+            # 2. 만약 구매수가 0이거나 아예 표시되지 않는 상품이라면, 리뷰수(reviewCount)라도 찾아옵니다.
+            review_match = re.search(r'"reviewCount"\s*:\s*(\d+)', html_text)
             if review_match: 
-                return review_match.group(1)
+                return f"리뷰 {review_match.group(1)}"
+                
     except Exception as e:
         print(f"[CCTV-DEBUG] 💥 구매수 스크래핑 에러: {e}", flush=True)
-        pass
+        
     return "-"
 
 def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, target_ids, update_mode):
@@ -362,9 +374,8 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                     if exact_info.get('my_price'): updates['price'] = exact_info['my_price']
                     if exact_info.get('my_publisher'): updates['publisher'] = exact_info['my_publisher']
 
-                # ✨ 2. 구매수 추출 로직 추가
+                # 2. 구매수 추출 
                 if update_mode in ['all', 'purchase']:
-                    # 방금 가져온 새 링크가 있으면 쓰고, 없으면 기존 링크 사용
                     current_link = updates.get('product_link') or kw.product_link
                     if current_link and current_link != '-':
                         pc = scrape_smartstore_purchase_count(current_link)
@@ -379,7 +390,6 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                         if updates.get('price') and updates['price'] != '-': kw.price = updates['price']
                         if updates.get('publisher') and updates['publisher'] != '-': kw.publisher = updates['publisher']
                     
-                    # 구매수 데이터 DB 저장
                     if updates.get('purchase_count'):
                         kw.purchase_count = updates['purchase_count']
                     
