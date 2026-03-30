@@ -202,7 +202,7 @@ def get_naver_shopping_info(queries, target_mall, find_rank=False):
             if find_rank: time.sleep(0.5) 
     return result
 
-# ✨ 핵심 업데이트: 이중 포장(channelProducts) 해제 및 네이버 필수 검색 선언(searchKeywordType) 추가
+# ✨ 핵심 업데이트: 상품명(풀네임) 추출 추가 및 출판사/제조사 탐색 로직 강화
 def get_exact_product_info_commerce_api(token, isbn):
     if not token:
         return {}
@@ -211,16 +211,14 @@ def get_exact_product_info_commerce_api(token, isbn):
     headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
     matched_product = None
     
-    # 숫자만 남긴 순수 ISBN 생성
     pure_isbn = str(isbn).strip().replace('-', '') if isbn and isbn != '-' else ""
     if not pure_isbn:
         return {}
 
     print(f"\n[CCTV-DEBUG] 🟢 [정밀 탐색] 오직 ISBN({pure_isbn})으로만 다이렉트 검색을 시도합니다.", flush=True)
 
-    # 1. 완벽한 규칙으로 판매자 관리 코드(sellerManagementCode) 요청
+    # 1. 완벽한 규칙으로 판매자 관리 코드 요청
     try:
-        # 변경점: searchKeywordType을 반드시 명시해야 네이버가 관리코드로 똑바로 찾아줍니다!
         payload = {
             "searchKeywordType": "SELLER_CODE", 
             "sellerManagementCode": pure_isbn,
@@ -230,29 +228,20 @@ def get_exact_product_info_commerce_api(token, isbn):
         res = requests.post(url, headers=headers, json=payload, timeout=5)
         if res.status_code == 200:
             contents = res.json().get('contents', [])
-            print(f"[CCTV-DEBUG] 🔍 (관리코드 직접 검색) 네이버 API가 {len(contents)}개의 상품을 찾아왔습니다.", flush=True)
-            for idx, item in enumerate(contents):
-                # 변경점: 겉 상자가 아니라 '안쪽 상자(channelProducts)'를 열어서 꺼내야 이름이 보입니다!
+            for item in contents:
                 c_prod = item.get('channelProducts', [{}])[0]
                 item_code = str(c_prod.get('sellerManagementCode', '')).strip().replace('-', '')
-                item_name = str(c_prod.get('name', '')).replace('-', '')
                 
-                if idx < 3: # 엑스레이 검증용 (최대 3개 출력)
-                    print(f"[CCTV-DEBUG] 🔎 [검증 {idx+1}] 속상자 관리코드: '{item_code}' | 상품명: '{item_name}'", flush=True)
-                
-                # 코드가 완전히 일치하면 합격!
                 if item_code == pure_isbn:
                     matched_product = item
-                    print(f"[CCTV-DEBUG] 🎯 [매칭 성공] 정확히 일치하는 상품을 완벽하게 포착했습니다!", flush=True)
                     break
     except Exception as e:
         print(f"[CCTV-DEBUG] 💥 판매자 관리 코드 검색 에러: {e}", flush=True)
 
-    # 2. 혹시나 네이버가 코드로 못 찾았을 경우, 스토어 최근 상품들을 뒤져서 이름으로 찾아냅니다 (Fallback)
+    # 2. 스토어 최근 상품 이름 검색 (Fallback)
     if not matched_product:
-        print(f"[CCTV-DEBUG] 🔍 코드로 찾기 실패. 최근 등록된 상품들을 하나씩 열어보며 이름과 코드를 대조합니다...", flush=True)
         try:
-            payload = {"page": 1, "size": 50} # 전체 검색
+            payload = {"page": 1, "size": 50}
             res = requests.post(url, headers=headers, json=payload, timeout=5)
             if res.status_code == 200:
                 contents = res.json().get('contents', [])
@@ -263,23 +252,26 @@ def get_exact_product_info_commerce_api(token, isbn):
                     
                     if pure_isbn in item_code or pure_isbn in item_name:
                         matched_product = item
-                        print(f"[CCTV-DEBUG] 🎯 [매칭 성공] 스토어 스캔을 통해 숨어있던 해당 상품({item_name})을 찾아냈습니다!", flush=True)
                         break
         except Exception as e:
-            print(f"[CCTV-DEBUG] 💥 스토어 스캔 에러: {e}", flush=True)
+            pass
 
-    # 데이터 추출 (상품링크, 출판사명/제조사명, 가격)
+    # 데이터 추출 (상품명, 상품링크, 출판사명/제조사명, 가격)
     result = {}
     if matched_product:
-        # 값들도 모두 안쪽 상자(channelProducts)에서 안전하게 꺼냅니다.
         c_prod = matched_product.get('channelProducts', [{}])[0]
         c_no = c_prod.get('channelProductNo')
         o_no = matched_product.get('originProductNo')
         sale_price = c_prod.get('salePrice')
         
+        # ✨ 1. 상품명(풀네임) 추출
+        result['my_title'] = c_prod.get('name', matched_product.get('name', '-'))
+        
+        # 2. 상품 링크
         result['my_link'] = f"https://smartstore.naver.com/main/products/{c_no}" if c_no else "-"
         
-        # 상세 데이터 API 호출 (출판사, 가격 재확인)
+        # 3. 출판사 및 가격 보완을 위한 상세 정보 호출
+        publisher = ""
         if o_no:
             try:
                 detail_url = f"https://api.commerce.naver.com/external/v2/products/origin-products/{o_no}"
@@ -292,18 +284,23 @@ def get_exact_product_info_commerce_api(token, isbn):
 
                     detail_attr = origin_data.get('detailAttribute', {})
                     
+                    # ✨ 출판사명/제조사명 샅샅이 찾기
+                    # 1순위: 도서 정보의 출판사
                     publisher = detail_attr.get('bookInfo', {}).get('publisher')
+                    # 2순위: 일반 상품의 제조사
                     if not publisher:
                         publisher = detail_attr.get('customInfo', {}).get('manufacturer')
+                    # 3순위: 기본 제공되는 브랜드 또는 제조사 이름
+                    if not publisher:
+                        publisher = origin_data.get('brandName') or origin_data.get('manufacturerName')
                         
-                    if publisher:
-                        result['my_publisher'] = publisher
             except Exception as e:
                 print(f"[CCTV-DEBUG] 💥 상세 데이터 조회 에러: {e}", flush=True)
         
+        result['my_publisher'] = publisher if publisher else "-"
         result['my_price'] = f"{sale_price:,}원" if sale_price is not None else "-"
         
-        print(f"[CCTV-DEBUG] 📦 [데이터 추출] 가격: {result.get('my_price')} / 링크: {result.get('my_link')} / 출판사: {result.get('my_publisher', '-')}", flush=True)
+        print(f"[CCTV-DEBUG] 📦 [데이터 추출 완료] 상품명: {result.get('my_title')} / 가격: {result.get('my_price')} / 출판사: {result.get('my_publisher')}", flush=True)
     else:
         print("[CCTV-DEBUG] ❌ [매칭 실패] 대표님의 스토어에서 해당 ISBN을 가진 상품을 찾지 못했습니다.", flush=True)
 
@@ -333,11 +330,14 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                 db.session.commit()
                 updates = {}
 
+                # 핵심 기능만 남긴 업데이트 (상품명, 링크, 가격, 출판사명)
                 if update_mode == 'all':
                     exact_info = {}
                     if commerce_token and target_isbn:
                         exact_info = get_exact_product_info_commerce_api(commerce_token, target_isbn)
 
+                    # ✨ DB 업데이트 목록에 상품명(book_title) 추가
+                    if exact_info.get('my_title'): updates['book_title'] = exact_info['my_title']
                     if exact_info.get('my_link'): updates['product_link'] = exact_info['my_link']
                     if exact_info.get('my_price'): updates['price'] = exact_info['my_price']
                     if exact_info.get('my_publisher'): updates['publisher'] = exact_info['my_publisher']
@@ -345,6 +345,8 @@ def async_refresh_by_isbn(app, user_id, search_client_id, search_client_secret, 
                 kw = db.session.get(MonitoredKeyword, k_id)
                 if kw:
                     if update_mode == 'all':
+                        # ✨ 추출한 정보들을 실제 DB 열에 적용
+                        if updates.get('book_title') and updates['book_title'] != '-': kw.book_title = updates['book_title']
                         if updates.get('product_link') and updates['product_link'] != '-': kw.product_link = updates['product_link']
                         if updates.get('price') and updates['price'] != '-': kw.price = updates['price']
                         if updates.get('publisher') and updates['publisher'] != '-': kw.publisher = updates['publisher']
@@ -388,5 +390,5 @@ def refresh_by_isbn():
     thread = Thread(target=async_refresh_by_isbn, args=(app, user_id, search_id, search_pw, target_ids, update_mode))
     thread.start()
     
-    msg = "정밀 매칭 데이터 수집(링크, 출판사, 가격)을 시작합니다."
+    msg = "정밀 매칭 데이터 수집(상품명, 링크, 출판사, 가격)을 시작합니다."
     return jsonify({'success': True, 'message': f'✅ {msg} 잠시 후 새로고침 해주세요.'})
