@@ -58,24 +58,41 @@ def find_product_by_isbn(token, isbn):
     return None, None
 
 def delete_product(token, origin_no, channel_no, retries=3):
-    """(1차 작업용) 1개씩 완전 삭제 시도"""
+    """채널 상품과 원상품을 모두 완전 삭제합니다."""
     headers = {'Authorization': f'Bearer {token}', 'Accept': 'application/json;charset=UTF-8'}
     for attempt in range(retries):
         try:
+            # 1. 채널 상품 삭제 (스토어 노출 중단)
             if channel_no:
-                delete_url = f"https://api.commerce.naver.com/external/v2/products/channel-products/{channel_no}"
-                res = requests.delete(delete_url, headers=headers, timeout=10)
-                if res.status_code == 200: return "완전 삭제 완료"
-                elif res.status_code == 429 or "요청이 많아" in res.text:
+                channel_delete_url = f"https://api.commerce.naver.com/external/v2/products/channel-products/{channel_no}"
+                res_channel = requests.delete(channel_delete_url, headers=headers, timeout=10)
+                
+                if res_channel.status_code == 429 or "요청이 많아" in res_channel.text:
                     time.sleep(1.5)
                     continue 
+            
+            # 2. 원상품 삭제 (판매자 센터 DB에서 완전 삭제)
+            if origin_no:
+                origin_delete_url = f"https://api.commerce.naver.com/external/v1/products/origin-products/{origin_no}"
+                res_origin = requests.delete(origin_delete_url, headers=headers, timeout=10)
+                
+                if res_origin.status_code == 200:
+                    return "완전 삭제 완료"
+                elif res_origin.status_code == 429 or "요청이 많아" in res_origin.text:
+                    time.sleep(1.5)
+                    continue
                 else:
                     try:
-                        error_msg = res.json().get('message', f'HTTP {res.status_code}')
-                        return f"삭제 불가 ({error_msg})"
+                        error_msg = res_origin.json().get('message', f'HTTP {res_origin.status_code}')
+                        return f"원상품 삭제 불가 ({error_msg})"
                     except:
-                        return f"삭제 불가 (API 거절)"
-            return "식별 번호 누락"
+                        return "원상품 삭제 불가 (API 거절)"
+
+            if not origin_no and not channel_no:
+                return "식별 번호 누락"
+            
+            return "채널 상품만 삭제됨 (원상품 번호 없음)"
+
         except requests.exceptions.Timeout:
             time.sleep(1)
             continue
