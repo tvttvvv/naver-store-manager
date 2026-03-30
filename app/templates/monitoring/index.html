@@ -33,7 +33,6 @@
                             </div>
                             <button class="btn btn-outline-warning fw-bold shadow-sm w-100 w-md-auto text-nowrap" onclick="clearSelectedData()"><i class="bi bi-eraser"></i> 데이터 초기화</button>
                             
-                            <!-- 드롭다운 버튼 충돌 및 줄바꿈 해결 -->
                             <div class="btn-group shadow-sm w-100 w-md-auto">
                                 <button type="button" id="mainUpdateBtn" class="btn btn-success fw-bold text-nowrap" onclick="refreshByIsbn('all', event)">
                                     <i class="bi bi-upc-scan"></i> 모두 업데이트
@@ -41,9 +40,17 @@
                                 <button type="button" id="subUpdateBtn" class="btn btn-success dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" data-toggle="dropdown" aria-expanded="false">
                                     <span class="visually-hidden">Toggle Dropdown</span>
                                 </button>
-                                <ul class="dropdown-menu dropdown-menu-end border-success shadow">
+                                <ul class="dropdown-menu dropdown-menu-end border-success shadow" style="min-width: 220px;">
+                                    <!-- 빈 칸 채우기 토글 옵션 -->
+                                    <li class="px-3 py-2 bg-light border-bottom mb-1" onclick="event.stopPropagation();">
+                                        <div class="form-check form-switch mb-0">
+                                            <input class="form-check-input" type="checkbox" id="fillEmptyOnly" style="cursor: pointer;">
+                                            <label class="form-check-label fw-bold text-secondary small" for="fillEmptyOnly" style="cursor: pointer;">빈 칸만 채우기 (덮어쓰기 방지)</label>
+                                        </div>
+                                    </li>
                                     <li><a class="dropdown-item fw-bold text-success" href="#" onclick="refreshByIsbn('all', event)"><i class="bi bi-check-all"></i> 모두 업데이트</a></li>
                                     <li><hr class="dropdown-divider"></li>
+                                    <li><a class="dropdown-item fw-bold text-dark" href="#" onclick="refreshByIsbn('info', event)"><i class="bi bi-box-seam"></i> 상품 정보만 업데이트</a></li>
                                     <li><a class="dropdown-item fw-bold text-dark" href="#" onclick="refreshByIsbn('rank', event)"><i class="bi bi-sort-numeric-up"></i> 순위만 업데이트</a></li>
                                     <li><a class="dropdown-item fw-bold text-dark" href="#" onclick="refreshByIsbn('purchase', event)"><i class="bi bi-cart-check"></i> 구매수만 업데이트</a></li>
                                 </ul>
@@ -414,7 +421,6 @@
         renderTableColors();
     }
 
-    // 순수 자바스크립트로 변환된 더블클릭 수정 기능
     document.getElementById('savedKeywordsBody').addEventListener('dblclick', function(e) {
         let td = e.target.closest('.editable-cell');
         if (!td) return;
@@ -515,15 +521,23 @@
             return;
         }
 
+        // 새롭게 추가된 빈 칸 채우기 토글 상태를 가져와서 서버로 보냅니다.
+        let fillEmptyOnly = document.getElementById('fillEmptyOnly').checked;
+
         const fd = new FormData();
         checkedIds.forEach(id => fd.append('ids[]', id));
         fd.append('update_mode', mode); 
+        fd.append('fill_empty_only', fillEmptyOnly); 
 
         let modeText = "모두";
         if(mode === 'rank') modeText = "순위만";
         if(mode === 'purchase') modeText = "구매수만";
+        if(mode === 'info') modeText = "상품 정보만";
 
-        if(!confirm(`선택한 ${checkedIds.size}개 항목을 [${modeText}] 업데이트 하시겠습니까?`)) return;
+        let confirmMsg = `선택한 ${checkedIds.size}개 항목을 [${modeText}] 업데이트 하시겠습니까?`;
+        if(fillEmptyOnly) confirmMsg += "\n(기존에 작성된 데이터는 건너뛰고 빈 칸만 채웁니다)";
+
+        if(!confirm(confirmMsg)) return;
 
         document.getElementById('mainUpdateBtn').disabled = true;
         document.getElementById('subUpdateBtn').disabled = true;
