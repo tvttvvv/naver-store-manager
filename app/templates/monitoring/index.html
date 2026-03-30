@@ -29,15 +29,16 @@
                                     <option value="B">B등급 이동</option>
                                     <option value="C">C등급 이동</option>
                                 </select>
-                                <button class="btn btn-outline-primary fw-bold" onclick="moveSelectedGrade()"><i class="bi bi-folder-symlink"></i> 적용</button>
+                                <button class="btn btn-outline-primary fw-bold text-nowrap" onclick="moveSelectedGrade()"><i class="bi bi-folder-symlink"></i> 적용</button>
                             </div>
-                            <button class="btn btn-outline-warning fw-bold shadow-sm w-100 w-md-auto" onclick="clearSelectedData()"><i class="bi bi-eraser"></i> 데이터 초기화</button>
+                            <button class="btn btn-outline-warning fw-bold shadow-sm w-100 w-md-auto text-nowrap" onclick="clearSelectedData()"><i class="bi bi-eraser"></i> 데이터 초기화</button>
                             
+                            <!-- 드롭다운 버튼 충돌 및 줄바꿈 해결 -->
                             <div class="btn-group shadow-sm w-100 w-md-auto">
-                                <button type="button" id="mainUpdateBtn" class="btn btn-success fw-bold" onclick="refreshByIsbn('all', event)">
+                                <button type="button" id="mainUpdateBtn" class="btn btn-success fw-bold text-nowrap" onclick="refreshByIsbn('all', event)">
                                     <i class="bi bi-upc-scan"></i> 모두 업데이트
                                 </button>
-                                <button type="button" id="subUpdateBtn" class="btn btn-success dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false">
+                                <button type="button" id="subUpdateBtn" class="btn btn-success dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" data-toggle="dropdown" aria-expanded="false">
                                     <span class="visually-hidden">Toggle Dropdown</span>
                                 </button>
                                 <ul class="dropdown-menu dropdown-menu-end border-success shadow">
@@ -176,9 +177,6 @@
     @keyframes pulse { 0% { opacity: 0.7; } 50% { opacity: 1; transform: translateX(-3px); } 100% { opacity: 0.7; } }
 </style>
 
-<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-
 <script>
     let isEditing = false; 
     let allKeywordsData = []; 
@@ -191,7 +189,6 @@
     let currentPage = 1;
     let itemsPerPage = 50;
     
-    // ✨ 폴링 타이머 변수
     let pollingInterval = null;
 
     function updateTabCounts() {
@@ -417,31 +414,40 @@
         renderTableColors();
     }
 
-    $(document).on('dblclick', '.editable-cell', function() {
+    // 순수 자바스크립트로 변환된 더블클릭 수정 기능
+    document.getElementById('savedKeywordsBody').addEventListener('dblclick', function(e) {
+        let td = e.target.closest('.editable-cell');
+        if (!td) return;
         if (isEditing) return;
         isEditing = true; 
         
-        let td = $(this);
-        let id = td.data('id');
-        let field = td.data('field');
-        let currentVal = td.attr('data-val') !== undefined ? td.attr('data-val') : td.text().trim();
+        let id = parseInt(td.getAttribute('data-id'));
+        let field = td.getAttribute('data-field');
+        let currentVal = td.hasAttribute('data-val') ? td.getAttribute('data-val') : td.textContent.trim();
         if(field === 'keyword') currentVal = allKeywordsData.find(i => i.id === id).keyword;
         if (currentVal === '-') currentVal = '';
         
         let alignment = field === 'book_title' || field === 'product_link' ? 'text-start' : 'text-center';
         let style = field === 'isbn' ? 'background-color:#fff3cd; font-weight:bold; color:#0d6efd;' : '';
-        let input = $(`<input type="text" class="form-control form-control-sm ${alignment} shadow-sm border-primary" value="${currentVal}" placeholder="엔터키로 저장" style="min-width: 100px; ${style}">`);
         
-        td.empty().append(input);
+        let input = document.createElement('input');
+        input.type = 'text';
+        input.className = `form-control form-control-sm ${alignment} shadow-sm border-primary`;
+        input.value = currentVal;
+        input.placeholder = "엔터키로 저장";
+        input.style.cssText = `min-width: 100px; ${style}`;
+        
+        td.innerHTML = '';
+        td.appendChild(input);
         input.focus();
 
         let isSaved = false;
-        input.on('blur keypress', async function(e) {
-            if (e.type === 'keypress' && e.which !== 13) return;
+        
+        async function saveChanges() {
             if (isSaved) return; 
             isSaved = true;
 
-            let newVal = input.val().trim();
+            let newVal = input.value.trim();
             let item = allKeywordsData.find(i => i.id === id);
 
             if (newVal === currentVal) {
@@ -470,6 +476,11 @@
             } catch(e) { alert('저장 중 오류가 발생했습니다.'); }
             isEditing = false; 
             renderTable(); 
+        }
+
+        input.addEventListener('blur', saveChanges);
+        input.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') saveChanges();
         });
     });
 
@@ -496,7 +507,6 @@
         } catch(e) { alert('이동 중 오류가 발생했습니다.'); }
     }
 
-    // ✨ 업데이트 로직을 화면과 폴링 시스템에 연결
     async function refreshByIsbn(mode, event) {
         if(event) event.preventDefault();
         
@@ -515,7 +525,6 @@
 
         if(!confirm(`선택한 ${checkedIds.size}개 항목을 [${modeText}] 업데이트 하시겠습니까?`)) return;
 
-        // 버튼 비활성화 및 UI 노출
         document.getElementById('mainUpdateBtn').disabled = true;
         document.getElementById('subUpdateBtn').disabled = true;
         document.getElementById('progressContainer').classList.remove('d-none');
@@ -526,7 +535,6 @@
             const result = await res.json();
             
             if(result.success) {
-                // 백그라운드 작업이 시작되었으므로 주기적으로 상태를 물어봅니다.
                 pollingInterval = setInterval(checkTaskStatus, 1000);
             } else {
                 alert(result.message);
@@ -538,7 +546,6 @@
         } 
     }
 
-    // ✨ 서버에 진행 상태를 물어보는 함수
     function checkTaskStatus() {
         fetch("{{ url_for('monitoring.get_task_status') }}")
             .then(res => res.json())
@@ -548,7 +555,6 @@
                 const progressCount = document.getElementById('progressCount');
                 const logList = document.getElementById('logList');
 
-                // 진행률 계산
                 let percent = 0;
                 if (data.total > 0) {
                     percent = Math.round((data.current / data.total) * 100);
@@ -558,18 +564,15 @@
                 progressBar.innerText = percent + '%';
                 progressCount.innerText = `${data.current} / ${data.total}`;
                 
-                // 로그 렌더링
                 if (data.logs && data.logs.length > 0) {
                     logList.innerHTML = data.logs.map(log => `<li><i class="bi bi-check2-circle text-success me-1"></i>${log}</li>`).join('');
                     logList.parentElement.scrollTop = logList.parentElement.scrollHeight;
                 }
 
-                // 완료 감지
                 if (!data.is_running && data.total > 0 && data.current >= data.total) {
                     clearInterval(pollingInterval);
                     progressStatusText.innerText = "✨ 업데이트가 모두 완료되었습니다!";
                     
-                    // 2초 뒤 UI 복구 및 표 새로고침
                     setTimeout(() => {
                         resetUpdateUI();
                         loadSavedKeywords();
