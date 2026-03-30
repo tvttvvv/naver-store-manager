@@ -69,7 +69,7 @@
                 </div>
             </div>
             
-            <div class="d-flex flex-column h-100" id="taskContainer" style="overflow-y: auto; overflow-x: hidden;">
+            <div class="d-flex flex-column flex-grow-1" id="taskContainer" style="overflow-y: auto; overflow-x: hidden;">
                 <div id="initialState" class="card border-0 shadow-sm text-center py-5 text-muted flex-grow-1 d-flex flex-column justify-content-center">
                     <i class="bi bi-ui-checks-grid fs-1 d-block mb-2 text-secondary"></i>
                     <p class="mb-0">왼쪽에서 상점을 체크하시면<br>이곳에 작업 카드가 실시간으로 생성됩니다.</p>
@@ -204,7 +204,6 @@
             const taskData = tasks[storeId];
             if (taskData.is_running) anyRunning = true;
             
-            // ✨ 새로고침해도 체크박스 유지되도록 보정 ✨
             const cb = document.getElementById(`store_${storeId}`);
             if (cb && !cb.checked) cb.checked = true;
 
