@@ -53,7 +53,8 @@ def receive_webhook():
 @login_required
 def get_saved_keywords():
     try:
-        db.session.execute(text("ALTER TABLE monitored_keyword ADD COLUMN purchase_count VARCHAR(50) DEFAULT '-'"))
+        # DB에 재고수 컬럼이 없다면 자동 생성
+        db.session.execute(text("ALTER TABLE monitored_keyword ADD COLUMN stock_quantity VARCHAR(50) DEFAULT '-'"))
         db.session.commit()
     except Exception:
         db.session.rollback()
@@ -75,7 +76,7 @@ def get_saved_keywords():
         'product_link': k.product_link or '-', 
         'store_rank': k.store_rank or '-', 
         'prev_store_rank': k.prev_store_rank or '-',
-        'purchase_count': getattr(k, 'purchase_count', '-')
+        'stock_quantity': getattr(k, 'stock_quantity', '-')
     } for k in keywords]})
 
 @monitoring_bp.route('/api/delete_keyword', methods=['POST'])
@@ -114,7 +115,7 @@ def update_keyword():
         if 'book_title' in request.form: kw.book_title = request.form.get('book_title')
         if 'product_link' in request.form: kw.product_link = request.form.get('product_link')
         if 'store_rank' in request.form: kw.store_rank = request.form.get('store_rank')
-        if 'purchase_count' in request.form: kw.purchase_count = request.form.get('purchase_count')
+        if 'stock_quantity' in request.form: kw.stock_quantity = request.form.get('stock_quantity')
         if 'store_name' in request.form: kw.store_name = request.form.get('store_name') 
             
         db.session.commit()
@@ -148,19 +149,9 @@ def clear_data():
         kw.shipping_fee = '-'
         kw.store_name = '-'
         kw.book_title = '-'
-        if hasattr(kw, 'purchase_count'): kw.purchase_count = '-'
+        if hasattr(kw, 'stock_quantity'): kw.stock_quantity = '-'
     db.session.commit()
     return jsonify({'success': True, 'message': f'✅ 선택한 항목의 검색 정보가 초기화되었습니다.'})
-
-def get_html_with_bot_spoofing(url):
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
-    }
-    try:
-        res = requests.get(url, headers=headers, timeout=5)
-        if res.status_code == 200: return res.text
-    except Exception: pass
-    return ""
 
 def get_exact_product_info_commerce_api(token, isbn):
     if not token: return {}
@@ -216,6 +207,12 @@ def get_exact_product_info_commerce_api(token, isbn):
                 if detail_res.status_code == 200:
                     origin_data = detail_res.json()
                     if sale_price is None: sale_price = origin_data.get('salePrice') or origin_data.get('price')
+                    
+                    # ✨ API에서 재고수를 추출하는 로직
+                    stock_qty = origin_data.get('stockQuantity')
+                    if stock_qty is not None:
+                        result['my_stock'] = f"{stock_qty:,}개"
+                        
                     detail_attr = origin_data.get('detailAttribute', {})
                     publisher = detail_attr.get('bookInfo', {}).get('publisher') or detail_attr.get('customInfo', {}).get('manufacturer') or detail_attr.get('customInfo', {}).get('brand') or detail_attr.get('naverShoppingSearchInfo', {}).get('manufacturerName') or detail_attr.get('naverShoppingSearchInfo', {}).get('brandName') or origin_data.get('manufacturerName') or origin_data.get('brandName')
             except Exception: pass
@@ -225,35 +222,6 @@ def get_exact_product_info_commerce_api(token, isbn):
         result['my_publisher'] = publisher if publisher else "-"
         result['my_price'] = f"{sale_price:,}원" if sale_price is not None else "-"
     return result
-
-def scrape_smartstore_purchase_count(product_link):
-    if not product_link or "smartstore.naver.com" not in product_link: 
-        return "-"
-    try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-            "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
-        }
-        res = requests.get(product_link, headers=headers, timeout=5)
-        
-        if res.status_code == 200:
-            html_text = res.text
-            sale_patterns = [r'"totalSaleCount"\s*:\s*(\d+)', r'"sellCount"\s*:\s*(\d+)', r'"purchaseCount"\s*:\s*(\d+)', r'"payReferenceCount"\s*:\s*(\d+)']
-            for pattern in sale_patterns:
-                match = re.search(pattern, html_text)
-                if match:
-                    val = match.group(1).replace(',', '')
-                    if val.isdigit() and int(val) > 0: return f"{int(val):,}건"
-            
-            review_patterns = [r'"reviewCount"\s*:\s*(\d+)', r'"totalReviewCount"\s*:\s*(\d+)', r'리뷰\s*([0-9,]+)']
-            for pattern in review_patterns:
-                match = re.search(pattern, html_text)
-                if match:
-                    val = match.group(1).replace(',', '')
-                    if val.isdigit() and int(val) > 0: return f"리뷰 {int(val):,}건"
-    except Exception: pass
-    return "-"
 
 monitoring_tasks = {}
 
@@ -274,8 +242,6 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
             token = get_naver_token(key.client_id, key.client_secret)
             if token:
                 store_tokens[key.store_name] = token
-                
-        # ✨ 문제가 되던 자동 폴백(fallback) 로직을 완전히 삭제했습니다!
 
         for k_id in target_ids:
             try:
@@ -292,14 +258,12 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                     monitoring_tasks[user_id]["logs"].append(f"[{keyword_name}] ⏩ ISBN 없음 (초고속 스킵)")
                     continue 
 
-                # ✨ 상점이 선택되지 않았으면 즉시 건너뛰기!
                 target_store = kw.store_name or '-'
                 if target_store == '-':
                     monitoring_tasks[user_id]["current"] += 1
                     monitoring_tasks[user_id]["logs"].append(f"[{keyword_name}] ⏩ 상점 미선택 (스킵)")
                     continue
 
-                # ✨ 선택한 상점의 API 키가 없으면 건너뛰기!
                 commerce_token = store_tokens.get(target_store)
                 if not commerce_token:
                     monitoring_tasks[user_id]["current"] += 1
@@ -308,21 +272,21 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
 
                 updates = {}
 
-                if update_mode in ['all', 'info']:
+                # 재고(stock) 모드일 때도 API에서 exact_info를 불러오도록 수정
+                if update_mode in ['all', 'info', 'stock']:
                     exact_info = {}
                     if commerce_token and target_isbn:
                         exact_info = get_exact_product_info_commerce_api(commerce_token, target_isbn)
 
-                    if exact_info.get('my_title'): updates['book_title'] = exact_info['my_title']
-                    if exact_info.get('my_link'): updates['product_link'] = exact_info['my_link']
-                    if exact_info.get('my_price'): updates['price'] = exact_info['my_price']
-                    if exact_info.get('my_publisher'): updates['publisher'] = exact_info['my_publisher']
+                    if update_mode in ['all', 'info']:
+                        if exact_info.get('my_title'): updates['book_title'] = exact_info['my_title']
+                        if exact_info.get('my_link'): updates['product_link'] = exact_info['my_link']
+                        if exact_info.get('my_price'): updates['price'] = exact_info['my_price']
+                        if exact_info.get('my_publisher'): updates['publisher'] = exact_info['my_publisher']
 
-                if update_mode in ['all', 'purchase']:
-                    current_link = updates.get('product_link') or kw.product_link
-                    if current_link and current_link != '-':
-                        pc = scrape_smartstore_purchase_count(current_link)
-                        updates['purchase_count'] = pc
+                    # 재고수 업데이트
+                    if update_mode in ['all', 'stock']:
+                        if exact_info.get('my_stock'): updates['stock_quantity'] = exact_info['my_stock']
 
                 kw = db.session.get(MonitoredKeyword, k_id)
                 if kw:
@@ -336,9 +300,9 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                         if updates.get('price') and should_update(kw.price): kw.price = updates['price']
                         if updates.get('publisher') and should_update(kw.publisher): kw.publisher = updates['publisher']
                     
-                    if update_mode in ['all', 'purchase']:
-                        if updates.get('purchase_count') and should_update(kw.purchase_count):
-                            kw.purchase_count = updates['purchase_count']
+                    if update_mode in ['all', 'stock']:
+                        if updates.get('stock_quantity') and should_update(kw.stock_quantity):
+                            kw.stock_quantity = updates['stock_quantity']
                     
                     db.session.commit()
                     
