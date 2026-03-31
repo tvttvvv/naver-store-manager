@@ -51,7 +51,7 @@
                                     <li><hr class="dropdown-divider"></li>
                                     <li><a class="dropdown-item fw-bold text-dark" href="#" onclick="refreshByIsbn('info', event)"><i class="bi bi-box-seam"></i> 상품 정보만 업데이트</a></li>
                                     <li><a class="dropdown-item fw-bold text-dark" href="#" onclick="refreshByIsbn('rank', event)"><i class="bi bi-sort-numeric-up"></i> 순위만 업데이트</a></li>
-                                    <li><a class="dropdown-item fw-bold text-dark" href="#" onclick="refreshByIsbn('purchase', event)"><i class="bi bi-cart-check"></i> 구매수만 업데이트</a></li>
+                                    <li><a class="dropdown-item fw-bold text-dark" href="#" onclick="refreshByIsbn('stock', event)"><i class="bi bi-box"></i> 재고수만 업데이트</a></li>
                                 </ul>
                             </div>
                         </div>
@@ -126,7 +126,7 @@
                                     <th>네이버카운트</th>
                                     <th>순위</th>
                                     <th class="text-primary fw-bold">상점 선택</th>
-                                    <th>구매수</th>
+                                    <th>재고수</th>
                                     <th>키워드검색</th>
                                     <th>상품링크</th>
                                     <th>출판사명<br><small class="text-muted">(제조사명)</small></th>
@@ -411,7 +411,7 @@
                     <td class="align-middle ${kwBgColor} fs-6">${(k.search_volume || 0).toLocaleString()}</td>
                     <td class="align-middle ${kwBgColor} text-dark editable-cell" data-id="${k.id}" data-field="store_rank" data-val="${safeRank}" title="더블클릭하여 수정">${rankDisplay}</td>
                     <td class="align-middle bg-light">${storeSelectHtml}</td>
-                    <td class="align-middle text-primary fw-bold editable-cell" data-id="${k.id}" data-field="purchase_count" title="더블클릭하여 수정">${k.purchase_count || '-'}</td>
+                    <td class="align-middle text-primary fw-bold editable-cell" data-id="${k.id}" data-field="stock_quantity" title="더블클릭하여 수정">${k.stock_quantity || '-'}</td>
                     <td class="align-middle"><a href="${searchLink}" target="_blank" class="btn btn-sm btn-outline-secondary py-0 px-2 text-decoration-none"><i class="bi bi-search"></i> 검색</a></td>
                     <td class="align-middle editable-cell" data-id="${k.id}" data-field="product_link" data-val="${plink_val}" title="더블클릭하여 링크 수정">${linkBtn}</td>
                     <td class="align-middle text-muted editable-cell" data-id="${k.id}" data-field="publisher" title="더블클릭하여 수정">${k.publisher || '-'}</td>
@@ -574,7 +574,7 @@
 
         let modeText = "모두";
         if(mode === 'rank') modeText = "순위만";
-        if(mode === 'purchase') modeText = "구매수만";
+        if(mode === 'stock') modeText = "재고수만";
         if(mode === 'info') modeText = "상품 정보만";
 
         let confirmMsg = `선택한 ${checkedIds.size}개 항목을 [${modeText}] 업데이트 하시겠습니까?`;
