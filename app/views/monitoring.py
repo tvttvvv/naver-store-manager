@@ -53,7 +53,6 @@ def receive_webhook():
 @login_required
 def get_saved_keywords():
     try:
-        # DB에 재고수 컬럼이 없다면 자동 생성
         db.session.execute(text("ALTER TABLE monitored_keyword ADD COLUMN stock_quantity VARCHAR(50) DEFAULT '-'"))
         db.session.commit()
     except Exception:
@@ -199,7 +198,9 @@ def get_exact_product_info_commerce_api(token, isbn):
         result['my_title'] = c_prod.get('name', matched_product.get('name', '-'))
         result['my_link'] = f"https://smartstore.naver.com/main/products/{c_no}" if c_no else "-"
         publisher = ""
+        stock_val = None
         
+        # 1. 원상품(Origin Product)에서 상세 정보 및 재고 조회
         if o_no:
             try:
                 detail_url = f"https://api.commerce.naver.com/external/v2/products/origin-products/{o_no}"
@@ -208,19 +209,38 @@ def get_exact_product_info_commerce_api(token, isbn):
                     origin_data = detail_res.json()
                     if sale_price is None: sale_price = origin_data.get('salePrice') or origin_data.get('price')
                     
-                    # ✨ API에서 재고수를 추출하는 로직
-                    stock_qty = origin_data.get('stockQuantity')
-                    if stock_qty is not None:
-                        result['my_stock'] = f"{stock_qty:,}개"
+                    # ✨ API 원상품에서 재고수 1차 추출 시도
+                    if 'stockQuantity' in origin_data:
+                        stock_val = origin_data.get('stockQuantity')
                         
                     detail_attr = origin_data.get('detailAttribute', {})
                     publisher = detail_attr.get('bookInfo', {}).get('publisher') or detail_attr.get('customInfo', {}).get('manufacturer') or detail_attr.get('customInfo', {}).get('brand') or detail_attr.get('naverShoppingSearchInfo', {}).get('manufacturerName') or detail_attr.get('naverShoppingSearchInfo', {}).get('brandName') or origin_data.get('manufacturerName') or origin_data.get('brandName')
             except Exception: pass
-        
+            
+        # 2. 채널상품(Channel Product)에서 재고 조회 (만약 원상품에서 못 찾았을 경우 대비)
+        if stock_val is None and c_no:
+            try:
+                c_url = f"https://api.commerce.naver.com/external/v2/products/channel-products/{c_no}"
+                c_res = requests.get(c_url, headers=headers, timeout=5)
+                if c_res.status_code == 200:
+                    c_data = c_res.json()
+                    if 'stockQuantity' in c_data:
+                        stock_val = c_data.get('stockQuantity')
+            except Exception: pass
+
+        # 3. 검색 목록에서 재고 조회 (최후의 보루)
+        if stock_val is None:
+            stock_val = c_prod.get('stockQuantity') or matched_product.get('stockQuantity')
+
+        # ✨ 최종적으로 재고를 찾았다면 결과에 추가!
+        if stock_val is not None:
+            result['my_stock'] = f"{stock_val:,}개"
+
         if not publisher: publisher = matched_product.get('manufacturerName') or matched_product.get('brandName') or c_prod.get('manufacturerName') or c_prod.get('brandName')
         
         result['my_publisher'] = publisher if publisher else "-"
         result['my_price'] = f"{sale_price:,}원" if sale_price is not None else "-"
+        
     return result
 
 monitoring_tasks = {}
@@ -272,7 +292,6 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
 
                 updates = {}
 
-                # 재고(stock) 모드일 때도 API에서 exact_info를 불러오도록 수정
                 if update_mode in ['all', 'info', 'stock']:
                     exact_info = {}
                     if commerce_token and target_isbn:
@@ -284,9 +303,10 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                         if exact_info.get('my_price'): updates['price'] = exact_info['my_price']
                         if exact_info.get('my_publisher'): updates['publisher'] = exact_info['my_publisher']
 
-                    # 재고수 업데이트
+                    # 재고수 업데이트 변수 담기
                     if update_mode in ['all', 'stock']:
-                        if exact_info.get('my_stock'): updates['stock_quantity'] = exact_info['my_stock']
+                        if exact_info.get('my_stock'): 
+                            updates['stock_quantity'] = exact_info['my_stock']
 
                 kw = db.session.get(MonitoredKeyword, k_id)
                 if kw:
@@ -308,7 +328,13 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                     
                 monitoring_tasks[user_id]["current"] += 1
                 store_label = f"({target_store})" if target_store and target_store != '-' else ""
-                monitoring_tasks[user_id]["logs"].append(f"[{keyword_name}] ✅ {store_label} 완료")
+                
+                # ✨ 화면 우측 위 로그 창에 재고수 추출 결과를 함께 표시해줍니다.
+                if update_mode in ['all', 'stock']:
+                    stock_log_msg = updates.get('stock_quantity', '추출불가')
+                    monitoring_tasks[user_id]["logs"].append(f"[{keyword_name}] ✅ {store_label} (재고: {stock_log_msg})")
+                else:
+                    monitoring_tasks[user_id]["logs"].append(f"[{keyword_name}] ✅ {store_label} 완료")
 
             except Exception as e:
                 db.session.rollback()
