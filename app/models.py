@@ -36,4 +36,6 @@ class MonitoredKeyword(db.Model):
     product_link = db.Column(db.String(500), default='-')
     store_rank = db.Column(db.String(50), default='-')
     prev_store_rank = db.Column(db.String(50), default='-')
-    purchase_count = db.Column(db.String(50), default='-')
+    
+    # 구매수(purchase_count) 대신 재고수(stock_quantity)를 사용합니다.
+    stock_quantity = db.Column(db.String(50), default='-')
