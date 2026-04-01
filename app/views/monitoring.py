@@ -58,9 +58,9 @@ def get_saved_keywords():
         db.session.commit()
     except Exception: db.session.rollback()
 
-    # ✨ 등록일자 및 판매상태 컬럼 자동 생성 로직 추가
+    # ✨ 충돌나지 않도록 문자열 컬럼으로 자동 생성합니다.
     try:
-        db.session.execute(text("ALTER TABLE monitored_keyword ADD COLUMN registered_at DATETIME DEFAULT CURRENT_TIMESTAMP"))
+        db.session.execute(text("ALTER TABLE monitored_keyword ADD COLUMN registered_at VARCHAR(50) DEFAULT '-'"))
         db.session.commit()
     except Exception: db.session.rollback()
     
@@ -89,7 +89,7 @@ def get_saved_keywords():
         'prev_store_rank': k.prev_store_rank or '-',
         'stock_quantity': getattr(k, 'stock_quantity', '-'),
         'sales_status': getattr(k, 'sales_status', '-'),
-        'registered_at': k.registered_at.strftime('%Y-%m-%d') if getattr(k, 'registered_at', None) else '-'
+        'registered_at': getattr(k, 'registered_at', '-')
     } for k in keywords]})
 
 @monitoring_bp.route('/api/delete_keyword', methods=['POST'])
@@ -216,7 +216,6 @@ def get_exact_product_info_commerce_api(token, isbn):
         publisher = ""
         stock_val = None
         
-        # ✨ 판매 상태 가져오기 로직 추가
         status_raw = c_prod.get('statusType') or matched_product.get('statusType')
         status_kr = "-"
         if status_raw == 'SALE': status_kr = '판매중'
@@ -324,7 +323,7 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                         if exact_info.get('my_link'): updates['product_link'] = exact_info['my_link']
                         if exact_info.get('my_price'): updates['price'] = exact_info['my_price']
                         if exact_info.get('my_publisher'): updates['publisher'] = exact_info['my_publisher']
-                        if exact_info.get('my_status'): updates['sales_status'] = exact_info['my_status'] # 판매상태 업데이트
+                        if exact_info.get('my_status'): updates['sales_status'] = exact_info['my_status'] 
 
                     if update_mode in ['all', 'stock']:
                         if exact_info.get('my_stock'): 
