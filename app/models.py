@@ -29,13 +29,14 @@ class MonitoredKeyword(db.Model):
     price = db.Column(db.String(50), default='-')
     shipping_fee = db.Column(db.String(50), default='-')
     
-    # ✨ 선택한 대상 상점(데일리러닝, 스터디박스 등)을 저장
     store_name = db.Column(db.String(255), default='-') 
     
     book_title = db.Column(db.String(255), default='-')
     product_link = db.Column(db.String(500), default='-')
     store_rank = db.Column(db.String(50), default='-')
     prev_store_rank = db.Column(db.String(50), default='-')
-    
-    # 구매수(purchase_count) 대신 재고수(stock_quantity)를 사용합니다.
     stock_quantity = db.Column(db.String(50), default='-')
+    
+    # ✨ 이번에 새로 추가되는 항목들입니다.
+    sales_status = db.Column(db.String(50), default='-')
+    registered_at = db.Column(db.DateTime, default=datetime.utcnow)
