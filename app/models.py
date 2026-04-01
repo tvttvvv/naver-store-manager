@@ -37,6 +37,6 @@ class MonitoredKeyword(db.Model):
     prev_store_rank = db.Column(db.String(50), default='-')
     stock_quantity = db.Column(db.String(50), default='-')
     
-    # ✨ 이번에 새로 추가되는 항목들입니다.
     sales_status = db.Column(db.String(50), default='-')
-    registered_at = db.Column(db.DateTime, default=datetime.utcnow)
+    # ✨ 데이터베이스 충돌 방지를 위해 문자열(String) 타입으로 저장합니다.
+    registered_at = db.Column(db.String(50), default=lambda: datetime.now().strftime('%Y-%m-%d'))
