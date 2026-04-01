@@ -4,6 +4,7 @@ import re
 import traceback
 import random
 import html
+from datetime import datetime
 from threading import Thread
 from flask import Blueprint, render_template, request, jsonify, current_app
 from flask_login import login_required, current_user
@@ -55,10 +56,21 @@ def get_saved_keywords():
     try:
         db.session.execute(text("ALTER TABLE monitored_keyword ADD COLUMN stock_quantity VARCHAR(50) DEFAULT '-'"))
         db.session.commit()
-    except Exception:
-        db.session.rollback()
+    except Exception: db.session.rollback()
+
+    # ✨ 등록일자 및 판매상태 컬럼 자동 생성 로직 추가
+    try:
+        db.session.execute(text("ALTER TABLE monitored_keyword ADD COLUMN registered_at DATETIME DEFAULT CURRENT_TIMESTAMP"))
+        db.session.commit()
+    except Exception: db.session.rollback()
+    
+    try:
+        db.session.execute(text("ALTER TABLE monitored_keyword ADD COLUMN sales_status VARCHAR(50) DEFAULT '-'"))
+        db.session.commit()
+    except Exception: db.session.rollback()
 
     keywords = MonitoredKeyword.query.filter_by(user_id=current_user.id).order_by(MonitoredKeyword.id.desc()).all()
+    
     return jsonify({'success': True, 'data': [{
         'id': k.id, 
         'keyword': k.keyword or '-', 
@@ -75,7 +87,9 @@ def get_saved_keywords():
         'product_link': k.product_link or '-', 
         'store_rank': k.store_rank or '-', 
         'prev_store_rank': k.prev_store_rank or '-',
-        'stock_quantity': getattr(k, 'stock_quantity', '-')
+        'stock_quantity': getattr(k, 'stock_quantity', '-'),
+        'sales_status': getattr(k, 'sales_status', '-'),
+        'registered_at': k.registered_at.strftime('%Y-%m-%d') if getattr(k, 'registered_at', None) else '-'
     } for k in keywords]})
 
 @monitoring_bp.route('/api/delete_keyword', methods=['POST'])
@@ -115,6 +129,7 @@ def update_keyword():
         if 'product_link' in request.form: kw.product_link = request.form.get('product_link')
         if 'store_rank' in request.form: kw.store_rank = request.form.get('store_rank')
         if 'stock_quantity' in request.form: kw.stock_quantity = request.form.get('stock_quantity')
+        if 'sales_status' in request.form: kw.sales_status = request.form.get('sales_status')
         if 'store_name' in request.form: kw.store_name = request.form.get('store_name') 
             
         db.session.commit()
@@ -149,6 +164,7 @@ def clear_data():
         kw.store_name = '-'
         kw.book_title = '-'
         if hasattr(kw, 'stock_quantity'): kw.stock_quantity = '-'
+        if hasattr(kw, 'sales_status'): kw.sales_status = '-'
     db.session.commit()
     return jsonify({'success': True, 'message': f'✅ 선택한 항목의 검색 정보가 초기화되었습니다.'})
 
@@ -200,7 +216,17 @@ def get_exact_product_info_commerce_api(token, isbn):
         publisher = ""
         stock_val = None
         
-        # 1. 원상품(Origin Product)에서 상세 정보 및 재고 조회
+        # ✨ 판매 상태 가져오기 로직 추가
+        status_raw = c_prod.get('statusType') or matched_product.get('statusType')
+        status_kr = "-"
+        if status_raw == 'SALE': status_kr = '판매중'
+        elif status_raw == 'OUTOFSTOCK': status_kr = '품절'
+        elif status_raw == 'SUSPENSION': status_kr = '판매중지'
+        elif status_raw == 'CLOSE': status_kr = '판매종료'
+        elif status_raw == 'PROHIBITION': status_kr = '판매금지'
+        elif status_raw: status_kr = str(status_raw)
+        result['my_status'] = status_kr
+        
         if o_no:
             try:
                 detail_url = f"https://api.commerce.naver.com/external/v2/products/origin-products/{o_no}"
@@ -209,7 +235,6 @@ def get_exact_product_info_commerce_api(token, isbn):
                     origin_data = detail_res.json()
                     if sale_price is None: sale_price = origin_data.get('salePrice') or origin_data.get('price')
                     
-                    # ✨ API 원상품에서 재고수 1차 추출 시도
                     if 'stockQuantity' in origin_data:
                         stock_val = origin_data.get('stockQuantity')
                         
@@ -217,7 +242,6 @@ def get_exact_product_info_commerce_api(token, isbn):
                     publisher = detail_attr.get('bookInfo', {}).get('publisher') or detail_attr.get('customInfo', {}).get('manufacturer') or detail_attr.get('customInfo', {}).get('brand') or detail_attr.get('naverShoppingSearchInfo', {}).get('manufacturerName') or detail_attr.get('naverShoppingSearchInfo', {}).get('brandName') or origin_data.get('manufacturerName') or origin_data.get('brandName')
             except Exception: pass
             
-        # 2. 채널상품(Channel Product)에서 재고 조회 (만약 원상품에서 못 찾았을 경우 대비)
         if stock_val is None and c_no:
             try:
                 c_url = f"https://api.commerce.naver.com/external/v2/products/channel-products/{c_no}"
@@ -228,11 +252,9 @@ def get_exact_product_info_commerce_api(token, isbn):
                         stock_val = c_data.get('stockQuantity')
             except Exception: pass
 
-        # 3. 검색 목록에서 재고 조회 (최후의 보루)
         if stock_val is None:
             stock_val = c_prod.get('stockQuantity') or matched_product.get('stockQuantity')
 
-        # ✨ 최종적으로 재고를 찾았다면 결과에 추가!
         if stock_val is not None:
             result['my_stock'] = f"{stock_val:,}개"
 
@@ -302,8 +324,8 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                         if exact_info.get('my_link'): updates['product_link'] = exact_info['my_link']
                         if exact_info.get('my_price'): updates['price'] = exact_info['my_price']
                         if exact_info.get('my_publisher'): updates['publisher'] = exact_info['my_publisher']
+                        if exact_info.get('my_status'): updates['sales_status'] = exact_info['my_status'] # 판매상태 업데이트
 
-                    # 재고수 업데이트 변수 담기
                     if update_mode in ['all', 'stock']:
                         if exact_info.get('my_stock'): 
                             updates['stock_quantity'] = exact_info['my_stock']
@@ -319,6 +341,7 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                         if updates.get('product_link') and should_update(kw.product_link): kw.product_link = updates['product_link']
                         if updates.get('price') and should_update(kw.price): kw.price = updates['price']
                         if updates.get('publisher') and should_update(kw.publisher): kw.publisher = updates['publisher']
+                        if updates.get('sales_status') and should_update(kw.sales_status): kw.sales_status = updates['sales_status']
                     
                     if update_mode in ['all', 'stock']:
                         if updates.get('stock_quantity') and should_update(kw.stock_quantity):
@@ -329,7 +352,6 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                 monitoring_tasks[user_id]["current"] += 1
                 store_label = f"({target_store})" if target_store and target_store != '-' else ""
                 
-                # ✨ 화면 우측 위 로그 창에 재고수 추출 결과를 함께 표시해줍니다.
                 if update_mode in ['all', 'stock']:
                     stock_log_msg = updates.get('stock_quantity', '추출불가')
                     monitoring_tasks[user_id]["logs"].append(f"[{keyword_name}] ✅ {store_label} (재고: {stock_log_msg})")
