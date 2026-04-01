@@ -4,6 +4,7 @@
     <h3 class="mb-3 fw-bold fs-4 fs-md-3">스터디박스 모니터링 <span class="d-none d-md-inline">(A/B/C/MAIN 등급 수신함)</span></h3>
 
     <ul class="nav nav-tabs mb-3 d-flex flex-nowrap overflow-auto hide-scrollbar" id="gradeTabs" style="white-space: nowrap;">
+        <li class="nav-item"><a class="nav-link fw-bold text-dark px-2 px-md-3" href="#" onclick="changeGradeTab('ALL', event)" id="tab-ALL" style="font-size: 1.05rem;">전체 <span class="badge bg-secondary rounded-pill ms-1">0</span></a></li>
         <li class="nav-item"><a class="nav-link active fw-bold text-dark px-2 px-md-3" href="#" onclick="changeGradeTab('A', event)" id="tab-A" style="font-size: 1.05rem;">A등급 <span class="badge bg-primary rounded-pill ms-1">0</span></a></li>
         <li class="nav-item"><a class="nav-link fw-bold text-secondary px-2 px-md-3" href="#" onclick="changeGradeTab('B', event)" id="tab-B" style="font-size: 1.05rem;">B등급 <span class="badge bg-secondary rounded-pill ms-1">0</span></a></li>
         <li class="nav-item"><a class="nav-link fw-bold text-secondary px-2 px-md-3" href="#" onclick="changeGradeTab('C', event)" id="tab-C" style="font-size: 1.05rem;">C등급 <span class="badge bg-secondary rounded-pill ms-1">0</span></a></li>
@@ -31,6 +32,7 @@
                                 </select>
                                 <button class="btn btn-outline-primary fw-bold text-nowrap" onclick="moveSelectedGrade()"><i class="bi bi-folder-symlink"></i> 적용</button>
                             </div>
+                            <button class="btn btn-outline-success fw-bold shadow-sm w-100 w-md-auto text-nowrap" onclick="downloadExcel()"><i class="bi bi-file-earmark-excel"></i> 엑셀 다운로드</button>
                             <button class="btn btn-outline-warning fw-bold shadow-sm w-100 w-md-auto text-nowrap" onclick="clearSelectedData()"><i class="bi bi-eraser"></i> 데이터 초기화</button>
                             
                             <div class="btn-group shadow-sm w-100 w-md-auto">
@@ -122,11 +124,13 @@
                                 <tr>
                                     <th style="width: 40px;"><input type="checkbox" id="selectAll" class="form-check-input" style="cursor: pointer;" onclick="toggleAll(this)"></th>
                                     <th>순번</th>
+                                    <th>등록날짜</th>
                                     <th>키워드</th>
                                     <th>네이버카운트</th>
                                     <th>순위</th>
                                     <th class="text-primary fw-bold">상점 선택</th>
                                     <th>재고수</th>
+                                    <th>판매상태</th>
                                     <th>키워드검색</th>
                                     <th>상품링크</th>
                                     <th>출판사명<br><small class="text-muted">(제조사명)</small></th>
@@ -139,7 +143,7 @@
                                 </tr>
                             </thead>
                             <tbody id="savedKeywordsBody">
-                                <tr><td colspan="16" class="text-center py-5 text-muted">데이터를 가져오는 중입니다...</td></tr>
+                                <tr><td colspan="18" class="text-center py-5 text-muted">데이터를 가져오는 중입니다...</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -190,7 +194,7 @@
     let searchCategory = 'all';
     let searchQuery = '';
     let currentSort = 'recent';
-    let currentGradeTab = 'A';
+    let currentGradeTab = 'A'; // 기본 접속 시 탭
     let checkedIds = new Set();
     let lastCheckedCheckbox = null;
     let currentPage = 1;
@@ -199,11 +203,13 @@
     let pollingInterval = null;
 
     function updateTabCounts() {
+        let countALL = allKeywordsData.length;
         let countA = allKeywordsData.filter(k => k.grade === 'A').length;
         let countB = allKeywordsData.filter(k => k.grade === 'B').length;
         let countC = allKeywordsData.filter(k => k.grade === 'C').length;
         let countMAIN = allKeywordsData.filter(k => k.grade === 'MAIN').length;
 
+        document.getElementById('tab-ALL').innerHTML = `전체 <span class="badge ${currentGradeTab === 'ALL' ? 'bg-primary' : 'bg-secondary'} rounded-pill ms-1">${countALL}</span>`;
         document.getElementById('tab-A').innerHTML = `A등급 <span class="badge ${currentGradeTab === 'A' ? 'bg-primary' : 'bg-secondary'} rounded-pill ms-1">${countA}</span>`;
         document.getElementById('tab-B').innerHTML = `B등급 <span class="badge ${currentGradeTab === 'B' ? 'bg-primary' : 'bg-secondary'} rounded-pill ms-1">${countB}</span>`;
         document.getElementById('tab-C').innerHTML = `C등급 <span class="badge ${currentGradeTab === 'C' ? 'bg-primary' : 'bg-secondary'} rounded-pill ms-1">${countC}</span>`;
@@ -226,6 +232,49 @@
         currentPage = 1; 
         document.getElementById('selectAll').checked = false;
         renderTable();
+    }
+
+    // ✨ 엑셀 다운로드 기능
+    function downloadExcel() {
+        if (allKeywordsData.length === 0) {
+            alert('다운로드할 데이터가 없습니다.');
+            return;
+        }
+        
+        // 한글 깨짐 방지를 위한 BOM 설정
+        let csvContent = "\uFEFF";
+        csvContent += "순번,등록일자,키워드,등급,검색량,순위,상점,재고수,판매상태,출판사,공급률,ISBN,가격,택배비,상품명,상품링크\n";
+        
+        allKeywordsData.forEach((k, idx) => {
+            let row = [
+                idx + 1,
+                k.registered_at,
+                k.keyword,
+                k.grade,
+                k.search_volume,
+                k.store_rank,
+                k.store_name,
+                k.stock_quantity,
+                k.sales_status,
+                k.publisher,
+                k.supply_rate,
+                k.isbn,
+                k.price,
+                k.shipping_fee,
+                k.book_title,
+                k.product_link
+            ].map(v => `"${(v || '').toString().replace(/"/g, '""')}"`).join(",");
+            csvContent += row + "\n";
+        });
+        
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.setAttribute("href", url);
+        link.setAttribute("download", "모니터링_전체데이터.csv");
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
     }
 
     document.getElementById('searchInput').addEventListener('input', function(e) { searchQuery = e.target.value.toLowerCase().trim(); currentPage = 1; renderTable(); });
@@ -341,8 +390,13 @@
             let vol = k.search_volume || 0;
             let matchVolume = (vol >= minVol && vol <= maxVol);
             if (!matchVolume) return false;
+            
+            // ✨ ALL 탭 로직 추가
             if (isGlobalSearch) return matchSearch; 
-            else return k.grade === currentGradeTab && matchSearch;
+            else {
+                if (currentGradeTab === 'ALL') return true; // 전체 탭이면 모두 보여줌
+                return k.grade === currentGradeTab && matchSearch;
+            }
         });
 
         if (currentSort === 'vol_desc') filteredData.sort((a, b) => b.search_volume - a.search_volume);
@@ -391,7 +445,13 @@
                 let titleNameDisplay = safeTitleName.includes('⚠️') ? `<span class="text-danger fw-bold">${safeTitleName}</span>` : `<span class="text-dark fw-bold">${safeTitleName}</span>`;
                 let isChecked = checkedIds.has(k.id.toString()) ? 'checked' : '';
                 let searchLink = `https://search.naver.com/search.naver?where=nexearch&query=${encodeURIComponent(k.keyword || '')}`;
-                let gradeBadge = isGlobalSearch ? `<br><span class="badge bg-secondary mt-1">${k.grade}</span>` : '';
+                
+                // ALL 탭 또는 전체검색 시 키워드 옆에 등급 뱃지 표시
+                let gradeBadge = (isGlobalSearch || currentGradeTab === 'ALL') ? `<br><span class="badge bg-secondary mt-1">${k.grade}</span>` : '';
+                
+                let salesStatusColor = 'text-muted';
+                if(k.sales_status === '품절' || k.sales_status === '판매중지') salesStatusColor = 'text-danger fw-bold';
+                else if(k.sales_status === '판매중') salesStatusColor = 'text-success fw-bold';
 
                 let storeOptions = ['-', '데일리러닝', '스터디박스'];
                 let currentStore = k.store_name || '-';
@@ -407,11 +467,13 @@
                 <tr class="${isChecked ? 'row-selected' : ''}">
                     <td class="align-middle bg-light"><input type="checkbox" class="form-check-input row-checkbox" value="${k.id}" onclick="handleRowCheck(event, this)" style="cursor: pointer;" ${isChecked}></td>
                     <td class="align-middle fw-bold">${actualIndex}</td>
+                    <td class="align-middle text-muted small">${k.registered_at || '-'}</td>
                     <td class="align-middle ${kwBgColor} fw-bold editable-cell" data-id="${k.id}" data-field="keyword" title="더블클릭하여 수정">${k.keyword || '-'}${gradeBadge}</td>
                     <td class="align-middle ${kwBgColor} fs-6">${(k.search_volume || 0).toLocaleString()}</td>
                     <td class="align-middle ${kwBgColor} text-dark editable-cell" data-id="${k.id}" data-field="store_rank" data-val="${safeRank}" title="더블클릭하여 수정">${rankDisplay}</td>
                     <td class="align-middle bg-light">${storeSelectHtml}</td>
                     <td class="align-middle text-primary fw-bold editable-cell" data-id="${k.id}" data-field="stock_quantity" title="더블클릭하여 수정">${k.stock_quantity || '-'}</td>
+                    <td class="align-middle ${salesStatusColor} editable-cell" data-id="${k.id}" data-field="sales_status" title="더블클릭하여 수정">${k.sales_status || '-'}</td>
                     <td class="align-middle"><a href="${searchLink}" target="_blank" class="btn btn-sm btn-outline-secondary py-0 px-2 text-decoration-none"><i class="bi bi-search"></i> 검색</a></td>
                     <td class="align-middle editable-cell" data-id="${k.id}" data-field="product_link" data-val="${plink_val}" title="더블클릭하여 링크 수정">${linkBtn}</td>
                     <td class="align-middle text-muted editable-cell" data-id="${k.id}" data-field="publisher" title="더블클릭하여 수정">${k.publisher || '-'}</td>
@@ -426,7 +488,7 @@
             }).join('');
             renderPagination(totalItems);
         } else {
-            tbody.innerHTML = `<tr><td colspan="16" class="text-center py-5 text-muted">해당하는 데이터가 없습니다.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="18" class="text-center py-5 text-muted">해당하는 데이터가 없습니다.</td></tr>`;
             document.getElementById('paginationContainer').innerHTML = ''; 
         }
         renderTableColors();
@@ -547,7 +609,6 @@
             return;
         }
 
-        // ✨ 똑똑한 경고 기능: 상점이 선택되지 않은 항목이 있는지 확인합니다.
         let hasUnselectedStore = false;
         let validStoreCount = 0;
         
@@ -579,7 +640,6 @@
 
         let confirmMsg = `선택한 ${checkedIds.size}개 항목을 [${modeText}] 업데이트 하시겠습니까?`;
         
-        // 상점이 선택되지 않은 항목이 섞여있다면 안내해 줍니다.
         if (hasUnselectedStore) {
             confirmMsg += `\n\n⚠️ 주의: 상점이 [선택 안됨]인 ${checkedIds.size - validStoreCount}개 항목은 안전하게 건너뜁니다!`;
         }
