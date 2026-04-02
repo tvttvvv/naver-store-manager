@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container-fluid py-3 px-sm-2 px-md-4 mb-5">
+    <h3 class="mb-3 fw-bold fs-4 fs-md-3" style="color: #6f42c1;">러닝메이트 마케팅준비 <span class="d-none d-md-inline fs-6 text-muted">(UI 형태 구성됨)</span></h3>
+
+    <ul class="nav nav-tabs mb-3 d-flex flex-nowrap overflow-auto hide-scrollbar" id="gradeTabs_rm" style="white-space: nowrap;">
+        <li class="nav-item"><a class="nav-link active fw-bold text-dark px-2 px-md-3" href="#" onclick="alert('아직 기능 연결 전입니다.'); event.preventDefault();" style="font-size: 1.05rem;">전체 <span class="badge bg-primary rounded-pill ms-1">0</span></a></li>
+        <li class="nav-item"><a class="nav-link fw-bold text-secondary px-2 px-md-3" href="#" onclick="alert('아직 기능 연결 전입니다.'); event.preventDefault();" style="font-size: 1.05rem;">A등급 <span class="badge bg-secondary rounded-pill ms-1">0</span></a></li>
+        <li class="nav-item"><a class="nav-link fw-bold text-secondary px-2 px-md-3" href="#" onclick="alert('아직 기능 연결 전입니다.'); event.preventDefault();" style="font-size: 1.05rem;">B등급 <span class="badge bg-secondary rounded-pill ms-1">0</span></a></li>
+        <li class="nav-item"><a class="nav-link fw-bold text-secondary px-2 px-md-3" href="#" onclick="alert('아직 기능 연결 전입니다.'); event.preventDefault();" style="font-size: 1.05rem;">C등급 <span class="badge bg-secondary rounded-pill ms-1">0</span></a></li>
+        <li class="nav-item"><a class="nav-link fw-bold text-danger px-2 px-md-3" href="#" onclick="alert('아직 기능 연결 전입니다.'); event.preventDefault();" style="font-size: 1.05rem;">MAIN <span class="badge bg-secondary rounded-pill ms-1">0</span></a></li>
+    </ul>
+
+    <div class="row">
+        <div class="col-12">
+            <div class="card shadow-sm border-0 border-top border-3" style="border-top-color: #6f42c1 !important;">
+                <div class="card-body p-2 p-md-4">
+                    
+                    <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center mb-3 gap-3">
+                        <div>
+                            <h6 class="fw-bold mb-1 fs-6 fs-md-5" style="color: #6f42c1;">체크박스 다중 선택 및 기능 관리</h6>
+                            <span class="text-muted small d-none d-md-block"><i class="bi bi-info-circle" style="color: #6f42c1;"></i> 프론트엔드 UI 형태만 복제된 상태입니다. 실작동을 위해서는 데이터베이스 연동이 필요합니다.</span>
+                        </div>
+                        
+                        <div class="d-flex flex-column flex-md-row gap-2 control-btns align-items-md-center">
+                            <div class="input-group shadow-sm w-100 w-md-auto">
+                                <select class="form-select fw-bold border-secondary text-secondary" style="cursor: pointer;">
+                                    <option value="MAIN">MAIN 이동</option>
+                                    <option value="A">A등급 이동</option>
+                                    <option value="B">B등급 이동</option>
+                                    <option value="C">C등급 이동</option>
+                                </select>
+                                <button class="btn btn-outline-secondary fw-bold text-nowrap" onclick="alert('아직 기능 연결 전입니다.')"><i class="bi bi-folder-symlink"></i> 적용</button>
+                            </div>
+                            <button class="btn btn-outline-secondary fw-bold shadow-sm w-100 w-md-auto text-nowrap" onclick="alert('아직 기능 연결 전입니다.')"><i class="bi bi-file-earmark-excel"></i> 엑셀 다운로드</button>
+                            <button class="btn btn-outline-secondary fw-bold shadow-sm w-100 w-md-auto text-nowrap" onclick="alert('아직 기능 연결 전입니다.')"><i class="bi bi-eraser"></i> 데이터 초기화</button>
+                            
+                            <div class="btn-group shadow-sm w-100 w-md-auto">
+                                <button type="button" class="btn btn-secondary fw-bold text-nowrap" onclick="alert('아직 기능 연결 전입니다.')">
+                                    <i class="bi bi-upc-scan"></i> 모두 업데이트
+                                </button>
+                                <button type="button" class="btn btn-secondary dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false">
+                                    <span class="visually-hidden">Toggle Dropdown</span>
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end border-secondary shadow" style="min-width: 220px;">
+                                    <li><a class="dropdown-item fw-bold text-secondary" href="#" onclick="alert('아직 기능 연결 전입니다.')"><i class="bi bi-check-all"></i> 모두 업데이트</a></li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="d-flex flex-column flex-md-row align-items-md-center mb-2 p-2 bg-light rounded border gap-2 search-area">
+                        <div class="d-flex align-items-center bg-white rounded border border-secondary px-2 py-1 w-100 w-md-auto mb-2 mb-md-0 shadow-sm" style="min-width: 200px;">
+                            <span class="small text-secondary fw-bold me-2 text-nowrap"><i class="bi bi-funnel"></i> 검색량:</span>
+                            <input type="number" class="form-control form-control-sm border-0 px-1 text-center fw-bold text-secondary" placeholder="최소" min="0" style="width: 65px; box-shadow: none;">
+                            <span class="text-muted mx-1">~</span>
+                            <input type="number" class="form-control form-control-sm border-0 px-1 text-center fw-bold text-secondary" placeholder="최대" min="0" style="width: 65px; box-shadow: none;">
+                        </div>
+
+                        <div class="d-flex align-items-center flex-grow-1 w-100">
+                            <i class="bi bi-search text-secondary ms-1 me-2 d-none d-sm-block"></i>
+                            <select class="form-select form-select-sm me-2 fw-bold" style="cursor: pointer; max-width: 120px;">
+                                <option value="all">전체 검색</option>
+                            </select>
+                            <input type="text" class="form-control form-control-sm flex-grow-1 border-secondary shadow-sm" placeholder="검색어 입력 시 전체 탭에서 통합 검색됩니다..." onfocus="alert('아직 기능 연결 전입니다.')">
+                        </div>
+                    </div>
+                    
+                    <div class="table-responsive border rounded bg-white" style="max-height: 65vh; overflow-y: auto;">
+                        <table class="table table-hover table-bordered text-center align-middle mb-0" style="font-size: 0.85rem; white-space: nowrap;">
+                            <thead class="table-light text-muted" style="position: sticky; top: 0; z-index: 1;">
+                                <tr>
+                                    <th style="width: 40px;"><input type="checkbox" class="form-check-input" style="cursor: pointer;" disabled></th>
+                                    <th>순번</th>
+                                    <th>등록날짜</th>
+                                    <th>키워드</th>
+                                    <th>네이버카운트</th>
+                                    <th>순위</th>
+                                    <th class="fw-bold" style="color: #6f42c1;">상점 선택</th>
+                                    <th>재고수</th>
+                                    <th>판매상태</th>
+                                    <th>키워드검색</th>
+                                    <th>상품링크</th>
+                                    <th>출판사명<br><small class="text-muted">(제조사명)</small></th>
+                                    <th>공급률</th>
+                                    <th>ISBN<br><small class="text-muted">(판매자 상품코드)</small></th>
+                                    <th>가격</th>
+                                    <th>택배비</th>
+                                    <th class="fw-bold" style="color: #6f42c1;">상품명</th>
+                                    <th>관리</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td colspan="18" class="text-center py-5">
+                                        <div class="text-muted mb-2"><i class="bi bi-tools fs-1"></i></div>
+                                        <div class="fw-bold fs-5 mb-1" style="color: #6f42c1;">러닝메이트 마케팅준비 데이터가 들어갈 공간입니다.</div>
+                                        <small class="text-muted">현재는 메뉴와 UI 레이아웃 형태만 갖춰둔 상태입니다. 나중에 데이터베이스를 추가 연동하면 활성화됩니다!</small>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .hide-scrollbar::-webkit-scrollbar { display: none; }
+    .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    
+    @media (max-width: 768px) {
+        .control-btns .btn, .control-btns .input-group, .control-btns .btn-group { width: 100% !important; }
+        .w-md-auto, .w-xl-auto { width: 100% !important; }
+        .table { font-size: 0.75rem !important; } 
+        .table th, .table td { padding: 0.3rem !important; } 
+    }
+</style>
+{% endblock %}
