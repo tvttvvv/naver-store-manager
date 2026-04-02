@@ -9,7 +9,7 @@ from threading import Thread
 from flask import Blueprint, render_template, request, jsonify, current_app
 from flask_login import login_required, current_user
 from app import db
-from app.models import User, MonitoredKeyword, ApiKey
+from app.models import User, MonitoredKeyword, RunningmateKeyword, ApiKey
 import requests
 import urllib.parse
 import json
@@ -28,7 +28,6 @@ def clean_text(text):
 def index():
     return render_template('monitoring/index.html')
 
-# ✨ 새롭게 추가된 러닝메이트 연결 통로입니다 ✨
 @monitoring_bp.route('/runningmate')
 @login_required
 def runningmate():
@@ -56,25 +55,50 @@ def receive_webhook():
             return jsonify({'success': True, 'message': 'Saved'})
     return jsonify({'success': False})
 
+# ✨ 스터디박스에서 러닝메이트로 복사하는 기능
+@monitoring_bp.route('/api/copy_to_runningmate', methods=['POST'])
+@login_required
+def copy_to_runningmate():
+    try: RunningmateKeyword.__table__.create(db.engine, checkfirst=True)
+    except Exception: pass
+    
+    selected_ids = request.form.getlist('ids[]')
+    if not selected_ids: return jsonify({'success': False, 'message': '선택된 항목이 없습니다.'})
+    
+    source_keywords = MonitoredKeyword.query.filter(MonitoredKeyword.id.in_(selected_ids), MonitoredKeyword.user_id==current_user.id).all()
+    count = 0
+    for kw in source_keywords:
+        # 키워드, 검색량, ISBN 3개만 복사하고 나머지는 기본값
+        new_rm = RunningmateKeyword(
+            user_id=current_user.id,
+            keyword=kw.keyword,
+            search_volume=kw.search_volume,
+            isbn=kw.isbn
+        )
+        db.session.add(new_rm)
+        count += 1
+        
+    db.session.commit()
+    return jsonify({'success': True, 'message': f'✅ 선택한 {count}개 항목이 러닝메이트로 복사되었습니다!\n(원본은 보존되며 키워드, 검색량, ISBN만 이동되었습니다.)'})
+
 @monitoring_bp.route('/api/saved_keywords', methods=['GET'])
 @login_required
 def get_saved_keywords():
-    try:
-        db.session.execute(text("ALTER TABLE monitored_keyword ADD COLUMN stock_quantity VARCHAR(50) DEFAULT '-'"))
-        db.session.commit()
-    except Exception: db.session.rollback()
-
-    try:
-        db.session.execute(text("ALTER TABLE monitored_keyword ADD COLUMN registered_at VARCHAR(50) DEFAULT '-'"))
-        db.session.commit()
-    except Exception: db.session.rollback()
+    target = request.args.get('target_page', 'studybox')
+    ModelClass = RunningmateKeyword if target == 'rm' else MonitoredKeyword
     
-    try:
-        db.session.execute(text("ALTER TABLE monitored_keyword ADD COLUMN sales_status VARCHAR(50) DEFAULT '-'"))
-        db.session.commit()
-    except Exception: db.session.rollback()
+    if target == 'rm':
+        try: RunningmateKeyword.__table__.create(db.engine, checkfirst=True)
+        except Exception: pass
+    else:
+        try: db.session.execute(text("ALTER TABLE monitored_keyword ADD COLUMN stock_quantity VARCHAR(50) DEFAULT '-'")); db.session.commit()
+        except Exception: db.session.rollback()
+        try: db.session.execute(text("ALTER TABLE monitored_keyword ADD COLUMN registered_at VARCHAR(50) DEFAULT '-'")); db.session.commit()
+        except Exception: db.session.rollback()
+        try: db.session.execute(text("ALTER TABLE monitored_keyword ADD COLUMN sales_status VARCHAR(50) DEFAULT '-'")); db.session.commit()
+        except Exception: db.session.rollback()
 
-    keywords = MonitoredKeyword.query.filter_by(user_id=current_user.id).order_by(MonitoredKeyword.id.desc()).all()
+    keywords = ModelClass.query.filter_by(user_id=current_user.id).order_by(ModelClass.id.desc()).all()
     
     return jsonify({'success': True, 'data': [{
         'id': k.id, 
@@ -100,8 +124,10 @@ def get_saved_keywords():
 @monitoring_bp.route('/api/delete_keyword', methods=['POST'])
 @login_required
 def delete_keyword():
+    target = request.form.get('target_page', 'studybox')
+    ModelClass = RunningmateKeyword if target == 'rm' else MonitoredKeyword
     kw_id = request.form.get('id')
-    kw = MonitoredKeyword.query.filter_by(id=kw_id, user_id=current_user.id).first()
+    kw = ModelClass.query.filter_by(id=kw_id, user_id=current_user.id).first()
     if kw:
         db.session.delete(kw)
         db.session.commit()
@@ -110,16 +136,18 @@ def delete_keyword():
 @monitoring_bp.route('/api/update_keyword', methods=['POST'])
 @login_required
 def update_keyword():
+    target = request.form.get('target_page', 'studybox')
+    ModelClass = RunningmateKeyword if target == 'rm' else MonitoredKeyword
     kw_id = request.form.get('id')
-    kw = MonitoredKeyword.query.filter_by(id=kw_id, user_id=current_user.id).first()
+    kw = ModelClass.query.filter_by(id=kw_id, user_id=current_user.id).first()
     if kw:
         if 'isbn' in request.form:
             new_isbn = request.form.get('isbn', '-').strip()
             if new_isbn and new_isbn != '-':
-                duplicate = MonitoredKeyword.query.filter(
-                    MonitoredKeyword.user_id == current_user.id,
-                    MonitoredKeyword.isbn == new_isbn,
-                    MonitoredKeyword.id != kw.id
+                duplicate = ModelClass.query.filter(
+                    ModelClass.user_id == current_user.id,
+                    ModelClass.isbn == new_isbn,
+                    ModelClass.id != kw.id
                 ).first()
                 if duplicate:
                     return jsonify({'success': False, 'message': f'🚨 경고: 이미 등록된 ISBN입니다!\n\n입력하신 ISBN은 이미 [{duplicate.keyword}] 항목에 등록되어 있습니다.'})
@@ -144,11 +172,13 @@ def update_keyword():
 @monitoring_bp.route('/api/change_grade', methods=['POST'])
 @login_required
 def change_grade():
+    target = request.form.get('target_page', 'studybox')
+    ModelClass = RunningmateKeyword if target == 'rm' else MonitoredKeyword
     user_id = current_user.id
     selected_ids = request.form.getlist('ids[]')
     new_grade = request.form.get('grade', 'A')
     if not selected_ids: return jsonify({'success': False, 'message': '이동할 항목을 선택해주세요.'})
-    keywords = MonitoredKeyword.query.filter(MonitoredKeyword.id.in_(selected_ids), MonitoredKeyword.user_id==user_id).all()
+    keywords = ModelClass.query.filter(ModelClass.id.in_(selected_ids), ModelClass.user_id==user_id).all()
     for kw in keywords: kw.rank_info = new_grade
     db.session.commit()
     return jsonify({'success': True, 'message': f'✅ 선택한 {len(keywords)}개 항목이 {new_grade}등급으로 이동되었습니다.'})
@@ -156,10 +186,12 @@ def change_grade():
 @monitoring_bp.route('/api/clear_data', methods=['POST'])
 @login_required
 def clear_data():
+    target = request.form.get('target_page', 'studybox')
+    ModelClass = RunningmateKeyword if target == 'rm' else MonitoredKeyword
     user_id = current_user.id
     selected_ids = request.form.getlist('ids[]')
-    query = MonitoredKeyword.query.filter_by(user_id=user_id)
-    if selected_ids: query = query.filter(MonitoredKeyword.id.in_(selected_ids))
+    query = ModelClass.query.filter_by(user_id=user_id)
+    if selected_ids: query = query.filter(ModelClass.id.in_(selected_ids))
     for kw in query.all():
         kw.store_rank = '-'
         kw.prev_store_rank = '-'
@@ -271,9 +303,12 @@ def get_exact_product_info_commerce_api(token, isbn):
 
 monitoring_tasks = {}
 
-def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only):
+def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only, target='studybox'):
     global monitoring_tasks
-    monitoring_tasks[user_id] = {
+    ModelClass = RunningmateKeyword if target == 'rm' else MonitoredKeyword
+    task_key = f"{user_id}_{target}"
+    
+    monitoring_tasks[task_key] = {
         "is_running": True,
         "total": len(target_ids),
         "current": 0,
@@ -291,29 +326,29 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
 
         for k_id in target_ids:
             try:
-                kw = db.session.get(MonitoredKeyword, k_id)
+                kw = db.session.get(ModelClass, k_id)
                 if not kw: 
-                    monitoring_tasks[user_id]["current"] += 1
+                    monitoring_tasks[task_key]["current"] += 1
                     continue
                     
                 target_isbn = str(kw.isbn).strip() if kw.isbn and kw.isbn != '-' else ""
                 keyword_name = kw.keyword or f"ID:{k_id}"
                 
                 if not target_isbn:
-                    monitoring_tasks[user_id]["current"] += 1
-                    monitoring_tasks[user_id]["logs"].append(f"[{keyword_name}] ⏩ ISBN 없음 (초고속 스킵)")
+                    monitoring_tasks[task_key]["current"] += 1
+                    monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ⏩ ISBN 없음 (초고속 스킵)")
                     continue 
 
                 target_store = kw.store_name or '-'
                 if target_store == '-':
-                    monitoring_tasks[user_id]["current"] += 1
-                    monitoring_tasks[user_id]["logs"].append(f"[{keyword_name}] ⏩ 상점 미선택 (스킵)")
+                    monitoring_tasks[task_key]["current"] += 1
+                    monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ⏩ 상점 미선택 (스킵)")
                     continue
 
                 commerce_token = store_tokens.get(target_store)
                 if not commerce_token:
-                    monitoring_tasks[user_id]["current"] += 1
-                    monitoring_tasks[user_id]["logs"].append(f"[{keyword_name}] ❌ [{target_store}] 토큰 오류")
+                    monitoring_tasks[task_key]["current"] += 1
+                    monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ❌ [{target_store}] 토큰 오류")
                     continue
 
                 updates = {}
@@ -334,7 +369,7 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                         if exact_info.get('my_stock'): 
                             updates['stock_quantity'] = exact_info['my_stock']
 
-                kw = db.session.get(MonitoredKeyword, k_id)
+                kw = db.session.get(ModelClass, k_id)
                 if kw:
                     def should_update(current_val):
                         if not fill_empty_only: return True 
@@ -353,23 +388,23 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                     
                     db.session.commit()
                     
-                monitoring_tasks[user_id]["current"] += 1
+                monitoring_tasks[task_key]["current"] += 1
                 store_label = f"({target_store})" if target_store and target_store != '-' else ""
                 
                 if update_mode in ['all', 'stock']:
                     stock_log_msg = updates.get('stock_quantity', '추출불가')
-                    monitoring_tasks[user_id]["logs"].append(f"[{keyword_name}] ✅ {store_label} (재고: {stock_log_msg})")
+                    monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ✅ {store_label} (재고: {stock_log_msg})")
                 else:
-                    monitoring_tasks[user_id]["logs"].append(f"[{keyword_name}] ✅ {store_label} 완료")
+                    monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ✅ {store_label} 완료")
 
             except Exception as e:
                 db.session.rollback()
-                monitoring_tasks[user_id]["current"] += 1
-                monitoring_tasks[user_id]["logs"].append(f"[{keyword_name}] ❌ 작업 중 오류 발생")
+                monitoring_tasks[task_key]["current"] += 1
+                monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ❌ 작업 중 오류 발생")
             
             time.sleep(1.0)
             
-    monitoring_tasks[user_id]["is_running"] = False
+    monitoring_tasks[task_key]["is_running"] = False
 
 @monitoring_bp.route('/api/refresh_all_ranks', methods=['POST'])
 @login_required
@@ -381,8 +416,11 @@ def refresh_all_ranks():
 def refresh_by_isbn():
     app = current_app._get_current_object()
     user_id = current_user.id
+    target = request.form.get('target_page', 'studybox')
+    ModelClass = RunningmateKeyword if target == 'rm' else MonitoredKeyword
+    task_key = f"{user_id}_{target}"
     
-    if monitoring_tasks.get(user_id, {}).get("is_running", False):
+    if monitoring_tasks.get(task_key, {}).get("is_running", False):
         return jsonify({'success': False, 'message': '⚠️ 이미 다른 업데이트 작업이 진행 중입니다. 잠시만 기다려주세요.'})
         
     selected_ids = request.form.getlist('ids[]')
@@ -391,13 +429,13 @@ def refresh_by_isbn():
     
     if not selected_ids: return jsonify({'success': False, 'message': '⚠️ 업데이트할 항목을 선택해주세요.'})
         
-    keywords = MonitoredKeyword.query.filter(MonitoredKeyword.id.in_(selected_ids), MonitoredKeyword.user_id==user_id).all()
+    keywords = ModelClass.query.filter(ModelClass.id.in_(selected_ids), ModelClass.user_id==user_id).all()
     target_ids = [kw.id for kw in keywords]
             
     db.session.commit()
     if not target_ids: return jsonify({'success': False, 'message': '⚠️ 선택한 항목이 없습니다.'})
         
-    thread = Thread(target=async_refresh_by_isbn, args=(app, user_id, target_ids, update_mode, fill_empty_only))
+    thread = Thread(target=async_refresh_by_isbn, args=(app, user_id, target_ids, update_mode, fill_empty_only, target))
     thread.start()
     
     return jsonify({'success': True, 'message': '✅ 백그라운드 스캔 작업이 시작되었습니다.'})
@@ -406,7 +444,9 @@ def refresh_by_isbn():
 @login_required
 def get_task_status():
     user_id = current_user.id
-    task = monitoring_tasks.get(user_id, {
+    target = request.args.get('target_page', 'studybox')
+    task_key = f"{user_id}_{target}"
+    task = monitoring_tasks.get(task_key, {
         "is_running": False,
         "total": 0,
         "current": 0,
