@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="container-fluid py-3 px-sm-2 px-md-4">
+<div class="container-fluid py-3 px-sm-2 px-md-4 mb-5">
     <h3 class="mb-3 fw-bold fs-4 fs-md-3">스터디박스 모니터링 <span class="d-none d-md-inline">(A/B/C/MAIN 등급 수신함)</span></h3>
 
     <ul class="nav nav-tabs mb-3 d-flex flex-nowrap overflow-auto hide-scrollbar" id="gradeTabs" style="white-space: nowrap;">
@@ -32,6 +32,9 @@
                                 </select>
                                 <button class="btn btn-outline-primary fw-bold text-nowrap" onclick="moveSelectedGrade()"><i class="bi bi-folder-symlink"></i> 적용</button>
                             </div>
+                            
+                            <button class="btn btn-outline-info fw-bold shadow-sm w-100 w-md-auto text-nowrap" onclick="copyToRunningmate()"><i class="bi bi-send"></i> 러닝메이트로 복사</button>
+                            
                             <button class="btn btn-outline-success fw-bold shadow-sm w-100 w-md-auto text-nowrap" onclick="downloadExcel()"><i class="bi bi-file-earmark-excel"></i> 엑셀 다운로드</button>
                             <button class="btn btn-outline-warning fw-bold shadow-sm w-100 w-md-auto text-nowrap" onclick="clearSelectedData()"><i class="bi bi-eraser"></i> 데이터 초기화</button>
                             
@@ -449,7 +452,6 @@
                 if(k.sales_status === '품절' || k.sales_status === '판매중지') salesStatusColor = 'text-danger fw-bold';
                 else if(k.sales_status === '판매중') salesStatusColor = 'text-success fw-bold';
 
-                // ✨ 상점 선택 옵션에 '러닝메이트' 포함되어 있습니다.
                 let storeOptions = ['-', '데일리러닝', '스터디박스', '러닝메이트'];
                 let currentStore = k.store_name || '-';
                 let storeSelectHtml = `<select class="form-select form-select-sm border-secondary fw-bold text-dark store-select shadow-sm" data-id="${k.id}" style="width: 105px; cursor:pointer;">`;
@@ -596,6 +598,26 @@
             if(result.success) { alert(result.message); checkedIds.clear(); document.getElementById('selectAll').checked = false; loadSavedKeywords(); } 
             else { alert(result.message); }
         } catch(e) { alert('이동 중 오류가 발생했습니다.'); }
+    }
+    
+    // ✨ 러닝메이트로 복사하는 핵심 함수 ✨
+    async function copyToRunningmate() {
+        if (checkedIds.size === 0) { alert('러닝메이트로 보낼 항목을 왼쪽 체크박스로 먼저 선택해주세요!'); return; }
+        if(!confirm(`선택한 ${checkedIds.size}개 항목을 러닝메이트 마케팅준비로 복사하시겠습니까?\n(키워드, 네이버카운트, ISBN만 전송되며 여기서 지워지지 않습니다)`)) return;
+        
+        const fd = new FormData();
+        checkedIds.forEach(id => fd.append('ids[]', id));
+
+        try {
+            const res = await fetch("{{ url_for('monitoring.copy_to_runningmate') }}", { method: 'POST', body: fd });
+            const result = await res.json();
+            if(result.success) { 
+                alert(result.message); 
+                document.getElementById('selectAll').checked = false;
+                checkedIds.clear();
+                renderTableColors();
+            } else { alert(result.message); }
+        } catch(e) { alert('오류가 발생했습니다.'); }
     }
 
     async function refreshByIsbn(mode, event) {
