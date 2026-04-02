@@ -28,7 +28,7 @@ def clean_text(text):
 def index():
     return render_template('monitoring/index.html')
 
-# ✨ 새로 추가된 러닝메이트 라우트(경로) 입니다 ✨
+# ✨ 새롭게 추가된 러닝메이트 연결 통로입니다 ✨
 @monitoring_bp.route('/runningmate')
 @login_required
 def runningmate():
