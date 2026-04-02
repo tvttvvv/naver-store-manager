@@ -28,6 +28,12 @@ def clean_text(text):
 def index():
     return render_template('monitoring/index.html')
 
+# ✨ 새로 추가된 러닝메이트 라우트(경로) 입니다 ✨
+@monitoring_bp.route('/runningmate')
+@login_required
+def runningmate():
+    return render_template('monitoring/runningmate.html')
+
 @monitoring_bp.route('/api/webhook', methods=['POST'])
 def receive_webhook():
     data = request.get_json()
@@ -58,7 +64,6 @@ def get_saved_keywords():
         db.session.commit()
     except Exception: db.session.rollback()
 
-    # ✨ 충돌나지 않도록 문자열 컬럼으로 자동 생성합니다.
     try:
         db.session.execute(text("ALTER TABLE monitored_keyword ADD COLUMN registered_at VARCHAR(50) DEFAULT '-'"))
         db.session.commit()
