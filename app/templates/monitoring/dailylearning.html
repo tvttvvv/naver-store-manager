@@ -1,9 +1,12 @@
 {% extends "base.html" %}
 {% block content %}
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+
 <div class="container-fluid py-3 px-sm-2 px-md-4 mb-5">
+    
     <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4">
         <h3 class="mb-0 fw-bold fs-4 fs-md-3 text-warning">데일리러닝 모니터링 <span class="d-none d-md-inline fs-5 text-muted">(일일 성과)</span></h3>
+        
         <div class="btn-group shadow-sm mt-3 mt-md-0">
             <input type="radio" class="btn-check" name="viewMode" id="btnTableView" autocomplete="off" checked onclick="switchView('table')">
             <label class="btn btn-outline-warning text-dark fw-bold px-3 px-md-4" for="btnTableView"><i class="bi bi-table"></i> 데이터 표</label>
@@ -14,30 +17,56 @@
 
     <div id="tableViewWrapper">
         <ul class="nav nav-tabs mb-3 d-flex flex-nowrap overflow-auto hide-scrollbar" id="gradeTabs">
-            <li class="nav-item"><a class="nav-link active fw-bold text-dark px-2 px-md-3" href="#" onclick="changeGradeTab('ALL', event)" id="tab-ALL">전체 <span class="badge bg-warning text-dark rounded-pill ms-1">0</span></a></li>
-            <li class="nav-item"><a class="nav-link fw-bold text-secondary px-2 px-md-3" href="#" onclick="changeGradeTab('A', event)" id="tab-A">A등급 <span class="badge bg-secondary rounded-pill ms-1">0</span></a></li>
-            <li class="nav-item"><a class="nav-link fw-bold text-secondary px-2 px-md-3" href="#" onclick="changeGradeTab('B', event)" id="tab-B">B등급 <span class="badge bg-secondary rounded-pill ms-1">0</span></a></li>
-            <li class="nav-item"><a class="nav-link fw-bold text-secondary px-2 px-md-3" href="#" onclick="changeGradeTab('C', event)" id="tab-C">C등급 <span class="badge bg-secondary rounded-pill ms-1">0</span></a></li>
-            <li class="nav-item"><a class="nav-link fw-bold text-danger px-2 px-md-3" href="#" onclick="changeGradeTab('MAIN', event)" id="tab-MAIN">MAIN <span class="badge bg-danger rounded-pill ms-1">0</span></a></li>
+            <li class="nav-item"><a class="nav-link active fw-bold text-dark px-2 px-md-3" href="#" onclick="changeGradeTab('ALL', event)" id="tab-ALL" style="font-size: 1.05rem;">전체 <span class="badge bg-warning text-dark rounded-pill ms-1">0</span></a></li>
+            <li class="nav-item"><a class="nav-link fw-bold text-secondary px-2 px-md-3" href="#" onclick="changeGradeTab('A', event)" id="tab-A" style="font-size: 1.05rem;">A등급 <span class="badge bg-secondary rounded-pill ms-1">0</span></a></li>
+            <li class="nav-item"><a class="nav-link fw-bold text-secondary px-2 px-md-3" href="#" onclick="changeGradeTab('B', event)" id="tab-B" style="font-size: 1.05rem;">B등급 <span class="badge bg-secondary rounded-pill ms-1">0</span></a></li>
+            <li class="nav-item"><a class="nav-link fw-bold text-secondary px-2 px-md-3" href="#" onclick="changeGradeTab('C', event)" id="tab-C" style="font-size: 1.05rem;">C등급 <span class="badge bg-secondary rounded-pill ms-1">0</span></a></li>
+            <li class="nav-item"><a class="nav-link fw-bold text-danger px-2 px-md-3" href="#" onclick="changeGradeTab('MAIN', event)" id="tab-MAIN" style="font-size: 1.05rem;">MAIN <span class="badge bg-danger rounded-pill ms-1">0</span></a></li>
         </ul>
+
         <div class="card shadow-sm border-0 border-top border-warning border-3">
             <div class="card-body p-2 p-md-4">
+                
                 <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center mb-3 gap-3">
                     <div>
-                        <h6 class="fw-bold mb-1 text-warning text-dark fs-6 fs-md-5">키워드 및 성과 관리</h6>
-                        <span class="text-muted small d-none d-md-block">네이버 A/B 자동갱신으로 수신. ISBN 관련 열은 생략된 화면입니다.</span>
+                        <h6 class="fw-bold mb-1 text-warning text-dark fs-6 fs-md-5">체크박스 다중 선택 및 기능 관리</h6>
+                        <span class="text-muted small d-none d-md-block">스터디박스와 동일한 구조로 통합 관리됩니다.</span>
                     </div>
+                    
                     <div class="d-flex flex-column flex-md-row gap-2 control-btns align-items-md-center">
-                        <select id="tablePeriodSelect" class="form-select fw-bold border-warning text-dark w-auto" onchange="renderTable()"><option value="1" selected>하루 전</option><option value="7">1주일 전</option><option value="30">한달 전</option></select>
-                        <select id="moveGradeSelect" class="form-select fw-bold text-secondary w-auto"><option value="MAIN">MAIN 이동</option><option value="A">A등급 이동</option><option value="B">B등급 이동</option><option value="C">C등급 이동</option></select>
+                        <select id="tablePeriodSelect" class="form-select fw-bold border-warning text-dark w-auto" style="cursor: pointer;" onchange="renderTable()"><option value="1" selected>하루 전</option><option value="7">1주일 전</option><option value="30">한달 전</option></select>
+                        <select id="moveGradeSelect" class="form-select fw-bold text-secondary w-auto" style="cursor: pointer;"><option value="MAIN">MAIN 이동</option><option value="A">A등급 이동</option><option value="B">B등급 이동</option><option value="C">C등급 이동</option></select>
                         <button class="btn btn-outline-secondary fw-bold text-nowrap" onclick="moveSelectedGrade()">적용</button>
-                        <button class="btn btn-outline-danger fw-bold shadow-sm text-nowrap" onclick="deleteSelectedKeywords()"><i class="bi bi-trash"></i> 선택삭제</button>
-                        <button class="btn btn-outline-primary fw-bold shadow-sm text-nowrap" onclick="copyToTarget('studybox')"><i class="bi bi-send"></i> 스터디박스 복사</button>
-                        <button class="btn btn-outline-info fw-bold shadow-sm text-nowrap" onclick="copyToTarget('rm')"><i class="bi bi-send"></i> RM 복사</button>
-                        <button class="btn btn-outline-success fw-bold shadow-sm text-nowrap" onclick="downloadExcel()"><i class="bi bi-file-earmark-excel"></i> 엑셀 저장</button>
+                        <button class="btn btn-outline-danger fw-bold shadow-sm w-auto text-nowrap" onclick="deleteSelectedKeywords()"><i class="bi bi-trash"></i> 일괄삭제</button>
+                        <button class="btn btn-outline-primary fw-bold shadow-sm w-auto text-nowrap" onclick="copyToTarget('studybox')"><i class="bi bi-send"></i> 스터디박스 복사</button>
+                        <button class="btn btn-outline-info fw-bold shadow-sm w-auto text-nowrap" onclick="copyToTarget('rm')"><i class="bi bi-send"></i> RM 복사</button>
+                        <button class="btn btn-outline-success fw-bold shadow-sm w-auto text-nowrap" onclick="downloadExcel()"><i class="bi bi-file-earmark-excel"></i> 저장</button>
+                        
+                        <div class="btn-group shadow-sm w-auto">
+                            <button type="button" id="mainUpdateBtn" class="btn btn-warning fw-bold text-nowrap" onclick="refreshByIsbn('all', event)"><i class="bi bi-upc-scan"></i> 업데이트</button>
+                            <button type="button" id="subUpdateBtn" class="btn btn-warning dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown"></button>
+                            <ul class="dropdown-menu dropdown-menu-end border-warning shadow">
+                                <li class="px-3 py-2 bg-light border-bottom mb-1" onclick="event.stopPropagation();"><div class="form-check form-switch mb-0"><input class="form-check-input" type="checkbox" id="fillEmptyOnly"><label class="form-check-label fw-bold text-secondary small" for="fillEmptyOnly">빈 칸만 채우기</label></div></li>
+                                <li><a class="dropdown-item fw-bold text-warning text-dark" href="#" onclick="refreshByIsbn('all', event)"><i class="bi bi-check-all"></i> 모두 업데이트</a></li>
+                                <li><hr class="dropdown-divider"></li>
+                                <li><a class="dropdown-item fw-bold text-dark" href="#" onclick="refreshByIsbn('info', event)">상품 정보만 업데이트</a></li>
+                                <li><a class="dropdown-item fw-bold text-dark" href="#" onclick="refreshByIsbn('rank', event)">순위만 업데이트</a></li>
+                            </ul>
+                        </div>
                     </div>
                 </div>
-                <div class="d-flex align-items-center bg-white rounded border px-2 py-1 mb-2 shadow-sm"><span class="small fw-bold me-2">검색량:</span><input type="number" id="minVolume" class="form-control form-control-sm border-0" placeholder="최소" style="width: 65px;"> ~ <input type="number" id="maxVolume" class="form-control form-control-sm border-0" placeholder="최대" style="width: 65px;"><input type="text" id="searchInput" class="form-control form-control-sm border-warning ms-3" placeholder="키워드 검색..."><select id="sortOption" class="form-select form-select-sm fw-bold border-warning ms-2 w-auto" onchange="renderTable()"><option value="recent">최근 등록순</option><option value="diff_naver_desc">N카운트 상승순</option><option value="diff_sales_desc">판매수 상승순</option></select></div>
+
+                <div id="progressContainer" class="d-none mb-3 p-3 bg-light rounded border border-success shadow-sm">
+                    <div class="d-flex justify-content-between mb-1"><h6 class="fw-bold text-success mb-0" id="progressStatusText">로딩 중...</h6><span class="text-muted small fw-bold" id="progressCount">0 / 0</span></div>
+                    <div class="progress mb-2" style="height: 20px;"><div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-success" style="width: 0%;">0%</div></div>
+                    <div class="bg-white border rounded p-2 overflow-auto" style="height: 100px;"><ul id="logList" class="list-unstyled mb-0 small text-muted font-monospace"></ul></div>
+                </div>
+
+                <div class="d-flex flex-column flex-md-row align-items-md-center mb-2 p-2 bg-light rounded border gap-2 search-area">
+                    <div class="d-flex align-items-center bg-white rounded border border-secondary px-2 py-1 shadow-sm"><span class="small fw-bold me-2 text-nowrap">검색량:</span><input type="number" id="minVolume" class="form-control form-control-sm border-0 px-1 text-center text-warning" placeholder="최소" style="width: 65px;"><span class="text-muted mx-1">~</span><input type="number" id="maxVolume" class="form-control form-control-sm border-0 px-1 text-center text-danger" placeholder="최대" style="width: 65px;"></div>
+                    <div class="d-flex align-items-center flex-grow-1"><select id="searchCategory" class="form-select form-select-sm me-2 fw-bold" style="max-width: 120px;"><option value="all">전체 검색</option><option value="keyword">키워드</option><option value="publisher">출판사명</option><option value="isbn">ISBN</option></select><input type="text" id="searchInput" class="form-control form-control-sm border-warning shadow-sm" placeholder="통합 검색..."></div>
+                    <div class="d-flex align-items-center gap-2"><select id="trendFilter" class="form-select form-select-sm fw-bold border-secondary shadow-sm"><option value="all">모든 추세</option><option value="naver_up">N카운트 상승</option><option value="sales_up">판매수 상승</option></select><select id="itemsPerPageSelect" class="form-select form-select-sm fw-bold border-secondary"><option value="50">50개</option><option value="all">전체</option></select><select id="sortOption" class="form-select form-select-sm fw-bold text-warning text-dark border-warning shadow-sm"><option value="recent">최근 등록순</option><option value="vol_desc">검색량 높은순</option></select></div>
+                </div>
                 
                 <div class="table-responsive border rounded bg-white" style="max-height: 65vh; overflow-y: auto;">
                     <table class="table table-hover table-bordered text-center align-middle mb-0" style="font-size: 0.85rem; white-space: nowrap;">
@@ -47,12 +76,13 @@
                                 <th>순번</th><th>등록날짜</th><th>키워드</th>
                                 <th class="text-primary fw-bold"><i class="bi bi-graph-up-arrow"></i> 네이버카운트</th>
                                 <th class="text-danger fw-bold"><i class="bi bi-graph-up-arrow"></i> 판매수</th> 
-                                <th>순위</th><th>키워드검색</th><th>관리</th>
+                                <th>순위</th><th>재고수</th><th>판매상태</th><th>키워드검색</th><th>상품링크</th><th>출판사명</th><th>공급률</th><th>ISBN</th><th>가격</th><th>택배비</th><th class="text-primary fw-bold">상품명</th><th>관리</th>
                             </tr>
                         </thead>
-                        <tbody id="savedKeywordsBody"><tr><td colspan="9" class="text-center py-5">로딩 중...</td></tr></tbody>
+                        <tbody id="savedKeywordsBody"><tr><td colspan="18" class="text-center py-5">데이터 로딩 중...</td></tr></tbody>
                     </table>
                 </div>
+                <nav aria-label="Page navigation" class="mt-3"><ul class="pagination justify-content-center mb-0" id="paginationContainer" style="flex-wrap: wrap;"></ul></nav>
             </div>
         </div>
     </div>
@@ -61,9 +91,9 @@
         <div class="card shadow-sm border-0 border-top border-warning border-3">
             <div class="card-body p-4">
                 <div class="row bg-light p-3 rounded align-items-center mb-4">
-                    <div class="col-md-5 mb-3 mb-md-0"><div class="d-flex gap-2"><input type="text" id="graphKeywordSearch" class="form-control form-control-sm" placeholder="검색..." oninput="filterGraphBooks()"><select id="graphBookSelect" class="form-select form-select-sm border-warning fw-bold" onchange="renderChart()"></select></div></div>
-                    <div class="col-md-4 mb-3 mb-md-0"><select id="graphTypeSelect" class="form-select form-select-sm fw-bold" onchange="renderChart()"><option value="naver">네이버 카운트 변화</option><option value="sales">판매수 변화</option></select></div>
-                    <div class="col-md-3"><select id="graphPeriodSelect" class="form-select form-select-sm fw-bold" onchange="renderChart()"><option value="1">최근 1일</option><option value="7">최근 1주일</option><option value="30" selected>최근 1개월</option></select></div>
+                    <div class="col-md-5 mb-3 mb-md-0"><div class="d-flex gap-2"><input type="text" id="graphKeywordSearch" class="form-control form-control-sm border-warning" placeholder="검색..." oninput="filterGraphBooks()"><select id="graphBookSelect" class="form-select form-select-sm border-warning fw-bold" onchange="renderChart()"></select></div></div>
+                    <div class="col-md-4 mb-3 mb-md-0"><select id="graphTypeSelect" class="form-select form-select-sm fw-bold border-secondary" onchange="renderChart()"><option value="naver">네이버 카운트 변화</option><option value="sales">판매수 변화</option></select></div>
+                    <div class="col-md-3"><select id="graphPeriodSelect" class="form-select form-select-sm fw-bold border-secondary" onchange="renderChart()"><option value="1">최근 1일</option><option value="7">최근 1주일</option><option value="30" selected>최근 1개월</option></select></div>
                 </div>
                 <div id="chartContainer" class="bg-white border rounded p-3 w-100" style="height: 450px;"><canvas id="trendChart"></canvas></div>
             </div>
@@ -74,113 +104,127 @@
 <style>
     .bg-neon-green { background-color: #00ff00 !important; color: #000; font-weight: 800; } .bg-neon-yellow { background-color: #ffff00 !important; color: #000; font-weight: 800; } .bg-neon-orange { background-color: #ff9900 !important; color: #000; font-weight: 800; } .bg-neon-pink { background-color: #ffb6c1 !important; color: #000; font-weight: 800; }
     .row-selected { background-color: #e8f4f8 !important; } .editable-cell { cursor: pointer; transition: 0.2s; } .editable-cell:hover { background-color: #f8f9fa; outline: 1px dashed #ffc107; } .graph-link-cell { cursor: pointer; transition: 0.2s; } .graph-link-cell:hover { background-color: #e9ecef; outline: 2px solid #ffc107; }
+    .hide-scrollbar::-webkit-scrollbar { display: none; } .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 </style>
 
 <script>
-    let isEditing = false, allKeywordsData = [], searchQuery = '', currentSort = 'recent', currentGradeTab = 'ALL', checkedIds = new Set(), chartInstance = null;
+    let isEditing = false, allKeywordsData = [], searchQuery = '', searchCategory = 'all', currentSort = 'recent', currentGradeTab = 'ALL', checkedIds = new Set(), lastCheckedCheckbox = null, currentPage = 1, itemsPerPage = 50, pollingInterval = null, chartInstance = null, renderTimeout = null;
 
-    function switchView(mode) { document.getElementById('tableViewWrapper').classList.toggle('d-none', mode !== 'table'); document.getElementById('graphViewWrapper').classList.toggle('d-none', mode === 'table'); if(mode !== 'table') { populateGraphSelect(); setTimeout(() => renderChart(), 150); } }
-    function changeGradeTab(grade, e) { if(e) e.preventDefault(); currentGradeTab = grade; document.querySelectorAll('.nav-link').forEach(el => el.classList.remove('active')); document.getElementById('tab-'+grade).classList.add('active'); renderTable(); }
+    function switchView(mode) { document.getElementById('tableViewWrapper').classList.toggle('d-none', mode !== 'table'); document.getElementById('graphViewWrapper').classList.toggle('d-none', mode === 'table'); if(mode !== 'table') { populateGraphSelect(); if(renderTimeout) clearTimeout(renderTimeout); renderTimeout = setTimeout(() => renderChart(), 150); } }
+    function changeGradeTab(grade, e) { if(e) e.preventDefault(); currentGradeTab = grade; document.querySelectorAll('.nav-link').forEach(el => { el.classList.remove('active','text-dark','text-danger'); el.classList.add('text-secondary'); }); const at = document.getElementById('tab-'+grade); at.classList.add('active'); at.classList.remove('text-secondary'); if(grade==='MAIN') at.classList.add('text-danger'); else at.classList.add('text-dark'); currentPage = 1; renderTable(); }
 
-    ['searchInput', 'minVolume', 'maxVolume'].forEach(id => document.getElementById(id).addEventListener('input', function(e) { if(id==='searchInput') searchQuery=e.target.value.toLowerCase().trim(); renderTable(); }));
-    
+    ['searchInput', 'minVolume', 'maxVolume'].forEach(id => document.getElementById(id).addEventListener('input', e => { if(id==='searchInput') searchQuery=e.target.value.toLowerCase().trim(); currentPage=1; renderTable(); }));
+    ['searchCategory', 'sortOption', 'trendFilter'].forEach(id => document.getElementById(id).addEventListener('change', e => { if(id==='searchCategory') searchCategory=e.target.value; else if(id==='sortOption') currentSort=e.target.value; currentPage=1; renderTable(); }));
+    document.getElementById('itemsPerPageSelect').addEventListener('change', e => { itemsPerPage = e.target.value === 'all' ? 999999 : parseInt(e.target.value); currentPage=1; renderTable(); });
+
     async function loadSavedKeywords() {
         if(isEditing) return;
-        try {
-            const res = await fetch("{{ url_for('monitoring.get_saved_keywords', target_page='dl') }}");
-            const data = await res.json();
-            if(data.success) { allKeywordsData = data.data; renderTable(); populateGraphSelect(); }
-        } catch(e) {}
+        try { const res = await fetch("{{ url_for('monitoring.get_saved_keywords', target_page='dl') }}"); const data = await res.json(); if(data.success) { allKeywordsData = data.data; renderTable(); populateGraphSelect(); } } catch(e) {}
     }
 
-    function populateGraphSelect() {
-        const sel = document.getElementById('graphBookSelect'); if(!sel) return;
-        sel.innerHTML = allKeywordsData.map(k => `<option value="${k.id}">${k.keyword||'이름없음'}</option>`).join('');
-    }
-    function filterGraphBooks() {
-        const q = document.getElementById('graphKeywordSearch').value.toLowerCase();
-        const sel = document.getElementById('graphBookSelect');
-        sel.innerHTML = allKeywordsData.filter(k => String(k.keyword||'').toLowerCase().includes(q)).map(k => `<option value="${k.id}">${k.keyword}</option>`).join('');
-        if(sel.options.length>0) { sel.value = sel.options[0].value; renderChart(); } else if(chartInstance) chartInstance.destroy();
-    }
-    function goToGraph(bookId, type) {
-        document.getElementById('btnGraphView').checked = true; switchView('graph'); document.getElementById('graphBookSelect').value = bookId; document.getElementById('graphTypeSelect').value = type; setTimeout(() => renderChart(), 150);
-    }
-    function getRankNum(r) { return (!r || r==='-' || r.includes('밖') || r.includes('에러')) ? 9999 : parseInt(r.replace(/[^0-9]/g, '')) || 9999; }
-    function handleRowCheck(e, cb) { if(cb.checked) checkedIds.add(cb.value); else checkedIds.delete(cb.value); document.getElementById('selectAll').checked = false; }
-    function toggleAll(s) { document.querySelectorAll('.row-checkbox').forEach(cb => { cb.checked = s.checked; if(s.checked) checkedIds.add(cb.value); else checkedIds.delete(cb.value); }); }
+    function populateGraphSelect() { const sel = document.getElementById('graphBookSelect'); if(!sel) return; const cur = sel.value; sel.innerHTML = allKeywordsData.map(k => `<option value="${k.id}">${k.keyword||'이름없음'}</option>`).join(''); if (cur && Array.from(sel.options).some(o => o.value === cur)) sel.value = cur; else if(sel.options.length > 0) sel.value = sel.options[0].value; }
+    function filterGraphBooks() { const q = document.getElementById('graphKeywordSearch').value.toLowerCase(); const sel = document.getElementById('graphBookSelect'); sel.innerHTML = allKeywordsData.filter(k => String(k.keyword||'').toLowerCase().includes(q)).map(k => `<option value="${k.id}">${k.keyword}</option>`).join(''); if(sel.options.length>0) { sel.value = sel.options[0].value; renderChart(); } else { document.getElementById('chartContainer').innerHTML = '<canvas id="trendChart"></canvas>'; if(chartInstance) chartInstance.destroy(); } }
+    function goToGraph(bookId, type) { document.getElementById('btnGraphView').checked = true; switchView('graph'); document.getElementById('graphBookSelect').value = bookId; document.getElementById('graphTypeSelect').value = type; if(renderTimeout) clearTimeout(renderTimeout); renderTimeout = setTimeout(() => { renderChart(); window.scrollTo({top:0, behavior:'smooth'}); }, 150); }
+
+    function getRankNum(r) { return (!r || r==='-' || r.includes('밖') || r.includes('에러') || r.includes('매칭중')) ? 9999 : parseInt(r.replace(/[^0-9]/g, '')) || 9999; }
+    function handleRowCheck(e, cb) { if(cb.checked) checkedIds.add(cb.value); else checkedIds.delete(cb.value); document.getElementById('selectAll').checked = false; renderTableColors(); }
+    function toggleAll(s) { document.querySelectorAll('.row-checkbox').forEach(cb => { cb.checked = s.checked; if(s.checked) checkedIds.add(cb.value); else checkedIds.delete(cb.value); }); renderTableColors(); }
+    function renderTableColors() { document.querySelectorAll('#savedKeywordsBody tr').forEach(tr => { const cb = tr.querySelector('.row-checkbox'); if(cb && cb.checked) tr.classList.add('row-selected'); else tr.classList.remove('row-selected'); }); }
+    function changePage(p, e) { if (e) e.preventDefault(); currentPage = p; renderTable(); document.querySelector('.table-responsive').scrollTop = 0; }
+    
+    function renderPagination(total) { const el = document.getElementById('paginationContainer'); el.innerHTML = ''; let pages = Math.ceil(total / itemsPerPage) || 1; if(pages <= 1) return; let html = `<li class="page-item ${currentPage === 1 ? 'disabled' : ''}"><a class="page-link shadow-sm" href="#" onclick="changePage(${currentPage - 1}, event)">이전</a></li>`; let sPage = Math.max(1, currentPage - 2); let ePage = Math.min(pages, currentPage + 2); for(let i=sPage; i<=ePage; i++) html += `<li class="page-item ${currentPage === i ? 'active' : ''}"><a class="page-link shadow-sm" href="#" onclick="changePage(${i}, event)">${i}</a></li>`; html += `<li class="page-item ${currentPage === pages ? 'disabled' : ''}"><a class="page-link shadow-sm" href="#" onclick="changePage(${currentPage + 1}, event)">다음</a></li>`; el.innerHTML = html; }
 
     function renderTable() {
-        const tbody = document.getElementById('savedKeywordsBody');
-        let pDays = parseInt(document.getElementById('tablePeriodSelect').value) || 1;
+        if(isEditing) return; const tbody = document.getElementById('savedKeywordsBody');
+        document.getElementById('tab-ALL').innerHTML = `전체 <span class="badge bg-warning text-dark ms-1">${allKeywordsData.length}</span>`;
+        document.getElementById('tab-A').innerHTML = `A등급 <span class="badge ${currentGradeTab==='A'?'bg-warning text-dark':'bg-secondary'} ms-1">${allKeywordsData.filter(k=>k.grade==='A').length}</span>`;
+        document.getElementById('tab-B').innerHTML = `B등급 <span class="badge ${currentGradeTab==='B'?'bg-warning text-dark':'bg-secondary'} ms-1">${allKeywordsData.filter(k=>k.grade==='B').length}</span>`;
+        document.getElementById('tab-C').innerHTML = `C등급 <span class="badge ${currentGradeTab==='C'?'bg-warning text-dark':'bg-secondary'} ms-1">${allKeywordsData.filter(k=>k.grade==='C').length}</span>`;
+        document.getElementById('tab-MAIN').innerHTML = `MAIN <span class="badge ${currentGradeTab==='MAIN'?'bg-danger':'bg-secondary'} ms-1">${allKeywordsData.filter(k=>k.grade==='MAIN').length}</span>`;
+
+        let isGlobal = searchQuery.length > 0; let minV = isNaN(parseInt(document.getElementById('minVolume').value)) ? 0 : parseInt(document.getElementById('minVolume').value); let maxV = isNaN(parseInt(document.getElementById('maxVolume').value)) ? Infinity : parseInt(document.getElementById('maxVolume').value); let pDays = parseInt(document.getElementById('tablePeriodSelect').value) || 1; let tFilter = document.getElementById('trendFilter').value; 
+
         let fd = allKeywordsData.filter(k => {
-            k._dN = 0; k._dS = 0;
-            if(k.history && k.history.length > 0) {
-                let cH = k.history[k.history.length-1], pH = k.history[Math.max(0, k.history.length - 1 - pDays)];
-                k._dN = cH.search_volume - pH.search_volume; k._dS = (cH.sales_quantity||0) - (pH.sales_quantity||0);
-            }
-            let m = true; if(searchQuery) m = String(k.keyword||'').toLowerCase().includes(searchQuery);
-            return currentGradeTab==='ALL' ? m : (k.grade===currentGradeTab && m);
+            let dN = 0, dS = 0; if(k.history && k.history.length > 0) { let cH = k.history[k.history.length-1], pH = k.history[Math.max(0, k.history.length - 1 - pDays)]; dN = cH.search_volume - pH.search_volume; dS = (cH.sales_quantity||0) - (pH.sales_quantity||0); } k._dN = dN; k._dS = dS;
+            if(tFilter==='naver_up' && dN<=0) return false; if(tFilter==='naver_down' && dN>=0) return false; if(tFilter==='sales_up' && dS<=0) return false; if(tFilter==='sales_down' && dS>=0) return false; if(k.search_volume < minV || k.search_volume > maxV) return false;
+            let m = true; if(isGlobal) { const kw = String(k.keyword||'').toLowerCase(), pub = String(k.publisher||'').toLowerCase(), isbn = String(k.isbn||'').toLowerCase(); if(searchCategory==='keyword') m = kw.includes(searchQuery); else if(searchCategory==='publisher') m = pub.includes(searchQuery); else if(searchCategory==='isbn') m = isbn.includes(searchQuery); else m = kw.includes(searchQuery)||pub.includes(searchQuery)||isbn.includes(searchQuery); }
+            return isGlobal ? m : (currentGradeTab==='ALL' ? true : (k.grade===currentGradeTab && m));
         });
 
         if(currentSort==='diff_naver_desc') fd.sort((a,b)=>b._dN-a._dN); else if(currentSort==='diff_sales_desc') fd.sort((a,b)=>b._dS-a._dS); else fd.sort((a,b)=>b.id-a.id);
 
-        if(fd.length > 0) {
-            tbody.innerHTML = fd.map((k, i) => {
+        let tPages = Math.ceil(fd.length / itemsPerPage) || 1; if(currentPage > tPages) currentPage = tPages;
+        let pData = fd.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
+        if(pData.length > 0) {
+            tbody.innerHTML = pData.map((k, i) => {
+                let idx = (currentPage - 1) * itemsPerPage + i + 1; 
                 let bg = k.grade==='B'?'bg-neon-yellow':k.grade==='C'?'bg-neon-orange':k.grade==='MAIN'?'bg-neon-pink':'bg-neon-green';
                 let fb = (d) => d>0?`<span class="badge bg-danger ms-1">+${d}</span>`:d<0?`<span class="badge bg-primary ms-1">${d}</span>`:`<span class="badge bg-secondary ms-1">-</span>`;
+                
+                let pl = k.product_link&&k.product_link!=='-'?`<a href="${k.product_link.startsWith('http')?k.product_link:'http://'+k.product_link}" target="_blank" class="btn btn-sm btn-outline-primary py-0 px-2"><i class="bi bi-link-45deg"></i> 상품</a>`:'<span class="text-muted">-</span>';
                 let sr = String(k.store_rank||'-'), psr = String(k.prev_store_rank||'-'), rd = `<span class="fs-6 fw-bold">${sr}</span>`;
                 if(psr!=='-'&&sr!==psr&&!sr.includes('중')){ let pn=getRankNum(psr), cn=getRankNum(sr); if(cn<pn)rd+=`<br><span class="rank-up">▲ ${pn-cn}</span>`; else if(cn>pn)rd+=`<br><span class="rank-down">▼ ${cn-pn}</span>`;}
-                
+                let st = (k.sales_status==='품절'||k.sales_status==='판매중지')?'text-danger fw-bold':(k.sales_status==='판매중'?'text-success fw-bold':'text-muted');
+
                 return `
-                <tr>
+                <tr class="${checkedIds.has(k.id.toString())?'row-selected':''}">
                     <td class="align-middle bg-light"><input type="checkbox" class="form-check-input row-checkbox" value="${k.id}" onclick="handleRowCheck(event, this)" ${checkedIds.has(k.id.toString())?'checked':''}></td>
-                    <td class="align-middle fw-bold">${i+1}</td><td class="align-middle text-muted small">${k.registered_at||'-'}</td>
+                    <td class="align-middle fw-bold">${idx}</td><td class="align-middle text-muted small">${k.registered_at||'-'}</td>
                     <td class="align-middle ${bg} fw-bold editable-cell" data-id="${k.id}" data-field="keyword">${k.keyword||'-'}</td>
                     <td class="align-middle ${bg} fs-6 graph-link-cell" data-id="${k.id}" data-type="naver">${(k.search_volume||0).toLocaleString()}<br>${fb(k._dN)}</td>
                     <td class="align-middle text-danger fw-bold fs-6 graph-link-cell" data-id="${k.id}" data-type="sales">${k.sales_quantity||'-'}<br>${fb(k._dS)}</td>
                     <td class="align-middle ${bg} text-dark editable-cell" data-id="${k.id}" data-field="store_rank">${rd}</td>
+                    <td class="align-middle text-primary fw-bold editable-cell" data-id="${k.id}" data-field="stock_quantity">${k.stock_quantity||'-'}</td>
+                    <td class="align-middle ${st} editable-cell" data-id="${k.id}" data-field="sales_status">${k.sales_status||'-'}</td>
                     <td class="align-middle"><a href="https://search.naver.com/search.naver?where=nexearch&query=${encodeURIComponent(k.keyword||'')}" target="_blank" class="btn btn-sm btn-outline-secondary py-0 px-2"><i class="bi bi-search"></i></a></td>
+                    <td class="align-middle editable-cell" data-id="${k.id}" data-field="product_link" data-val="${k.product_link||'-'}">${pl}</td>
+                    <td class="align-middle text-muted editable-cell" data-id="${k.id}" data-field="publisher">${k.publisher||'-'}</td>
+                    <td class="align-middle text-muted editable-cell" data-id="${k.id}" data-field="supply_rate">${k.supply_rate||'-'}</td>
+                    <td class="align-middle text-primary fw-bold editable-cell" data-id="${k.id}" data-field="isbn" style="text-decoration:underline dashed;">${k.isbn||'-'}</td>
+                    <td class="align-middle text-muted editable-cell" data-id="${k.id}" data-field="price">${k.price||'-'}</td>
+                    <td class="align-middle fw-bold text-secondary editable-cell" data-id="${k.id}" data-field="shipping_fee">${k.shipping_fee||'-'}</td>
+                    <td class="align-middle text-start editable-cell" data-id="${k.id}" data-field="book_title">${k.book_title||'-'}</td>
                     <td class="align-middle"><button class="btn btn-sm btn-danger py-0 px-2" onclick="deleteKeyword(${k.id})"><i class="bi bi-trash"></i></button></td>
                 </tr>`;
-            }).join('');
-        } else { tbody.innerHTML = `<tr><td colspan="9" class="text-center py-5">데이터가 없습니다.</td></tr>`; }
+            }).join(''); renderPagination(fd.length);
+        } else { tbody.innerHTML = `<tr><td colspan="18" class="text-center py-5">데이터가 없습니다.</td></tr>`; document.getElementById('paginationContainer').innerHTML = ''; }
     }
 
     function renderChart() {
         if(typeof Chart === 'undefined') return;
         const bs = document.getElementById('graphBookSelect'); if(!bs||!bs.value) return;
-        const type = document.getElementById('graphTypeSelect').value; 
-        const pDays = parseInt(document.getElementById('graphPeriodSelect').value) || 30;
+        const type = document.getElementById('graphTypeSelect').value, pDays = parseInt(document.getElementById('graphPeriodSelect').value) || 30;
         const b = allKeywordsData.find(k => k.id == bs.value); if(!b||!b.history) return;
 
         let hist = b.history.length > pDays + 1 ? b.history.slice(b.history.length - (pDays + 1)) : b.history;
         document.getElementById('chartContainer').innerHTML = '<canvas id="trendChart"></canvas>';
-        chartInstance = new Chart(document.getElementById('trendChart').getContext('2d'), {
-            type: 'line', data: { labels: hist.map(h => h.date), datasets: [{ label: `[${b.keyword}] ${type==='naver'?'N카운트':'판매수'} 변화`, data: hist.map(h => Number(type==='naver'?h.search_volume:h.sales_quantity)||0), borderColor: type==='naver'?'#dc3545':'#ffc107', backgroundColor: type==='naver'?'rgba(220,53,69,0.2)':'rgba(255,193,7,0.2)', borderWidth: 2, fill: true, tension: 0.2 }] },
-            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' } }, scales: { x: { grid: { display: false } } } }
-        });
+        if(chartInstance) { chartInstance.destroy(); chartInstance = null; }
+        
+        try {
+            chartInstance = new Chart(document.getElementById('trendChart').getContext('2d'), {
+                type: 'line', data: { labels: hist.map(h => h.date), datasets: [{ label: `[${b.keyword}] ${type==='naver'?'N카운트':'판매수'} 변화`, data: hist.map(h => Number(type==='naver'?h.search_volume:h.sales_quantity)||0), borderColor: type==='naver'?'#ffc107':'#dc3545', backgroundColor: type==='naver'?'rgba(255,193,7,0.2)':'rgba(220,53,69,0.2)', borderWidth: 2, fill: true, tension: 0.2 }] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' } }, scales: { x: { grid: { display: false } } } }
+            });
+        } catch(e) {}
     }
 
-    async function copyToTarget(targetCode) {
-        if(checkedIds.size===0) return alert('복사할 항목 선택!');
-        const fd = new FormData(); checkedIds.forEach(id => fd.append('ids[]', id)); fd.append('target', targetCode); fd.append('source_target', 'dl');
-        const res = await fetch("{{ url_for('monitoring.copy_to_target') }}", { method: 'POST', body: fd });
-        alert((await res.json()).message); checkedIds.clear(); document.getElementById('selectAll').checked=false; renderTable();
+    async function copyToTarget(tc) {
+        if(checkedIds.size===0) return alert('복사할 항목 선택!'); if(!confirm(`선택한 항목을 [${tc==='studybox'?'스터디박스':'러닝메이트'}]로 복사하시겠습니까?`)) return;
+        const fd = new FormData(); checkedIds.forEach(id => fd.append('ids[]', id)); fd.append('target', tc); fd.append('source_target', 'dl');
+        const res = await fetch("{{ url_for('monitoring.copy_to_target') }}", { method: 'POST', body: fd }); alert((await res.json()).message); checkedIds.clear(); document.getElementById('selectAll').checked=false; renderTable();
     }
 
     document.getElementById('savedKeywordsBody').addEventListener('dblclick', function(e) {
         let gc = e.target.closest('.graph-link-cell'); if(gc) return goToGraph(gc.getAttribute('data-id'), gc.getAttribute('data-type'));
         let td = e.target.closest('.editable-cell'); if(!td || isEditing) return; isEditing = true; 
-        let id = parseInt(td.getAttribute('data-id')), field = td.getAttribute('data-field');
-        let input = document.createElement('input'); input.type = 'text'; input.value = td.textContent.trim(); input.className = `form-control form-control-sm text-center shadow-sm border-warning`;
-        td.innerHTML = ''; td.appendChild(input); input.focus();
-        let isSaved = false;
+        let id = parseInt(td.getAttribute('data-id')), f = td.getAttribute('data-field');
+        let input = document.createElement('input'); input.type = 'text'; input.value = td.textContent.trim()==='-'?'':td.textContent.trim(); input.className = `form-control form-control-sm text-center shadow-sm border-warning`;
+        td.innerHTML = ''; td.appendChild(input); input.focus(); let isSaved = false;
         async function saveChanges() {
-            if(isSaved) return; isSaved = true; let newVal = input.value.trim();
-            const fd = new FormData(); fd.append('id', id); fd.append(field, newVal||'-'); fd.append('target_page', 'dl');
-            await fetch("{{ url_for('monitoring.update_keyword') }}", { method: 'POST', body: fd });
-            allKeywordsData.find(i=>i.id===id)[field] = newVal||'-'; isEditing = false; renderTable(); 
+            if(isSaved) return; isSaved = true; let nVal = input.value.trim();
+            const fd = new FormData(); fd.append('id', id); fd.append(f, nVal||'-'); fd.append('target_page', 'dl');
+            try { await fetch("{{ url_for('monitoring.update_keyword') }}", { method: 'POST', body: fd }); allKeywordsData.find(i=>i.id===id)[f] = nVal||'-'; } catch(e){} isEditing = false; renderTable(); 
         }
         input.addEventListener('blur', saveChanges); input.addEventListener('keypress', e => { if(e.key==='Enter') saveChanges(); });
     });
@@ -189,11 +233,24 @@
     async function deleteKeyword(id) { if(!confirm('삭제?')) return; const fd = new FormData(); fd.append('id', id); fd.append('target_page', 'dl'); await fetch("{{ url_for('monitoring.delete_keyword') }}", { method: 'POST', body: fd }); loadSavedKeywords(); }
     async function moveSelectedGrade() { if(checkedIds.size===0) return; const fd = new FormData(); checkedIds.forEach(id => fd.append('ids[]', id)); fd.append('grade', document.getElementById('moveGradeSelect').value); fd.append('target_page', 'dl'); await fetch("{{ url_for('monitoring.change_grade') }}", { method: 'POST', body: fd }); checkedIds.clear(); loadSavedKeywords(); }
     
+    async function refreshByIsbn(mode, ev) {
+        if(ev) ev.preventDefault(); if(checkedIds.size===0) return alert("항목 선택!");
+        const fd = new FormData(); checkedIds.forEach(id => fd.append('ids[]', id)); fd.append('update_mode', mode); fd.append('fill_empty_only', document.getElementById('fillEmptyOnly').checked); fd.append('target_page', 'dl');
+        if(!confirm(`업데이트 진행?`)) return; document.getElementById('progressContainer').classList.remove('d-none'); document.getElementById('logList').innerHTML = '';
+        const res = await fetch("{{ url_for('monitoring.refresh_by_isbn') }}", { method: 'POST', body: fd }); if((await res.json()).success) pollingInterval = setInterval(checkTaskStatus, 1000);
+    }
+    function checkTaskStatus() {
+        fetch("{{ url_for('monitoring.get_task_status', target_page='dl') }}").then(r=>r.json()).then(d => {
+            document.getElementById('progressBar').style.width = (d.total>0?Math.round((d.current/d.total)*100):0)+'%'; document.getElementById('progressCount').innerText = `${d.current} / ${d.total}`;
+            if(d.logs) document.getElementById('logList').innerHTML = d.logs.map(l => `<li><i class="bi bi-check2 text-success"></i>${l}</li>`).join('');
+            if(!d.is_running && d.total>0 && d.current>=d.total) { clearInterval(pollingInterval); setTimeout(()=> { document.getElementById('progressContainer').classList.add('d-none'); loadSavedKeywords(); }, 2000); }
+        });
+    }
+
     function downloadExcel() {
-        let csvContent = "\uFEFF순번,등록일자,키워드,등급,검색량,판매수,순위\n";
-        allKeywordsData.forEach((k, idx) => csvContent += [idx+1, k.registered_at, k.keyword, k.grade, k.search_volume, k.sales_quantity, k.store_rank].map(v => `"${(v||'').toString().replace(/"/g, '""')}"`).join(",") + "\n");
-        const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([csvContent], { type: 'text/csv;charset=utf-8;' }));
-        link.download = "데일리러닝_데이터.csv"; document.body.appendChild(link); link.click(); document.body.removeChild(link);
+        if(allKeywordsData.length===0) return; let csv = "\uFEFF순번,등록일자,키워드,등급,검색량,판매수,순위,재고수,판매상태,출판사,공급률,ISBN,가격,택배비,상품명,상품링크\n";
+        allKeywordsData.forEach((k, i) => csv += [i+1, k.registered_at, k.keyword, k.grade, k.search_volume, k.sales_quantity, k.store_rank, k.stock_quantity, k.sales_status, k.publisher, k.supply_rate, k.isbn, k.price, k.shipping_fee, k.book_title, k.product_link].map(v => `"${(v||'').toString().replace(/"/g, '""')}"`).join(",") + "\n");
+        const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type:'text/csv;charset=utf-8;' })); a.download = "데일리러닝.csv"; document.body.appendChild(a); a.click(); document.body.removeChild(a);
     }
     document.addEventListener("DOMContentLoaded", loadSavedKeywords);
 </script>
