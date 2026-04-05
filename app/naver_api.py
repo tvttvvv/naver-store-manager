@@ -60,6 +60,10 @@ def find_product_by_isbn(token, isbn):
 def delete_product(token, origin_no, channel_no, retries=3):
     """채널 상품과 원상품을 모두 완전 삭제합니다."""
     headers = {'Authorization': f'Bearer {token}', 'Accept': 'application/json;charset=UTF-8'}
+    
+    # ✨ 수정: 처음 받았던 채널 상품 번호를 기억해 둡니다.
+    original_channel_no = channel_no 
+    
     for attempt in range(retries):
         try:
             # 1. 채널 상품 삭제 (스토어 노출 중단)
@@ -70,13 +74,17 @@ def delete_product(token, origin_no, channel_no, retries=3):
                 if res_channel.status_code == 429 or "요청이 많아" in res_channel.text:
                     time.sleep(1.5)
                     continue 
+                elif res_channel.status_code in [200, 204, 404]:
+                    # ✨ 치명적 버그 수정: 삭제 성공(200,204)했거나 이미 없는(404) 상품은 
+                    # 다음 재시도 때 다시 지우지 않도록 비워버립니다!
+                    channel_no = None
             
             # 2. 원상품 삭제 (판매자 센터 DB에서 완전 삭제)
             if origin_no:
                 origin_delete_url = f"https://api.commerce.naver.com/external/v1/products/origin-products/{origin_no}"
                 res_origin = requests.delete(origin_delete_url, headers=headers, timeout=10)
                 
-                if res_origin.status_code == 200:
+                if res_origin.status_code in [200, 204]:
                     return "완전 삭제 완료"
                 elif res_origin.status_code == 429 or "요청이 많아" in res_origin.text:
                     time.sleep(1.5)
@@ -88,9 +96,13 @@ def delete_product(token, origin_no, channel_no, retries=3):
                     except:
                         return "원상품 삭제 불가 (API 거절)"
 
-            if not origin_no and not channel_no:
+            # 여기까지 왔다면 채널 상품은 지웠지만 원상품이 없는 특이 케이스입니다.
+            if not origin_no and original_channel_no and not channel_no:
+                return "채널 상품만 삭제됨 (원상품 번호 없음)"
+                
+            if not origin_no and not original_channel_no:
                 return "식별 번호 누락"
-            
+                
             return "채널 상품만 삭제됨 (원상품 번호 없음)"
 
         except requests.exceptions.Timeout:
