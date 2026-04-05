@@ -43,7 +43,6 @@ def runningmate():
 def dailylearning():
     return render_template('monitoring/dailylearning.html')
 
-# ✨ 대규모 개선: 네이버 AB 웹훅 수신 시, 스터디박스/RM/DL 모든 곳의 데이터를 동시에 똑같이 최신화합니다!
 @monitoring_bp.route('/api/webhook', methods=['POST'])
 def receive_webhook():
     data = request.get_json()
@@ -63,7 +62,6 @@ def receive_webhook():
         user = User.query.first()
         if not user: return jsonify({'success': False, 'message': 'No user found'})
 
-        # 1. 스터디박스 업데이트 또는 신규 추가
         existing_sb = MonitoredKeyword.query.filter_by(user_id=user.id, keyword=keyword).first()
         if existing_sb:
             existing_sb.search_volume = search_volume
@@ -73,7 +71,6 @@ def receive_webhook():
             new_kw = MonitoredKeyword(user_id=user.id, keyword=keyword, search_volume=search_volume, rank_info=grade_char, link=link, shipping_fee='-', store_rank=store_rank, prev_store_rank='-')
             db.session.add(new_kw)
 
-        # 2. 러닝메이트와 데일리러닝에 이미 복사해둔 게 있다면 똑같이 수치 업데이트!
         try:
             existing_rm = RunningmateKeyword.query.filter_by(user_id=user.id, keyword=keyword).first()
             if existing_rm:
@@ -92,11 +89,10 @@ def receive_webhook():
         return jsonify({'success': True, 'message': 'Saved'})
     return jsonify({'success': False})
 
-# ✨ 신규: 타겟(RM, DL)을 마음대로 지정해서 복사하는 만능 API
 @monitoring_bp.route('/api/copy_to_target', methods=['POST'])
 @login_required
 def copy_to_target():
-    target = request.form.get('target') # 'rm' or 'dl'
+    target = request.form.get('target')
     source_target = request.form.get('source_target', 'studybox')
     selected_ids = request.form.getlist('ids[]')
     
@@ -106,7 +102,9 @@ def copy_to_target():
     if source_target == 'rm': SourceModel = RunningmateKeyword
     elif source_target == 'dl': SourceModel = DailylearningKeyword
         
-    TargetModel = RunningmateKeyword if target == 'rm' else DailylearningKeyword
+    TargetModel = MonitoredKeyword
+    if target == 'rm': TargetModel = RunningmateKeyword
+    elif target == 'dl': TargetModel = DailylearningKeyword
     
     try: TargetModel.__table__.create(db.engine, checkfirst=True)
     except Exception: pass
@@ -127,8 +125,10 @@ def copy_to_target():
         count += 1
         
     db.session.commit()
-    t_name = "러닝메이트" if target == 'rm' else "데일리러닝"
-    return jsonify({'success': True, 'message': f'✅ 선택한 {count}개 항목이 {t_name} 모니터링으로 복사되었습니다!\n(기존 원본 데이터는 보존됩니다)'})
+    t_name = "스터디박스"
+    if target == 'rm': t_name = "러닝메이트"
+    elif target == 'dl': t_name = "데일리러닝"
+    return jsonify({'success': True, 'message': f'✅ 선택한 {count}개 항목이 [{t_name}] 모니터링으로 복사되었습니다!\n(기존 원본 데이터는 보존됩니다)'})
 
 @monitoring_bp.route('/api/saved_keywords', methods=['GET'])
 @login_required
@@ -141,7 +141,6 @@ def get_saved_keywords():
     try: ModelClass.__table__.create(db.engine, checkfirst=True)
     except Exception: pass
 
-    # 안전장치 컬럼 생성
     for table_name in ['monitored_keyword', 'runningmate_keyword', 'dailylearning_keyword']:
         try: db.session.execute(text(f"ALTER TABLE {table_name} ADD COLUMN stock_quantity VARCHAR(50) DEFAULT '-'")); db.session.commit()
         except: db.session.rollback()
@@ -176,7 +175,7 @@ def get_saved_keywords():
             'grade': 'A' if k.rank_info == '최상단 노출' else (k.rank_info if k.rank_info in ['A', 'B', 'C', 'MAIN'] else 'A'), 
             'link': k.link or '#', 'publisher': k.publisher or '-', 'supply_rate': k.supply_rate or '-', 
             'isbn': k.isbn or '-', 'price': k.price or '-', 'shipping_fee': k.shipping_fee or '-', 
-            'store_name': k.store_name or '-', 'book_title': k.book_title or '-', 
+            'book_title': k.book_title or '-', 
             'product_link': k.product_link or '-', 'store_rank': k.store_rank or '-', 
             'prev_store_rank': k.prev_store_rank or '-',
             'stock_quantity': getattr(k, 'stock_quantity', '-'),
@@ -276,7 +275,6 @@ def clear_data():
         kw.product_link = '-'
         kw.price = '-'
         kw.shipping_fee = '-'
-        kw.store_name = '-'
         kw.book_title = '-'
         if hasattr(kw, 'stock_quantity'): kw.stock_quantity = '-'
         if hasattr(kw, 'sales_quantity'): kw.sales_quantity = '-'
@@ -359,7 +357,7 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
     monitoring_tasks[task_key] = {"is_running": True, "total": len(target_ids), "current": 0, "logs": [], "mode": update_mode}
 
     with app.app_context():
-        # ✨ 핵심 변경: 상점 선택과 무관하게, 유저의 첫 번째 유효한 API 키를 자동 스캔하여 사용합니다!
+        # 상점 선택이 사라졌으므로, 유저의 첫 번째 유효한 API를 무조건 사용합니다.
         api_key = ApiKey.query.filter_by(user_id=user_id).first()
         commerce_token = None
         if api_key: commerce_token = get_naver_token(api_key.client_id, api_key.client_secret)
