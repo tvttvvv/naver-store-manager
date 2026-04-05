@@ -24,7 +24,6 @@ def clean_text(text):
     return html.unescape(cleaned).strip()
 
 def parse_number(val):
-    """문자열에서 콤마나 텍스트를 제거하고 숫자로 변환하는 헬퍼 함수"""
     if not val or val == '-': return 0
     try: return int(re.sub(r'[^0-9]', '', str(val)))
     except: return 0
@@ -110,7 +109,10 @@ def get_saved_keywords():
     data_list = []
     
     for k in keywords:
-        curr_vol = k.search_volume or 0
+        # ✨ 강력 방어: DB에 문자가 들어있어도 뻗지 않고 숫자로만 변환합니다.
+        try: curr_vol = int(k.search_volume)
+        except: curr_vol = 0
+
         curr_sales_raw = getattr(k, 'sales_quantity', '0')
         curr_sales = parse_number(curr_sales_raw) if curr_sales_raw != '-' else 0
         if curr_sales == 0: curr_sales = random.randint(10, 300)
@@ -132,7 +134,7 @@ def get_saved_keywords():
         data_list.append({
             'id': k.id, 
             'keyword': k.keyword or '-', 
-            'search_volume': k.search_volume or 0, 
+            'search_volume': curr_vol, 
             'grade': 'A' if k.rank_info == '최상단 노출' else (k.rank_info if k.rank_info in ['A', 'B', 'C', 'MAIN'] else 'A'), 
             'link': k.link or '#', 
             'publisher': k.publisher or '-', 
@@ -166,7 +168,6 @@ def delete_keyword():
         db.session.commit()
     return jsonify({'success': True})
 
-# ✨ 추가됨: 선택한 항목들을 한 번에 안전하게 삭제하는 일괄 삭제 API
 @monitoring_bp.route('/api/delete_keywords_bulk', methods=['POST'])
 @login_required
 def delete_keywords_bulk():
