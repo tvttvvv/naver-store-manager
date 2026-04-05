@@ -89,6 +89,7 @@ def receive_webhook():
         return jsonify({'success': True, 'message': 'Saved'})
     return jsonify({'success': False})
 
+# ✨ 핵심 변경: 복사할 때 키워드, 검색량, 판매수만 가져오고 나머지는 싹 다 비웁니다!
 @monitoring_bp.route('/api/copy_to_target', methods=['POST'])
 @login_required
 def copy_to_target():
@@ -112,12 +113,14 @@ def copy_to_target():
     source_keywords = SourceModel.query.filter(SourceModel.id.in_(selected_ids), SourceModel.user_id==current_user.id).all()
     count = 0
     for kw in source_keywords:
-        # ✨ 핵심 변경: 키워드, 네이버카운트, 판매수만 가져오고 나머지는 싹 다 빈칸('-') 처리합니다!
+        # 오직 키워드, 네이버카운트, 판매수만 빼오고 나머지는 강제 초기화('-')
         new_kw = TargetModel(
             user_id=current_user.id,
             keyword=kw.keyword,
             search_volume=kw.search_volume,
             sales_quantity=getattr(kw, 'sales_quantity', '-'),
+            store_rank='-',
+            prev_store_rank='-',
             rank_info='A',
             link='-',
             publisher='-',
@@ -128,8 +131,6 @@ def copy_to_target():
             store_name='-',
             book_title='-',
             product_link='-',
-            store_rank='-',
-            prev_store_rank='-',
             stock_quantity='-',
             sales_status='-'
         )
@@ -141,8 +142,7 @@ def copy_to_target():
     if target == 'rm': t_name = "러닝메이트"
     elif target == 'dl': t_name = "데일리러닝"
     
-    # 메시지도 직관적으로 변경했습니다!
-    return jsonify({'success': True, 'message': f'✅ 선택한 {count}개 항목이 [{t_name}] 모니터링으로 복사되었습니다!\n(키워드, 네이버카운트, 판매수만 복사되었습니다)'})
+    return jsonify({'success': True, 'message': f'✅ 선택한 {count}개 항목이 [{t_name}] 모니터링으로 복사되었습니다!\n(키워드, 네이버카운트, 판매수만 가져오고 나머지는 비워집니다)'})
 
 @monitoring_bp.route('/api/saved_keywords', methods=['GET'])
 @login_required
@@ -335,6 +335,21 @@ def get_exact_product_info_commerce_api(token, isbn):
                     break
     except Exception: pass
 
+    if not matched_product:
+        try:
+            payload = {"page": 1, "size": 50}
+            res = requests.post(url, headers=headers, json=payload, timeout=5)
+            if res.status_code == 200:
+                contents = res.json().get('contents', [])
+                for item in contents:
+                    c_prod = item.get('channelProducts', [{}])[0]
+                    item_code = str(c_prod.get('sellerManagementCode', '')).strip().replace('-', '')
+                    item_name = str(c_prod.get('name', '')).replace('-', '')
+                    if pure_isbn in item_code or pure_isbn in item_name:
+                        matched_product = item
+                        break
+        except Exception: pass
+
     result = {}
     if matched_product:
         c_prod = matched_product.get('channelProducts', [{}])[0]
@@ -369,8 +384,22 @@ def get_exact_product_info_commerce_api(token, isbn):
                     publisher = detail_attr.get('bookInfo', {}).get('publisher') or detail_attr.get('customInfo', {}).get('manufacturer') or origin_data.get('manufacturerName')
             except: pass
             
-        if stock_val is None: stock_val = c_prod.get('stockQuantity') or matched_product.get('stockQuantity')
-        if stock_val is not None: result['my_stock'] = f"{stock_val:,}"
+        if stock_val is None and c_no:
+            try:
+                c_url = f"https://api.commerce.naver.com/external/v2/products/channel-products/{c_no}"
+                c_res = requests.get(c_url, headers=headers, timeout=5)
+                if c_res.status_code == 200:
+                    c_data = c_res.json()
+                    if 'stockQuantity' in c_data:
+                        stock_val = c_data.get('stockQuantity')
+            except Exception: pass
+
+        if stock_val is None:
+            stock_val = c_prod.get('stockQuantity') or matched_product.get('stockQuantity')
+
+        if stock_val is not None:
+            result['my_stock'] = f"{stock_val:,}"
+
         if not publisher: publisher = matched_product.get('manufacturerName') or c_prod.get('manufacturerName') 
         result['my_publisher'] = publisher if publisher else "-"
         result['my_price'] = f"{sale_price:,}원" if sale_price is not None else "-"
