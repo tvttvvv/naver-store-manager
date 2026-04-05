@@ -57,8 +57,6 @@
                                 </div>
                                 
                                 <button class="btn btn-outline-danger fw-bold shadow-sm w-100 w-md-auto text-nowrap" onclick="deleteSelectedKeywords()"><i class="bi bi-trash"></i> 선택 일괄삭제</button>
-                                <button class="btn btn-outline-info fw-bold shadow-sm w-100 w-md-auto text-nowrap" onclick="copyToTarget('rm')"><i class="bi bi-send"></i> RM 복사</button>
-                                <button class="btn btn-outline-warning fw-bold shadow-sm w-100 w-md-auto text-nowrap" onclick="copyToTarget('dl')"><i class="bi bi-send"></i> DL 복사</button>
                                 <button class="btn btn-outline-success fw-bold shadow-sm w-100 w-md-auto text-nowrap" onclick="downloadExcel()"><i class="bi bi-file-earmark-excel"></i> 엑셀 저장</button>
                                 
                                 <div class="btn-group shadow-sm w-100 w-md-auto">
@@ -285,7 +283,6 @@
     let chartInstance = null;
     let renderTimeout = null; // ✨ 충돌 방지를 위한 대기열 타이머
 
-    // ✨ 중복 실행을 막아주는 안전한 화면 전환
     function switchView(mode) {
         const tableWrapper = document.getElementById('tableViewWrapper');
         const graphWrapper = document.getElementById('graphViewWrapper');
@@ -298,7 +295,6 @@
             graphWrapper.classList.remove('d-none');
             populateGraphSelect(); 
             
-            // 기존에 대기중인 그리기 명령이 있으면 취소! (안전장치)
             if(renderTimeout) clearTimeout(renderTimeout);
             renderTimeout = setTimeout(() => { renderChart(); }, 150);
         }
@@ -352,7 +348,7 @@
         if (isEditing) return; 
         try {
             const res = await fetch("{{ url_for('monitoring.get_saved_keywords') }}");
-            if(!res.ok) throw new Error("서버 통신 오류");
+            if(!res.ok) throw new Error("서버 통신 오류 (HTTP " + res.status + ")");
             
             const result = await res.json();
             if (result.success) { 
@@ -360,11 +356,11 @@
                 populateGraphSelect(); 
                 renderTable(); 
             } else {
-                document.getElementById('savedKeywordsBody').innerHTML = `<tr><td colspan="19" class="text-danger fw-bold py-5">데이터 로딩 실패</td></tr>`;
+                document.getElementById('savedKeywordsBody').innerHTML = `<tr><td colspan="19" class="text-danger fw-bold py-5"><i class="bi bi-exclamation-triangle"></i> 데이터 로딩 실패: ${result.message}</td></tr>`;
             }
         } catch (e) { 
             console.error("Error:", e); 
-            document.getElementById('savedKeywordsBody').innerHTML = `<tr><td colspan="19" class="text-danger fw-bold py-5">새로고침을 시도해 주세요.</td></tr>`;
+            document.getElementById('savedKeywordsBody').innerHTML = `<tr><td colspan="19" class="text-danger fw-bold py-5"><i class="bi bi-x-octagon fs-2 d-block mb-2"></i>데이터를 가져오는 중 문제가 발생했습니다.<br>새로고침(F5)을 시도해 주세요. (${e.message})</td></tr>`;
         }
     }
 
@@ -393,7 +389,6 @@
             select.value = select.options[0].value;
             renderChart(); 
         } else {
-            // 항목이 없으면 캔버스 부수기!
             if (chartInstance) {
                 chartInstance.destroy(); 
                 chartInstance = null;
@@ -402,7 +397,6 @@
         }
     }
 
-    // ✨ 중복 실행을 막아주는 안전한 강제 이동 함수
     function goToGraph(bookId, dataType) {
         document.getElementById('btnGraphView').checked = true;
         
@@ -417,7 +411,6 @@
         document.getElementById('graphBookSelect').value = bookId;
         document.getElementById('graphTypeSelect').value = dataType;
         
-        // 0.15초 뒤에 한 번만 딱 실행!
         if(renderTimeout) clearTimeout(renderTimeout);
         renderTimeout = setTimeout(() => {
             renderChart();
@@ -613,7 +606,7 @@
         renderTableColors();
     }
     
-    // ✨ 차트 파괴 및 재조립(하드 리셋) 로직 완벽 적용
+    // ✨ 그래프 하드 리셋 기법 완벽 유지!
     function renderChart() {
         if(typeof Chart === 'undefined') return;
         const bookSelect = document.getElementById('graphBookSelect');
@@ -640,17 +633,16 @@
         const lineColor = dataType === 'naver' ? 'rgb(255, 99, 132)' : 'rgb(54, 162, 235)';
         const bgColor = dataType === 'naver' ? 'rgba(255, 99, 132, 0.2)' : 'rgba(54, 162, 235, 0.2)';
 
-        // ✨ 핵심: 차트를 먼저 안전하게 파괴해야 에러가 안 납니다!
+        // 도화지를 완전히 부수고 다시 깔기 (하드 리셋)
+        const container = document.getElementById('chartContainer');
+        if(!container) return;
+
         if(chartInstance) {
             chartInstance.destroy();
             chartInstance = null;
         }
-
-        // 그 후 캔버스를 교체
-        const container = document.getElementById('chartContainer');
-        if(!container) return;
-        container.innerHTML = '<canvas id="trendChart"></canvas>';
         
+        container.innerHTML = '<canvas id="trendChart"></canvas>';
         const ctx = document.getElementById('trendChart').getContext('2d');
 
         try {
@@ -675,6 +667,7 @@
         } catch (err) { console.error("차트 에러:", err); }
     }
 
+    // 복사 API 함수 (화면 버튼은 없지만 만약을 위해 유지)
     async function copyToTarget(targetCode) {
         if (checkedIds.size === 0) { alert('복사할 항목을 왼쪽 체크박스로 선택해주세요!'); return; }
         let tName = targetCode === 'rm' ? '러닝메이트' : '데일리러닝';
@@ -916,19 +909,6 @@
         document.getElementById('subUpdateBtn').disabled = false;
         document.getElementById('progressContainer').classList.add('d-none');
         if(pollingInterval) clearInterval(pollingInterval);
-    }
-
-    async function clearSelectedData() {
-        if (checkedIds.size === 0) { alert("초기화할 항목을 왼쪽 체크박스로 먼저 선택해주세요!"); return; }
-        if(!confirm(`선택한 ${checkedIds.size}개 항목의 검색 데이터(가격, 택배비 등)를 모두 비우시겠습니까? (수동 입력한 키워드, ISBN 등은 안전하게 보존됩니다)`)) return;
-        const fd = new FormData();
-        checkedIds.forEach(id => fd.append('ids[]', id));
-
-        try {
-            const res = await fetch("{{ url_for('monitoring.clear_data') }}", { method: 'POST', body: fd });
-            const result = await res.json();
-            if(result.success) { alert(result.message); loadSavedKeywords(); }
-        } catch(e) { alert('초기화 중 오류가 발생했습니다.'); }
     }
 
     function downloadExcel() {
