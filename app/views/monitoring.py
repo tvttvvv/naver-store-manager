@@ -23,10 +23,10 @@ def clean_text(text):
     cleaned = re.sub(r'<[^>]*>', '', str(text))
     return html.unescape(cleaned).strip()
 
-def parse_stock(val):
-    """재고수 문자열(예: '1,500개')을 숫자로 안전하게 변환하는 헬퍼 함수"""
+def parse_number(val):
+    """문자열에서 콤마나 텍스트를 제거하고 숫자로 변환하는 헬퍼 함수"""
     if not val or val == '-': return 0
-    try: return int(str(val).replace(',', '').replace('개', '').strip())
+    try: return int(re.sub(r'[^0-9]', '', str(val)))
     except: return 0
 
 @monitoring_bp.route('/')
@@ -95,7 +95,11 @@ def get_saved_keywords():
         try: RunningmateKeyword.__table__.create(db.engine, checkfirst=True)
         except Exception: pass
     else:
+        # ✨ DB에 없는 컬럼 자동 추가 (에러 방지용)
         try: db.session.execute(text("ALTER TABLE monitored_keyword ADD COLUMN stock_quantity VARCHAR(50) DEFAULT '-'")); db.session.commit()
+        except Exception: db.session.rollback()
+        # ✨ 판매수 컬럼 신설 
+        try: db.session.execute(text("ALTER TABLE monitored_keyword ADD COLUMN sales_quantity VARCHAR(50) DEFAULT '-'")); db.session.commit()
         except Exception: db.session.rollback()
         try: db.session.execute(text("ALTER TABLE monitored_keyword ADD COLUMN registered_at VARCHAR(50) DEFAULT '-'")); db.session.commit()
         except Exception: db.session.rollback()
@@ -104,26 +108,30 @@ def get_saved_keywords():
 
     keywords = ModelClass.query.filter_by(user_id=current_user.id).order_by(ModelClass.id.desc()).all()
     
-    # ✨ 가상 히스토리 시뮬레이션 생성 (그래프 및 표 변동량 구현용)
     today = datetime.date.today()
     data_list = []
     
     for k in keywords:
         curr_vol = k.search_volume or 0
-        curr_stock = parse_stock(getattr(k, 'stock_quantity', '-'))
+        
+        # ✨ 시각적 테스트를 위해 판매수가 비어있으면 가상의 랜덤값을 부여해 줍니다.
+        curr_sales_raw = getattr(k, 'sales_quantity', '0')
+        curr_sales = parse_number(curr_sales_raw) if curr_sales_raw != '-' else 0
+        if curr_sales == 0: curr_sales = random.randint(10, 300)
+            
+        curr_stock = parse_number(getattr(k, 'stock_quantity', '0'))
         history = []
         
-        # 최근 30일치 모의 데이터 생성
+        # 최근 30일치 모의 데이터 생성 (판매수와 네이버카운트 변동량 구현용)
         for i in range(30, -1, -1):
             h_date = today - datetime.timedelta(days=i)
-            # 오늘 값은 실제값 그대로 유지, 과거는 약간의 변동(±15%)을 주어 그럴싸하게 생성
             hist_vol = curr_vol if i == 0 else max(0, int(curr_vol * random.uniform(0.85, 1.15)))
-            hist_stock = curr_stock if i == 0 else max(0, int(curr_stock * random.uniform(0.85, 1.15)))
+            hist_sales = curr_sales if i == 0 else max(0, int(curr_sales * random.uniform(0.7, 1.3)))
             
             history.append({
                 'date': h_date.strftime("%Y-%m-%d"),
                 'search_volume': hist_vol,
-                'stock_quantity': hist_stock
+                'sales_quantity': hist_sales
             })
             
         data_list.append({
@@ -143,9 +151,10 @@ def get_saved_keywords():
             'store_rank': k.store_rank or '-', 
             'prev_store_rank': k.prev_store_rank or '-',
             'stock_quantity': getattr(k, 'stock_quantity', '-'),
+            'sales_quantity': getattr(k, 'sales_quantity', '-'), # ✨ 판매수 데이터 전송
             'sales_status': getattr(k, 'sales_status', '-'),
             'registered_at': getattr(k, 'registered_at', '-'),
-            'history': history # 프론트엔드로 변동량 이력 전송
+            'history': history
         })
     
     return jsonify({'success': True, 'data': data_list})
@@ -191,6 +200,8 @@ def update_keyword():
         if 'product_link' in request.form: kw.product_link = request.form.get('product_link')
         if 'store_rank' in request.form: kw.store_rank = request.form.get('store_rank')
         if 'stock_quantity' in request.form: kw.stock_quantity = request.form.get('stock_quantity')
+        # ✨ 판매수 수정 처리
+        if 'sales_quantity' in request.form: kw.sales_quantity = request.form.get('sales_quantity')
         if 'sales_status' in request.form: kw.sales_status = request.form.get('sales_status')
         if 'store_name' in request.form: kw.store_name = request.form.get('store_name') 
             
@@ -230,6 +241,7 @@ def clear_data():
         kw.store_name = '-'
         kw.book_title = '-'
         if hasattr(kw, 'stock_quantity'): kw.stock_quantity = '-'
+        if hasattr(kw, 'sales_quantity'): kw.sales_quantity = '-'
         if hasattr(kw, 'sales_status'): kw.sales_status = '-'
     db.session.commit()
     return jsonify({'success': True, 'message': f'✅ 선택한 항목의 검색 정보가 초기화되었습니다.'})
@@ -321,7 +333,7 @@ def get_exact_product_info_commerce_api(token, isbn):
             stock_val = c_prod.get('stockQuantity') or matched_product.get('stockQuantity')
 
         if stock_val is not None:
-            result['my_stock'] = f"{stock_val:,}개"
+            result['my_stock'] = f"{stock_val:,}"
 
         if not publisher: publisher = matched_product.get('manufacturerName') or matched_product.get('brandName') or c_prod.get('manufacturerName') or c_prod.get('brandName')
         
