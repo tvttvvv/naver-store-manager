@@ -112,14 +112,26 @@ def copy_to_target():
     source_keywords = SourceModel.query.filter(SourceModel.id.in_(selected_ids), SourceModel.user_id==current_user.id).all()
     count = 0
     for kw in source_keywords:
+        # ✨ 핵심 변경: 키워드, 네이버카운트, 판매수만 가져오고 나머지는 싹 다 빈칸('-') 처리합니다!
         new_kw = TargetModel(
             user_id=current_user.id,
             keyword=kw.keyword,
             search_volume=kw.search_volume,
             sales_quantity=getattr(kw, 'sales_quantity', '-'),
-            store_rank=kw.store_rank,
-            rank_info=kw.rank_info,
-            link=kw.link
+            rank_info='A',
+            link='-',
+            publisher='-',
+            supply_rate='-',
+            isbn='-',
+            price='-',
+            shipping_fee='-',
+            store_name='-',
+            book_title='-',
+            product_link='-',
+            store_rank='-',
+            prev_store_rank='-',
+            stock_quantity='-',
+            sales_status='-'
         )
         db.session.add(new_kw)
         count += 1
@@ -128,7 +140,9 @@ def copy_to_target():
     t_name = "스터디박스"
     if target == 'rm': t_name = "러닝메이트"
     elif target == 'dl': t_name = "데일리러닝"
-    return jsonify({'success': True, 'message': f'✅ 선택한 {count}개 항목이 [{t_name}] 모니터링으로 복사되었습니다!\n(기존 원본 데이터는 보존됩니다)'})
+    
+    # 메시지도 직관적으로 변경했습니다!
+    return jsonify({'success': True, 'message': f'✅ 선택한 {count}개 항목이 [{t_name}] 모니터링으로 복사되었습니다!\n(키워드, 네이버카운트, 판매수만 복사되었습니다)'})
 
 @monitoring_bp.route('/api/saved_keywords', methods=['GET'])
 @login_required
@@ -216,7 +230,6 @@ def delete_keywords_bulk():
     db.session.commit()
     return jsonify({'success': True, 'message': f'✅ 선택한 {len(selected_ids)}개 항목이 성공적으로 삭제되었습니다.'})
 
-# ✨ 신규: 선택한 항목의 ISBN을 비워주는 API
 @monitoring_bp.route('/api/clear_isbn', methods=['POST'])
 @login_required
 def clear_isbn():
