@@ -151,8 +151,8 @@
                                         <th>순번</th>
                                         <th>등록날짜</th>
                                         <th>키워드</th>
-                                        <th>네이버카운트</th>
-                                        <th class="text-danger">판매수</th> 
+                                        <th class="text-primary fw-bold" title="더블클릭 시 그래프 화면으로 이동합니다."><i class="bi bi-graph-up-arrow"></i> 네이버카운트</th>
+                                        <th class="text-danger fw-bold" title="더블클릭 시 그래프 화면으로 이동합니다."><i class="bi bi-graph-up-arrow"></i> 판매수</th> 
                                         <th>순위</th>
                                         <th class="text-primary fw-bold">상점 선택</th>
                                         <th>재고수</th>
@@ -189,22 +189,25 @@
             <div class="card-body p-4">
                 
                 <div class="row bg-light p-3 rounded align-items-center mb-4 border border-secondary">
-                    <div class="col-md-4 mb-3 mb-md-0">
-                        <label class="form-label fw-bold text-muted mb-1" style="font-size: 13px;"><i class="bi bi-funnel"></i> 대상 키워드 선택</label>
-                        <select id="graphBookSelect" class="form-select border-primary fw-bold" onchange="renderChart()">
-                        </select>
+                    <div class="col-md-5 mb-3 mb-md-0">
+                        <label class="form-label fw-bold text-muted mb-1" style="font-size: 13px;"><i class="bi bi-search"></i> 대상 키워드 검색 및 선택</label>
+                        <div class="d-flex gap-2">
+                            <input type="text" id="graphKeywordSearch" class="form-control form-control-sm border-primary" placeholder="키워드 검색..." oninput="filterGraphBooks()" style="max-width: 140px;">
+                            <select id="graphBookSelect" class="form-select form-select-sm border-primary fw-bold" onchange="renderChart()">
+                            </select>
+                        </div>
                     </div>
                     <div class="col-md-4 mb-3 mb-md-0">
                         <label class="form-label fw-bold text-muted mb-1" style="font-size: 13px;"><i class="bi bi-bar-chart"></i> 그래프 데이터 선택</label>
-                        <select id="graphTypeSelect" class="form-select fw-bold" onchange="renderChart()">
+                        <select id="graphTypeSelect" class="form-select form-select-sm fw-bold border-secondary" onchange="renderChart()">
                             <option value="naver" selected>네이버 카운트 변화</option>
                             <option value="sales">판매수 변화</option>
                         </select>
                     </div>
-                    <div class="col-md-4">
+                    <div class="col-md-3">
                         <label class="form-label fw-bold text-muted mb-1" style="font-size: 13px;"><i class="bi bi-calendar3"></i> 조회 기간</label>
-                        <select id="graphPeriodSelect" class="form-select fw-bold" onchange="renderChart()">
-                            <option value="7">최근 1주일 (7일)</option>
+                        <select id="graphPeriodSelect" class="form-select form-select-sm fw-bold border-secondary" onchange="renderChart()">
+                            <option value="1">최근 1일 (하루 전)</option> <option value="7">최근 1주일 (7일)</option>
                             <option value="30" selected>최근 1개월 (30일)</option>
                         </select>
                     </div>
@@ -229,8 +232,13 @@
     .rank-down { color: #0d6efd; font-weight: bold; font-size: 0.8rem; }
     .rank-same { color: #adb5bd; font-weight: bold; font-size: 0.8rem; }
     .row-selected { background-color: #e8f4f8 !important; }
+    
     .editable-cell { cursor: pointer; transition: background-color 0.2s; position: relative; }
     .editable-cell:hover { background-color: #f8f9fa; outline: 1px dashed #0d6efd; z-index: 10; }
+    
+    /* ✨ 그래프 이동 셀 전용 디자인 */
+    .graph-link-cell { cursor: pointer; transition: all 0.2s ease-in-out; position: relative; }
+    .graph-link-cell:hover { background-color: #e9ecef !important; outline: 2px solid #0d6efd; outline-offset: -2px; z-index: 10; box-shadow: 0 0 8px rgba(13,110,253,0.3); }
     
     .hide-scrollbar::-webkit-scrollbar { display: none; }
     .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
@@ -321,9 +329,64 @@
             const result = await res.json();
             if (result.success) { 
                 allKeywordsData = result.data; 
+                populateGraphSelect(); // ✨ 그래프 드롭다운 업데이트
                 renderTable(); 
             }
         } catch (e) { console.error("Error:", e); }
+    }
+
+    // ✨ 그래프 선택창(드롭다운)에 데이터 채우기
+    function populateGraphSelect() {
+        const select = document.getElementById('graphBookSelect');
+        const currentVal = select.value;
+        select.innerHTML = allKeywordsData.map(k => `<option value="${k.id}">${k.keyword || '이름없음'}</option>`).join('');
+        
+        if (currentVal && Array.from(select.options).some(opt => opt.value === currentVal)) {
+            select.value = currentVal;
+        }
+    }
+
+    // ✨ 그래프 키워드 검색기능 필터링
+    function filterGraphBooks() {
+        const query = document.getElementById('graphKeywordSearch').value.toLowerCase();
+        const select = document.getElementById('graphBookSelect');
+        const currentVal = select.value;
+        
+        const filteredHtml = allKeywordsData
+            .filter(k => (k.keyword || '').toLowerCase().includes(query))
+            .map(k => `<option value="${k.id}">${k.keyword || '이름없음'}</option>`)
+            .join('');
+            
+        select.innerHTML = filteredHtml;
+        
+        if (Array.from(select.options).some(opt => opt.value === currentVal)) {
+            select.value = currentVal;
+        } else if (select.options.length > 0) {
+            renderChart(); 
+        } else {
+            if (chartInstance) chartInstance.destroy(); 
+        }
+    }
+
+    // ✨ 더블클릭 시 그래프 화면으로 강제 이동하는 마법의 함수!
+    function goToGraph(bookId, dataType) {
+        // 1. 라디오 버튼 상태 변경
+        document.getElementById('btnGraphView').checked = true;
+        
+        // 2. 화면 탭 전환
+        switchView('graph');
+        
+        // 3. 검색창 초기화 및 옵션 전체 복구
+        document.getElementById('graphKeywordSearch').value = '';
+        populateGraphSelect();
+        
+        // 4. 셀렉트 박스 값 강제 지정
+        document.getElementById('graphBookSelect').value = bookId;
+        document.getElementById('graphTypeSelect').value = dataType; 
+        
+        // 5. 차트 그리기 및 위로 스크롤
+        renderChart();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
     function getRankNum(rankStr) {
@@ -451,7 +514,6 @@
                 if(k.grade === 'C') kwBgColor = 'bg-neon-orange';
                 if(k.grade === 'MAIN') kwBgColor = 'bg-neon-pink';
                 
-                // ✨ 네이버 카운트 & 판매수 증감 배지 계산
                 let diffNaver = 0;
                 let diffSales = 0;
                 if(k.history && k.history.length > 0) {
@@ -513,14 +575,21 @@
                 });
                 storeSelectHtml += `</select>`;
 
+                // ✨ 네이버 카운트 & 판매수에 graph-link-cell 클래스를 주고 data-type 추가
                 return `
                 <tr class="${isChecked ? 'row-selected' : ''}">
                     <td class="align-middle bg-light"><input type="checkbox" class="form-check-input row-checkbox" value="${k.id}" onclick="handleRowCheck(event, this)" style="cursor: pointer;" ${isChecked}></td>
                     <td class="align-middle fw-bold">${actualIndex}</td>
                     <td class="align-middle text-muted small">${k.registered_at || '-'}</td>
                     <td class="align-middle ${kwBgColor} fw-bold editable-cell" data-id="${k.id}" data-field="keyword" title="더블클릭하여 수정">${k.keyword || '-'}${gradeBadge}</td>
-                    <td class="align-middle ${kwBgColor} fs-6">${(k.search_volume || 0).toLocaleString()} <br> ${formatBadge(diffNaver)}</td>
-                    <td class="align-middle text-danger fw-bold fs-6 editable-cell" data-id="${k.id}" data-field="sales_quantity" title="더블클릭하여 수정">${k.sales_quantity || '-'} <br> ${formatBadge(diffSales)}</td>
+                    
+                    <td class="align-middle ${kwBgColor} fs-6 graph-link-cell" data-id="${k.id}" data-type="naver" title="더블클릭하여 그래프 보기">
+                        ${(k.search_volume || 0).toLocaleString()} <br> ${formatBadge(diffNaver)}
+                    </td>
+                    <td class="align-middle text-danger fw-bold fs-6 graph-link-cell" data-id="${k.id}" data-type="sales" title="더블클릭하여 그래프 보기">
+                        ${k.sales_quantity || '-'} <br> ${formatBadge(diffSales)}
+                    </td>
+                    
                     <td class="align-middle ${kwBgColor} text-dark editable-cell" data-id="${k.id}" data-field="store_rank" data-val="${safeRank}" title="더블클릭하여 수정">${rankDisplay}</td>
                     <td class="align-middle bg-light">${storeSelectHtml}</td>
                     <td class="align-middle text-primary fw-bold editable-cell" data-id="${k.id}" data-field="stock_quantity" title="더블클릭하여 수정">${k.stock_quantity || '-'}</td>
@@ -545,32 +614,29 @@
         renderTableColors();
     }
     
-    // ✨ 그래프 렌더링 (판매수 연동)
+    // ✨ 그래프 렌더링 
     let chartInstance = null;
     function renderChart() {
-        const bookSelect = document.getElementById('graphBookSelect');
-        if(bookSelect.options.length === 0 || bookSelect.dataset.updated !== 'true') {
-            bookSelect.innerHTML = allKeywordsData.map(k => `<option value="${k.id}">${k.keyword || '이름없음'}</option>`).join('');
-            bookSelect.dataset.updated = 'true';
-        }
-        
-        const bookId = bookSelect.value;
-        const dataType = document.getElementById('graphTypeSelect').value; // 'naver' 또는 'sales'
+        const bookId = document.getElementById('graphBookSelect').value;
+        const dataType = document.getElementById('graphTypeSelect').value; 
         const periodDays = parseInt(document.getElementById('graphPeriodSelect').value) || 30;
         
+        if(!bookId) return;
         const book = allKeywordsData.find(k => k.id == bookId);
         if(!book || !book.history) return;
 
         let hist = book.history;
-        if(hist.length > periodDays) {
-            hist = hist.slice(hist.length - periodDays);
+        // ✨ '1일'이면 오늘과 어제 총 2개의 데이터가 필요하므로 +1 을 해줍니다.
+        let pointsNeeded = periodDays + 1;
+        if(hist.length > pointsNeeded) {
+            hist = hist.slice(hist.length - pointsNeeded);
         }
 
         const labels = hist.map(h => h.date);
         const dataPoints = hist.map(h => dataType === 'naver' ? h.search_volume : h.sales_quantity);
 
         const labelName = dataType === 'naver' ? '네이버카운트 (검색량)' : '판매수';
-        const lineColor = dataType === 'naver' ? 'rgb(255, 99, 132)' : 'rgb(54, 162, 235)'; // 핑크 vs 파랑
+        const lineColor = dataType === 'naver' ? 'rgb(255, 99, 132)' : 'rgb(54, 162, 235)';
         const bgColor = dataType === 'naver' ? 'rgba(255, 99, 132, 0.2)' : 'rgba(54, 162, 235, 0.2)';
 
         const ctx = document.getElementById('trendChart').getContext('2d');
@@ -603,7 +669,7 @@
         });
     }
 
-    // 기존 이벤트 리스너들
+    // 드롭다운 변경, 편집 등의 이벤트 리스너들
     document.addEventListener('change', async function(e) {
         if (e.target && e.target.classList.contains('store-select')) {
             let id = e.target.getAttribute('data-id');
@@ -623,6 +689,16 @@
     });
 
     document.getElementById('savedKeywordsBody').addEventListener('dblclick', function(e) {
+        // ✨ 마법의 이동! 그래프 셀을 더블클릭했다면 그래프 화면으로 날아갑니다
+        let graphCell = e.target.closest('.graph-link-cell');
+        if (graphCell) {
+            let id = graphCell.getAttribute('data-id');
+            let type = graphCell.getAttribute('data-type');
+            goToGraph(id, type);
+            return;
+        }
+        
+        // 기존 텍스트 수정용 셀 더블클릭 처리
         let td = e.target.closest('.editable-cell');
         if (!td) return;
         if (isEditing) return;
@@ -724,22 +800,15 @@
 
     async function refreshByIsbn(mode, event) {
         if(event) event.preventDefault();
-        
-        if (checkedIds.size === 0) {
-            alert("업데이트할 항목을 왼쪽 체크박스로 먼저 선택해주세요!");
-            return;
-        }
+        if (checkedIds.size === 0) { alert("업데이트할 항목을 왼쪽 체크박스로 먼저 선택해주세요!"); return; }
 
         let hasUnselectedStore = false;
         let validStoreCount = 0;
         
         checkedIds.forEach(id => {
             let item = allKeywordsData.find(i => i.id == id);
-            if (!item.store_name || item.store_name === '-') {
-                hasUnselectedStore = true;
-            } else {
-                validStoreCount++;
-            }
+            if (!item.store_name || item.store_name === '-') hasUnselectedStore = true;
+            else validStoreCount++;
         });
 
         if (validStoreCount === 0) {
