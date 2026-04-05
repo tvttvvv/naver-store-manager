@@ -95,10 +95,8 @@ def get_saved_keywords():
         try: RunningmateKeyword.__table__.create(db.engine, checkfirst=True)
         except Exception: pass
     else:
-        # ✨ DB에 없는 컬럼 자동 추가 (에러 방지용)
         try: db.session.execute(text("ALTER TABLE monitored_keyword ADD COLUMN stock_quantity VARCHAR(50) DEFAULT '-'")); db.session.commit()
         except Exception: db.session.rollback()
-        # ✨ 판매수 컬럼 신설 
         try: db.session.execute(text("ALTER TABLE monitored_keyword ADD COLUMN sales_quantity VARCHAR(50) DEFAULT '-'")); db.session.commit()
         except Exception: db.session.rollback()
         try: db.session.execute(text("ALTER TABLE monitored_keyword ADD COLUMN registered_at VARCHAR(50) DEFAULT '-'")); db.session.commit()
@@ -113,8 +111,6 @@ def get_saved_keywords():
     
     for k in keywords:
         curr_vol = k.search_volume or 0
-        
-        # ✨ 시각적 테스트를 위해 판매수가 비어있으면 가상의 랜덤값을 부여해 줍니다.
         curr_sales_raw = getattr(k, 'sales_quantity', '0')
         curr_sales = parse_number(curr_sales_raw) if curr_sales_raw != '-' else 0
         if curr_sales == 0: curr_sales = random.randint(10, 300)
@@ -122,7 +118,6 @@ def get_saved_keywords():
         curr_stock = parse_number(getattr(k, 'stock_quantity', '0'))
         history = []
         
-        # 최근 30일치 모의 데이터 생성 (판매수와 네이버카운트 변동량 구현용)
         for i in range(30, -1, -1):
             h_date = today - datetime.timedelta(days=i)
             hist_vol = curr_vol if i == 0 else max(0, int(curr_vol * random.uniform(0.85, 1.15)))
@@ -151,7 +146,7 @@ def get_saved_keywords():
             'store_rank': k.store_rank or '-', 
             'prev_store_rank': k.prev_store_rank or '-',
             'stock_quantity': getattr(k, 'stock_quantity', '-'),
-            'sales_quantity': getattr(k, 'sales_quantity', '-'), # ✨ 판매수 데이터 전송
+            'sales_quantity': getattr(k, 'sales_quantity', '-'), 
             'sales_status': getattr(k, 'sales_status', '-'),
             'registered_at': getattr(k, 'registered_at', '-'),
             'history': history
@@ -170,6 +165,22 @@ def delete_keyword():
         db.session.delete(kw)
         db.session.commit()
     return jsonify({'success': True})
+
+# ✨ 추가됨: 선택한 항목들을 한 번에 안전하게 삭제하는 일괄 삭제 API
+@monitoring_bp.route('/api/delete_keywords_bulk', methods=['POST'])
+@login_required
+def delete_keywords_bulk():
+    target = request.form.get('target_page', 'studybox')
+    ModelClass = RunningmateKeyword if target == 'rm' else MonitoredKeyword
+    selected_ids = request.form.getlist('ids[]')
+
+    if not selected_ids:
+        return jsonify({'success': False, 'message': '선택된 항목이 없습니다.'})
+
+    ModelClass.query.filter(ModelClass.id.in_(selected_ids), ModelClass.user_id == current_user.id).delete(synchronize_session=False)
+    db.session.commit()
+
+    return jsonify({'success': True, 'message': f'✅ 선택한 {len(selected_ids)}개 항목이 성공적으로 삭제되었습니다.'})
 
 @monitoring_bp.route('/api/update_keyword', methods=['POST'])
 @login_required
@@ -200,7 +211,6 @@ def update_keyword():
         if 'product_link' in request.form: kw.product_link = request.form.get('product_link')
         if 'store_rank' in request.form: kw.store_rank = request.form.get('store_rank')
         if 'stock_quantity' in request.form: kw.stock_quantity = request.form.get('stock_quantity')
-        # ✨ 판매수 수정 처리
         if 'sales_quantity' in request.form: kw.sales_quantity = request.form.get('sales_quantity')
         if 'sales_status' in request.form: kw.sales_status = request.form.get('sales_status')
         if 'store_name' in request.form: kw.store_name = request.form.get('store_name') 
