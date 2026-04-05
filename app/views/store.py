@@ -212,7 +212,7 @@ def background_delete_job(app, store_id, delete_mode, isbn_list, user_id):
 
 
 # ==============================================================================
-# 2. 상품 중복 체크용 멀티 엔진 (✨ 판매중 상품 스캔 & 정밀 추출 탑재 완료 ✨)
+# 2. 상품 중복 체크용 멀티 엔진 (✨ 판매중 & 정밀 ISBN 검사 탑재 완료 ✨)
 # ==============================================================================
 global_dup_tasks = {}
 
@@ -277,17 +277,17 @@ def background_duplicate_check_job(app, store_id, user_id):
                 total_fetched += len(contents)
                 
                 for p in contents:
-                    # 1. 스마트스토어 채널의 실제 상품 상태를 가장 먼저 확인합니다.
+                    # ✨ 1. 스마트스토어 채널의 실제 상품 상태를 확인합니다.
                     channel_products = p.get('channelProducts', [{}])
-                    channel_status = ''
-                    if channel_products:
-                        channel_status = str(channel_products[0].get('statusType', '')).upper()
-                        
-                    # 2. 채널 상태가 비어 있다면 원상품의 상태를 가져옵니다.
+                    c_prod = channel_products[0] if channel_products else {}
+                    
+                    channel_status = str(c_prod.get('statusType', '')).upper()
+                    
+                    # ✨ 2. 채널 상태가 비어 있다면 원상품의 상태를 가져옵니다.
                     if not channel_status:
                         channel_status = str(p.get('statusType', '')).upper()
                     
-                    # 3. 오직 '판매중(SALE)' 상태인 상품만 중복 검사 대상에 추가합니다.
+                    # ✨ 3. 오직 '판매중(SALE)' 상태인 상품만 중복 검사 대상에 추가합니다.
                     if channel_status == 'SALE':
                         all_products.append(p)
                     
@@ -301,31 +301,28 @@ def background_duplicate_check_job(app, store_id, user_id):
                 update_dup_task(user_id, store_id, status='error', message='사용자에 의해 검사가 강제 종료되었습니다.')
                 return
 
-            update_dup_task(user_id, store_id, status='info', message=f'스캔 완료! {len(all_products)}개 판매중 상품의 중복(복사본 포함) 정밀 분석 중...')
+            update_dup_task(user_id, store_id, status='info', message=f'스캔 완료! {len(all_products)}개 판매중 상품의 중복 정밀 분석 중...')
             
             seen_isbns = {}
             seen_names = {}
             duplicates = []
             
             for p in all_products:
-                # ✨ 네이버 API 구조에 맞게 채널 상품 정보를 먼저 꺼냅니다.
                 channel_products = p.get('channelProducts', [{}])
                 c_prod = channel_products[0] if channel_products else {}
                 
-                # ✨ 채널 상품에서 먼저 찾고, 없으면 원상품에서 찾도록 이중으로 처리합니다.
                 name = str(c_prod.get('name') or p.get('name') or '이름 없는 상품')
                 prod_id = str(c_prod.get('channelProductNo') or p.get('channelProductNo') or 'ID 없음')
                 
                 raw_isbn = str(c_prod.get('sellerManagementCode') or p.get('sellerManagementCode') or '').strip()
                 
-                # ✨ 가짜 ISBN 완벽 방어막
                 dummy_isbns = ['isbn없음', '없음', 'none', 'null', '단품', '0', '-', '']
                 is_valid_isbn = bool(raw_isbn and raw_isbn.replace(" ", "").lower() not in dummy_isbns)
                 
                 is_duplicate = False
                 original_id = None
                 
-                # 1. 유효한 ISBN 검사
+                # ✨ 핵심 수정: ISBN이 있으면 무조건 ISBN으로만 판단! (이름이 같아도 다른 책이면 넘어감)
                 if is_valid_isbn:
                     if raw_isbn in seen_isbns:
                         is_duplicate = True
@@ -333,10 +330,9 @@ def background_duplicate_check_job(app, store_id, user_id):
                     else:
                         seen_isbns[raw_isbn] = prod_id
                 
-                # 2. 상품명 검사 (✨ 복사본, 특수문자, 띄어쓰기 전부 무시하는 쌩얼 검사! ✨)
-                clean_name = re.sub(r'[\s\-_\(\)\[\]]', '', name).lower().replace('복사본', '').replace('copy', '')
-                
-                if not is_duplicate:
+                # ✨ ISBN이 없는 상품에 한해서만 이름 검사 진행
+                else:
+                    clean_name = re.sub(r'[\s\-_\(\)\[\]]', '', name).lower().replace('복사본', '').replace('copy', '')
                     if clean_name in seen_names:
                         is_duplicate = True
                         original_id = seen_names[clean_name]
