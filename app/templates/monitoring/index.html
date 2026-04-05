@@ -37,7 +37,6 @@
                             </div>
                             
                             <div class="d-flex flex-column flex-md-row gap-2 control-btns align-items-md-center">
-                                
                                 <div class="input-group shadow-sm w-100 w-md-auto">
                                     <span class="input-group-text bg-white fw-bold text-secondary border-primary"><i class="bi bi-calendar-range"></i> 변동기간</span>
                                     <select id="tablePeriodSelect" class="form-select fw-bold border-primary text-primary" style="cursor: pointer; max-width:130px;" onchange="renderTable()">
@@ -67,13 +66,12 @@
                                         <i class="bi bi-upc-scan"></i> 모두 업데이트
                                     </button>
                                     <button type="button" id="subUpdateBtn" class="btn btn-primary dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" data-toggle="dropdown" aria-expanded="false">
-                                        <span class="visually-hidden">Toggle Dropdown</span>
                                     </button>
                                     <ul class="dropdown-menu dropdown-menu-end border-primary shadow" style="min-width: 220px;">
                                         <li class="px-3 py-2 bg-light border-bottom mb-1" onclick="event.stopPropagation();">
                                             <div class="form-check form-switch mb-0">
                                                 <input class="form-check-input" type="checkbox" id="fillEmptyOnly" style="cursor: pointer;">
-                                                <label class="form-check-label fw-bold text-secondary small" for="fillEmptyOnly" style="cursor: pointer;">빈 칸만 채우기 (덮어쓰기 방지)</label>
+                                                <label class="form-check-label fw-bold text-secondary small" for="fillEmptyOnly" style="cursor: pointer;">빈 칸만 채우기</label>
                                             </div>
                                         </li>
                                         <li><a class="dropdown-item fw-bold text-primary" href="#" onclick="refreshByIsbn('all', event)"><i class="bi bi-check-all"></i> 모두 업데이트</a></li>
@@ -95,8 +93,7 @@
                                 <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-success" role="progressbar" style="width: 0%;">0%</div>
                             </div>
                             <div class="bg-white border rounded p-2 overflow-auto" style="height: 100px;">
-                                <ul id="logList" class="list-unstyled mb-0 small text-muted font-monospace">
-                                </ul>
+                                <ul id="logList" class="list-unstyled mb-0 small text-muted font-monospace"></ul>
                             </div>
                         </div>
 
@@ -122,7 +119,6 @@
                             <div class="vr mx-2 d-none d-xl-block"></div>
                             
                             <div class="d-flex align-items-center w-100 w-xl-auto justify-content-end mt-2 mt-md-0 flex-wrap gap-2">
-                                
                                 <div class="d-flex align-items-center w-100 w-md-auto">
                                     <i class="bi bi-activity text-secondary me-2"></i>
                                     <select id="trendFilter" class="form-select form-select-sm fw-bold text-dark w-100 w-md-auto border-secondary shadow-sm" style="cursor: pointer; min-width: 140px;">
@@ -133,7 +129,6 @@
                                         <option value="sales_down">판매수 하락(-)만</option>
                                     </select>
                                 </div>
-                                
                                 <div class="d-flex align-items-center w-100 w-md-auto">
                                     <i class="bi bi-list-ol text-secondary me-2"></i>
                                     <select id="itemsPerPageSelect" class="form-select form-select-sm fw-bold text-dark w-100 w-md-auto border-secondary" style="cursor: pointer; min-width: 110px;">
@@ -144,7 +139,6 @@
                                         <option value="all">전체 보기</option>
                                     </select>
                                 </div>
-                                
                                 <div class="d-flex align-items-center w-100 w-md-auto mt-2 mt-md-0">
                                     <i class="bi bi-sort-down text-secondary me-2"></i>
                                     <select id="sortOption" class="form-select form-select-sm fw-bold text-primary w-100 w-md-auto shadow-sm" style="cursor: pointer; border-color: #0d6efd; min-width: 160px;">
@@ -206,7 +200,6 @@
     <div id="graphViewWrapper" class="d-none">
         <div class="card shadow-sm border-0 border-top border-primary border-3">
             <div class="card-body p-4">
-                
                 <div class="row bg-light p-3 rounded align-items-center mb-4 border border-secondary">
                     <div class="col-md-5 mb-3 mb-md-0">
                         <label class="form-label fw-bold text-muted mb-1" style="font-size: 13px;"><i class="bi bi-search"></i> 대상 키워드 검색 및 선택</label>
@@ -233,10 +226,9 @@
                     </div>
                 </div>
                 
-                <div id="chartContainer" class="bg-white border rounded p-3 w-100" style="height: 450px; position: relative;">
+                <div class="bg-white border rounded p-3 w-100" style="height: 450px; position: relative;" id="chartContainer">
                     <canvas id="trendChart"></canvas>
                 </div>
-
             </div>
         </div>
     </div>
@@ -299,24 +291,16 @@
             tableWrapper.classList.add('d-none');
             graphWrapper.classList.remove('d-none');
             populateGraphSelect(); 
-            setTimeout(() => {
-                renderChart(); 
-            }, 200); // 넉넉하게 0.2초 지연을 주어 캔버스가 완벽히 펼쳐지도록 합니다.
+            setTimeout(() => { renderChart(); }, 200);
         }
     }
 
     function updateTabCounts() {
-        let countALL = allKeywordsData.length;
-        let countA = allKeywordsData.filter(k => k.grade === 'A').length;
-        let countB = allKeywordsData.filter(k => k.grade === 'B').length;
-        let countC = allKeywordsData.filter(k => k.grade === 'C').length;
-        let countMAIN = allKeywordsData.filter(k => k.grade === 'MAIN').length;
-
-        document.getElementById('tab-ALL').innerHTML = `전체 <span class="badge ${currentGradeTab === 'ALL' ? 'bg-primary' : 'bg-secondary'} rounded-pill ms-1">${countALL}</span>`;
-        document.getElementById('tab-A').innerHTML = `A등급 <span class="badge ${currentGradeTab === 'A' ? 'bg-primary' : 'bg-secondary'} rounded-pill ms-1">${countA}</span>`;
-        document.getElementById('tab-B').innerHTML = `B등급 <span class="badge ${currentGradeTab === 'B' ? 'bg-primary' : 'bg-secondary'} rounded-pill ms-1">${countB}</span>`;
-        document.getElementById('tab-C').innerHTML = `C등급 <span class="badge ${currentGradeTab === 'C' ? 'bg-primary' : 'bg-secondary'} rounded-pill ms-1">${countC}</span>`;
-        document.getElementById('tab-MAIN').innerHTML = `MAIN <span class="badge ${currentGradeTab === 'MAIN' ? 'bg-danger' : 'bg-secondary'} rounded-pill ms-1">${countMAIN}</span>`;
+        document.getElementById('tab-ALL').innerHTML = `전체 <span class="badge ${currentGradeTab === 'ALL' ? 'bg-primary' : 'bg-secondary'} rounded-pill ms-1">${allKeywordsData.length}</span>`;
+        document.getElementById('tab-A').innerHTML = `A등급 <span class="badge ${currentGradeTab === 'A' ? 'bg-primary' : 'bg-secondary'} rounded-pill ms-1">${allKeywordsData.filter(k => k.grade === 'A').length}</span>`;
+        document.getElementById('tab-B').innerHTML = `B등급 <span class="badge ${currentGradeTab === 'B' ? 'bg-primary' : 'bg-secondary'} rounded-pill ms-1">${allKeywordsData.filter(k => k.grade === 'B').length}</span>`;
+        document.getElementById('tab-C').innerHTML = `C등급 <span class="badge ${currentGradeTab === 'C' ? 'bg-primary' : 'bg-secondary'} rounded-pill ms-1">${allKeywordsData.filter(k => k.grade === 'C').length}</span>`;
+        document.getElementById('tab-MAIN').innerHTML = `MAIN <span class="badge ${currentGradeTab === 'MAIN' ? 'bg-danger' : 'bg-secondary'} rounded-pill ms-1">${allKeywordsData.filter(k => k.grade === 'MAIN').length}</span>`;
     }
 
     function changeGradeTab(grade, event) {
@@ -359,22 +343,19 @@
         if (isEditing) return; 
         try {
             const res = await fetch("{{ url_for('monitoring.get_saved_keywords') }}");
-            if(!res.ok) throw new Error("서버 통신 오류 (HTTP " + res.status + ")");
+            if(!res.ok) throw new Error("서버 통신 오류");
             
             const result = await res.json();
             if (result.success) { 
                 allKeywordsData = result.data; 
                 populateGraphSelect(); 
                 renderTable(); 
-                if(document.getElementById('btnGraphView').checked) {
-                    renderChart();
-                }
             } else {
-                document.getElementById('savedKeywordsBody').innerHTML = `<tr><td colspan="19" class="text-danger fw-bold py-5"><i class="bi bi-exclamation-triangle"></i> 데이터 로딩 실패: ${result.message}</td></tr>`;
+                document.getElementById('savedKeywordsBody').innerHTML = `<tr><td colspan="19" class="text-danger fw-bold py-5">데이터 로딩 실패</td></tr>`;
             }
         } catch (e) { 
             console.error("Error:", e); 
-            document.getElementById('savedKeywordsBody').innerHTML = `<tr><td colspan="19" class="text-danger fw-bold py-5"><i class="bi bi-x-octagon fs-2 d-block mb-2"></i>데이터를 가져오는 중 문제가 발생했습니다.<br>새로고침(F5)을 시도해 주세요. (${e.message})</td></tr>`;
+            document.getElementById('savedKeywordsBody').innerHTML = `<tr><td colspan="19" class="text-danger fw-bold py-5">새로고침을 시도해 주세요.</td></tr>`;
         }
     }
 
@@ -383,12 +364,8 @@
         if(!select) return;
         const currentVal = select.value;
         select.innerHTML = allKeywordsData.map(k => `<option value="${k.id}">${k.keyword || '이름없음'}</option>`).join('');
-        
-        if (currentVal && Array.from(select.options).some(opt => opt.value === currentVal)) {
-            select.value = currentVal;
-        } else if (select.options.length > 0) {
-            select.value = select.options[0].value; 
-        }
+        if (currentVal && Array.from(select.options).some(opt => opt.value === currentVal)) { select.value = currentVal; } 
+        else if (select.options.length > 0) { select.value = select.options[0].value; }
     }
 
     function filterGraphBooks() {
@@ -396,26 +373,18 @@
         const select = document.getElementById('graphBookSelect');
         const currentVal = select.value;
         
-        const filteredHtml = allKeywordsData
+        select.innerHTML = allKeywordsData
             .filter(k => String(k.keyword || '').toLowerCase().includes(query))
             .map(k => `<option value="${k.id}">${k.keyword || '이름없음'}</option>`)
             .join('');
             
-        select.innerHTML = filteredHtml;
-        
         if (Array.from(select.options).some(opt => opt.value === currentVal)) {
             select.value = currentVal;
         } else if (select.options.length > 0) {
-            select.value = select.options[0].value; 
-        }
-        
-        // 검색할 때마다 실시간으로 그려줍니다!
-        if (select.options.length > 0) {
-            renderChart();
+            select.value = select.options[0].value;
+            renderChart(); 
         } else {
-            if (chartInstance) chartInstance.destroy();
-            const container = document.getElementById('chartContainer');
-            if(container) container.innerHTML = '<canvas id="trendChart"></canvas>';
+            if (chartInstance) chartInstance.destroy(); 
         }
     }
 
@@ -455,20 +424,17 @@
     }
 
     function toggleAll(source) {
-        const checkboxes = document.querySelectorAll('.row-checkbox');
-        checkboxes.forEach(cb => { cb.checked = source.checked; if (source.checked) checkedIds.add(cb.value); else checkedIds.delete(cb.value); });
+        document.querySelectorAll('.row-checkbox').forEach(cb => { cb.checked = source.checked; if (source.checked) checkedIds.add(cb.value); else checkedIds.delete(cb.value); });
         renderTableColors();
     }
 
     function renderTableColors() {
-        const trs = document.querySelectorAll('#savedKeywordsBody tr');
-        trs.forEach(tr => {
+        document.querySelectorAll('#savedKeywordsBody tr').forEach(tr => {
             const cb = tr.querySelector('.row-checkbox');
             if(cb && cb.checked) { tr.classList.add('row-selected'); } else { tr.classList.remove('row-selected'); }
         });
         const checkboxes = document.querySelectorAll('.row-checkbox');
-        const allChecked = checkboxes.length > 0 && Array.from(checkboxes).every(cb => cb.checked);
-        document.getElementById('selectAll').checked = allChecked;
+        document.getElementById('selectAll').checked = checkboxes.length > 0 && Array.from(checkboxes).every(cb => cb.checked);
     }
     
     function changePage(page, event) {
@@ -488,17 +454,9 @@
         let startPage = Math.max(1, currentPage - 2);
         let endPage = Math.min(totalPages, currentPage + 2);
         
-        if (startPage > 1) {
-            html += `<li class="page-item"><a class="page-link shadow-sm" href="#" onclick="changePage(1, event)">1</a></li>`;
-            if (startPage > 2) html += `<li class="page-item disabled"><span class="page-link border-0 text-muted">...</span></li>`;
-        }
-        for (let i = startPage; i <= endPage; i++) {
-            html += `<li class="page-item ${currentPage === i ? 'active' : ''}"><a class="page-link shadow-sm" href="#" onclick="changePage(${i}, event)">${i}</a></li>`;
-        }
-        if (endPage < totalPages) {
-            if (endPage < totalPages - 1) html += `<li class="page-item disabled"><span class="page-link border-0 text-muted">...</span></li>`;
-            html += `<li class="page-item"><a class="page-link shadow-sm" href="#" onclick="changePage(${totalPages}, event)">${totalPages}</a></li>`;
-        }
+        if (startPage > 1) html += `<li class="page-item"><a class="page-link shadow-sm" href="#" onclick="changePage(1, event)">1</a></li>`;
+        for (let i = startPage; i <= endPage; i++) html += `<li class="page-item ${currentPage === i ? 'active' : ''}"><a class="page-link shadow-sm" href="#" onclick="changePage(${i}, event)">${i}</a></li>`;
+        if (endPage < totalPages) html += `<li class="page-item"><a class="page-link shadow-sm" href="#" onclick="changePage(${totalPages}, event)">${totalPages}</a></li>`;
         html += `<li class="page-item ${currentPage === totalPages ? 'disabled' : ''}"><a class="page-link shadow-sm" href="#" onclick="changePage(${currentPage + 1}, event)">다음</a></li>`;
         paginationEl.innerHTML = html;
     }
@@ -518,17 +476,14 @@
         let trendFilter = document.getElementById('trendFilter').value; 
 
         let filteredData = allKeywordsData.filter(k => {
-            let diffNaver = 0;
-            let diffSales = 0;
+            let diffNaver = 0, diffSales = 0;
             if(k.history && k.history.length > 0) {
                 let currentH = k.history[k.history.length - 1]; 
-                let pastIndex = Math.max(0, k.history.length - 1 - periodDays); 
-                let pastH = k.history[pastIndex];
+                let pastH = k.history[Math.max(0, k.history.length - 1 - periodDays)];
                 diffNaver = currentH.search_volume - pastH.search_volume;
                 diffSales = (currentH.sales_quantity || 0) - (pastH.sales_quantity || 0);
             }
-            k._tempDiffNaver = diffNaver;
-            k._tempDiffSales = diffSales;
+            k._tempDiffNaver = diffNaver; k._tempDiffSales = diffSales;
 
             if (trendFilter === 'naver_up' && diffNaver <= 0) return false;
             if (trendFilter === 'naver_down' && diffNaver >= 0) return false;
@@ -537,24 +492,15 @@
 
             let matchSearch = true;
             if (isGlobalSearch) {
-                const kw = String(k.keyword || '').toLowerCase();
-                const pub = String(k.publisher || '').toLowerCase();
-                const isbn = String(k.isbn || '').toLowerCase();
+                const kw = String(k.keyword || '').toLowerCase(), pub = String(k.publisher || '').toLowerCase(), isbn = String(k.isbn || '').toLowerCase();
                 if (searchCategory === 'keyword') matchSearch = kw.includes(searchQuery);
                 else if (searchCategory === 'publisher') matchSearch = pub.includes(searchQuery);
                 else if (searchCategory === 'isbn') matchSearch = isbn.includes(searchQuery);
                 else matchSearch = kw.includes(searchQuery) || pub.includes(searchQuery) || isbn.includes(searchQuery);
             }
-            
-            let vol = k.search_volume || 0;
-            let matchVolume = (vol >= minVol && vol <= maxVol);
-            if (!matchVolume) return false;
-            
+            if (k.search_volume < minVol || k.search_volume > maxVol) return false;
             if (isGlobalSearch) return matchSearch; 
-            else {
-                if (currentGradeTab === 'ALL') return true; 
-                return k.grade === currentGradeTab && matchSearch;
-            }
+            else return currentGradeTab === 'ALL' ? true : (k.grade === currentGradeTab && matchSearch);
         });
 
         if (currentSort === 'vol_desc') filteredData.sort((a, b) => b.search_volume - a.search_volume);
@@ -574,63 +520,35 @@
         if (paginatedData.length > 0) {
             tbody.innerHTML = paginatedData.map((k, index) => {
                 let actualIndex = startIndex + index + 1; 
-                let kwBgColor = 'bg-neon-green';
-                if(k.grade === 'B') kwBgColor = 'bg-neon-yellow';
-                if(k.grade === 'C') kwBgColor = 'bg-neon-orange';
-                if(k.grade === 'MAIN') kwBgColor = 'bg-neon-pink';
+                let kwBgColor = k.grade==='B'?'bg-neon-yellow':(k.grade==='C'?'bg-neon-orange':(k.grade==='MAIN'?'bg-neon-pink':'bg-neon-green'));
                 
-                let diffNaver = k._tempDiffNaver || 0;
-                let diffSales = k._tempDiffSales || 0;
-                
-                const formatBadge = (diff) => {
-                    if(diff > 0) return `<span class="badge bg-danger rounded-pill ms-1">+${diff}</span>`;
-                    if(diff < 0) return `<span class="badge bg-primary rounded-pill ms-1">${diff}</span>`;
-                    return `<span class="badge bg-secondary rounded-pill ms-1">-</span>`;
-                };
+                const fb = (diff) => diff > 0 ? `<span class="badge bg-danger rounded-pill ms-1">+${diff}</span>` : (diff < 0 ? `<span class="badge bg-primary rounded-pill ms-1">${diff}</span>` : `<span class="badge bg-secondary rounded-pill ms-1">-</span>`);
 
-                let linkBtn = '<span class="text-muted">-</span>';
                 let plink_val = k.product_link && k.product_link !== '-' ? k.product_link : '-';
-                if (plink_val !== '-') {
-                    let finalUrl = plink_val.startsWith('http') ? plink_val : 'http://' + plink_val;
-                    linkBtn = `<a href="${finalUrl}" target="_blank" class="btn btn-sm btn-outline-primary py-0 px-2 text-decoration-none"><i class="bi bi-link-45deg"></i> 상품</a>`;
-                }
+                let linkBtn = plink_val !== '-' ? `<a href="${plink_val.startsWith('http') ? plink_val : 'http://' + plink_val}" target="_blank" class="btn btn-sm btn-outline-primary py-0 px-2 text-decoration-none"><i class="bi bi-link-45deg"></i> 상품</a>` : '<span class="text-muted">-</span>';
 
-                let safeRank = String(k.store_rank || '-');
-                let safePrevRank = String(k.prev_store_rank || '-');
-                let rankDisplay = `<span class="fs-6 fw-bold">${safeRank}</span>`;
-                
+                let safeRank = String(k.store_rank || '-'), safePrevRank = String(k.prev_store_rank || '-'), rankDisplay = `<span class="fs-6 fw-bold">${safeRank}</span>`;
                 if (safePrevRank !== '-') {
-                    if (safeRank !== safePrevRank && !safeRank.includes('매칭중') && !safeRank.includes('갱신중')) {
-                        let prevNum = getRankNum(safePrevRank);
-                        let currNum = getRankNum(safeRank);
-                        if (prevNum === 9999 && currNum !== 9999) { rankDisplay += `<br><span class="rank-up">▲ 진입!</span>`; } 
-                        else if (prevNum !== 9999 && currNum === 9999) { rankDisplay += `<br><span class="rank-down">▼ 밀려남</span>`; } 
-                        else if (currNum < prevNum) { rankDisplay += `<br><span class="rank-up">▲ ${prevNum - currNum}</span>`; } 
-                        else if (currNum > prevNum) { rankDisplay += `<br><span class="rank-down">▼ ${currNum - prevNum}</span>`; } 
-                    } else if (!safeRank.includes('매칭중') && !safeRank.includes('갱신중')) {
-                        rankDisplay += `<br><span class="rank-same">-</span>`;
-                    }
+                    if (safeRank !== safePrevRank && !safeRank.includes('중')) {
+                        let prevNum = getRankNum(safePrevRank), currNum = getRankNum(safeRank);
+                        if (prevNum === 9999 && currNum !== 9999) rankDisplay += `<br><span class="rank-up">▲ 진입!</span>`;
+                        else if (prevNum !== 9999 && currNum === 9999) rankDisplay += `<br><span class="rank-down">▼ 밀려남</span>`;
+                        else if (currNum < prevNum) rankDisplay += `<br><span class="rank-up">▲ ${prevNum - currNum}</span>`;
+                        else if (currNum > prevNum) rankDisplay += `<br><span class="rank-down">▼ ${currNum - prevNum}</span>`;
+                    } else if (!safeRank.includes('중')) rankDisplay += `<br><span class="rank-same">-</span>`;
                 }
 
-                let safeTitleName = String(k.book_title || '-');
-                let titleNameDisplay = safeTitleName.includes('⚠️') ? `<span class="text-danger fw-bold">${safeTitleName}</span>` : `<span class="text-dark fw-bold">${safeTitleName}</span>`;
+                let titleNameDisplay = String(k.book_title || '-').includes('⚠️') ? `<span class="text-danger fw-bold">${k.book_title}</span>` : `<span class="text-dark fw-bold">${k.book_title || '-'}</span>`;
                 let isChecked = checkedIds.has(k.id.toString()) ? 'checked' : '';
                 let searchLink = `https://search.naver.com/search.naver?where=nexearch&query=${encodeURIComponent(k.keyword || '')}`;
-                
                 let gradeBadge = (isGlobalSearch || currentGradeTab === 'ALL') ? `<br><span class="badge bg-secondary mt-1">${k.grade}</span>` : '';
                 
-                let salesStatusColor = 'text-muted';
-                if(k.sales_status === '품절' || k.sales_status === '판매중지') salesStatusColor = 'text-danger fw-bold';
-                else if(k.sales_status === '판매중') salesStatusColor = 'text-success fw-bold';
+                let salesStatusColor = (k.sales_status === '품절' || k.sales_status === '판매중지') ? 'text-danger fw-bold' : (k.sales_status === '판매중' ? 'text-success fw-bold' : 'text-muted');
 
                 let storeOptions = ['-', '데일리러닝', '스터디박스', '러닝메이트'];
                 let currentStore = String(k.store_name || '-');
                 let storeSelectHtml = `<select class="form-select form-select-sm border-secondary fw-bold text-dark store-select shadow-sm" data-id="${k.id}" style="width: 105px; cursor:pointer;">`;
-                storeOptions.forEach(opt => {
-                    let selected = currentStore === opt ? 'selected' : '';
-                    let label = opt === '-' ? '선택 안됨' : opt;
-                    storeSelectHtml += `<option value="${opt}" ${selected}>${label}</option>`;
-                });
+                storeOptions.forEach(opt => { storeSelectHtml += `<option value="${opt}" ${currentStore === opt ? 'selected' : ''}>${opt === '-' ? '선택 안됨' : opt}</option>`; });
                 storeSelectHtml += `</select>`;
 
                 return `
@@ -641,10 +559,10 @@
                     <td class="align-middle ${kwBgColor} fw-bold editable-cell" data-id="${k.id}" data-field="keyword" title="더블클릭하여 수정">${k.keyword || '-'}${gradeBadge}</td>
                     
                     <td class="align-middle ${kwBgColor} fs-6 graph-link-cell" data-id="${k.id}" data-type="naver" title="더블클릭하여 그래프 보기">
-                        ${(k.search_volume || 0).toLocaleString()} <br> ${formatBadge(diffNaver)}
+                        ${(k.search_volume || 0).toLocaleString()} <br> ${fb(k._tempDiffNaver)}
                     </td>
                     <td class="align-middle text-danger fw-bold fs-6 graph-link-cell" data-id="${k.id}" data-type="sales" title="더블클릭하여 그래프 보기">
-                        ${k.sales_quantity || '-'} <br> ${formatBadge(diffSales)}
+                        ${k.sales_quantity || '-'} <br> ${fb(k._tempDiffSales)}
                     </td>
                     
                     <td class="align-middle ${kwBgColor} text-dark editable-cell" data-id="${k.id}" data-field="store_rank" data-val="${safeRank}" title="더블클릭하여 수정">${rankDisplay}</td>
@@ -671,13 +589,9 @@
         renderTableColors();
     }
     
-    // ✨ 마법의 "하드 리셋" 그리기 로직 (버전 충돌/도화지 꼬임 완벽 타파)
+    // ✨ 그래프 렌더링을 위한 하드 리셋 기법
     function renderChart() {
-        if(typeof Chart === 'undefined') {
-            console.error("Chart.js 라이브러리가 존재하지 않습니다.");
-            return;
-        }
-
+        if(typeof Chart === 'undefined') return;
         const bookSelect = document.getElementById('graphBookSelect');
         if(!bookSelect) return;
 
@@ -702,17 +616,11 @@
         const lineColor = dataType === 'naver' ? 'rgb(255, 99, 132)' : 'rgb(54, 162, 235)';
         const bgColor = dataType === 'naver' ? 'rgba(255, 99, 132, 0.2)' : 'rgba(54, 162, 235, 0.2)';
 
-        // 도화지를 완전히 부수고 다시 깔기 (하드 리셋)
-        const container = document.getElementById('chartContainer');
-        if(!container) return;
-
-        if(chartInstance) {
-            chartInstance.destroy();
-            chartInstance = null;
-        }
-        
-        container.innerHTML = '<canvas id="trendChart"></canvas>';
+        // 캔버스를 완전히 다시 깔아 고장 방지!
+        document.getElementById('chartContainer').innerHTML = '<canvas id="trendChart"></canvas>';
         const ctx = document.getElementById('trendChart').getContext('2d');
+
+        if(chartInstance) { chartInstance.destroy(); }
 
         try {
             chartInstance = new Chart(ctx, {
@@ -731,18 +639,12 @@
                         pointHoverRadius: 6
                     }]
                 },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: { legend: { position: 'top' }, tooltip: { mode: 'index', intersect: false } },
-                    scales: { x: { grid: { display: false } }, y: { beginAtZero: false } }
-                }
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' } }, scales: { x: { grid: { display: false } }, y: { beginAtZero: false } } }
             });
-        } catch (e) {
-            console.error("차트 렌더링 실패: ", e);
-        }
+        } catch (err) { console.error("차트 에러:", err); }
     }
 
+    // ✨ 에러를 막아주는 새로운 만능 복사 API
     async function copyToTarget(targetCode) {
         if (checkedIds.size === 0) { alert('복사할 항목을 왼쪽 체크박스로 선택해주세요!'); return; }
         let tName = targetCode === 'rm' ? '러닝메이트' : '데일리러닝';
@@ -766,11 +668,8 @@
     }
 
     async function deleteSelectedKeywords() {
-        if (checkedIds.size === 0) {
-            alert("삭제할 항목을 왼쪽 체크박스로 먼저 선택해주세요!");
-            return;
-        }
-        if(!confirm(`선택한 ${checkedIds.size}개 항목을 완전히 삭제하시겠습니까?\n(이 작업은 되돌릴 수 없습니다)`)) return;
+        if (checkedIds.size === 0) { alert("삭제할 항목을 왼쪽 체크박스로 먼저 선택해주세요!"); return; }
+        if(!confirm(`선택한 ${checkedIds.size}개 항목을 완전히 일괄 삭제하시겠습니까?\n(이 작업은 되돌릴 수 없습니다)`)) return;
 
         const fd = new FormData();
         checkedIds.forEach(id => fd.append('ids[]', id));
@@ -783,12 +682,8 @@
                 document.getElementById('selectAll').checked = false;
                 checkedIds.clear();
                 loadSavedKeywords(); 
-            } else {
-                alert(result.message);
-            }
-        } catch(e) {
-            alert('삭제 중 오류가 발생했습니다.');
-        }
+            } else { alert(result.message); }
+        } catch(e) { alert('삭제 중 오류가 발생했습니다.'); }
     }
 
     document.addEventListener('change', async function(e) {
@@ -848,15 +743,10 @@
         async function saveChanges() {
             if (isSaved) return; 
             isSaved = true;
-
             let newVal = input.value.trim();
             let item = allKeywordsData.find(i => i.id === id);
 
-            if (newVal === currentVal) {
-                isEditing = false;
-                renderTable(); 
-                return;
-            }
+            if (newVal === currentVal) { isEditing = false; renderTable(); return; }
 
             const fd = new FormData();
             fd.append('id', id);
@@ -900,22 +790,15 @@
 
     async function refreshByIsbn(mode, event) {
         if(event) event.preventDefault();
-        
-        if (checkedIds.size === 0) {
-            alert("업데이트할 항목을 왼쪽 체크박스로 먼저 선택해주세요!");
-            return;
-        }
+        if (checkedIds.size === 0) { alert("업데이트할 항목을 왼쪽 체크박스로 먼저 선택해주세요!"); return; }
 
         let hasUnselectedStore = false;
         let validStoreCount = 0;
         
         checkedIds.forEach(id => {
             let item = allKeywordsData.find(i => i.id == id);
-            if (!item.store_name || item.store_name === '-') {
-                hasUnselectedStore = true;
-            } else {
-                validStoreCount++;
-            }
+            if (!item.store_name || item.store_name === '-') hasUnselectedStore = true;
+            else validStoreCount++;
         });
 
         if (validStoreCount === 0) {
@@ -1011,24 +894,6 @@
             const result = await res.json();
             if(result.success) { alert(result.message); loadSavedKeywords(); }
         } catch(e) { alert('초기화 중 오류가 발생했습니다.'); }
-    }
-
-    function downloadExcel() {
-        if (allKeywordsData.length === 0) { alert('다운로드할 데이터가 없습니다.'); return; }
-        let csvContent = "\uFEFF";
-        csvContent += "순번,등록일자,키워드,등급,검색량,판매수,순위,상점,재고수,판매상태,출판사,공급률,ISBN,가격,택배비,상품명,상품링크\n";
-        allKeywordsData.forEach((k, idx) => {
-            let row = [ idx + 1, k.registered_at, k.keyword, k.grade, k.search_volume, k.sales_quantity, k.store_rank, k.store_name, k.stock_quantity, k.sales_status, k.publisher, k.supply_rate, k.isbn, k.price, k.shipping_fee, k.book_title, k.product_link ].map(v => `"${(v || '').toString().replace(/"/g, '""')}"`).join(",");
-            csvContent += row + "\n";
-        });
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.setAttribute("href", url);
-        link.setAttribute("download", "모니터링_전체데이터.csv");
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
     }
 
     document.addEventListener("DOMContentLoaded", () => {
