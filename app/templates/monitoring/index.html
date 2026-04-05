@@ -187,7 +187,7 @@
                                     </tr>
                                 </thead>
                                 <tbody id="savedKeywordsBody">
-                                    <tr><td colspan="19" class="text-center py-5 text-muted">데이터를 가져오는 중입니다...</td></tr>
+                                    <tr><td colspan="19" class="text-center py-5 text-muted"><div class="spinner-border text-primary" role="status"></div><br>안전하게 데이터를 불러오는 중입니다...</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -288,6 +288,7 @@
     let itemsPerPage = 50;
     let pollingInterval = null;
 
+    // ✨ 마법의 수정 1: 화면 탭을 전환할 때 브라우저가 그릴 시간을 줍니다! (0.1초 지연)
     function switchView(mode) {
         const tableWrapper = document.getElementById('tableViewWrapper');
         const graphWrapper = document.getElementById('graphViewWrapper');
@@ -297,8 +298,32 @@
         } else {
             tableWrapper.classList.add('d-none');
             graphWrapper.classList.remove('d-none');
-            renderChart(); 
+            
+            // 탭이 화면에 완전히 노출된 후 차트를 계산하도록 0.1초 딜레이
+            setTimeout(() => {
+                renderChart(); 
+            }, 100);
         }
+    }
+
+    // ✨ 마법의 수정 2: 더블클릭 화면 이동 시에도 0.1초 여유를 줍니다.
+    function goToGraph(bookId, dataType) {
+        document.getElementById('btnGraphView').checked = true;
+        
+        const tableWrapper = document.getElementById('tableViewWrapper');
+        const graphWrapper = document.getElementById('graphViewWrapper');
+        tableWrapper.classList.add('d-none');
+        graphWrapper.classList.remove('d-none');
+
+        document.getElementById('graphKeywordSearch').value = '';
+        populateGraphSelect();
+        document.getElementById('graphBookSelect').value = bookId;
+        document.getElementById('graphTypeSelect').value = dataType; 
+        
+        setTimeout(() => {
+            renderChart();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }, 100);
     }
 
     function updateTabCounts() {
@@ -333,15 +358,18 @@
         renderTable();
     }
 
-    document.getElementById('searchInput').addEventListener('input', function(e) { searchQuery = e.target.value.toLowerCase().trim(); currentPage = 1; renderTable(); });
-    document.getElementById('minVolume').addEventListener('input', function() { currentPage = 1; renderTable(); });
-    document.getElementById('maxVolume').addEventListener('input', function() { currentPage = 1; renderTable(); });
-    document.getElementById('searchCategory').addEventListener('change', function(e) { searchCategory = e.target.value; currentPage = 1; renderTable(); });
-    document.getElementById('sortOption').addEventListener('change', function(e) { currentSort = e.target.value; currentPage = 1; renderTable(); });
-    // ✨ 추세 필터 이벤트 리스너 추가
-    document.getElementById('trendFilter').addEventListener('change', function(e) { currentPage = 1; renderTable(); });
-    
-    document.getElementById('itemsPerPageSelect').addEventListener('change', function(e) { 
+    function attachEvent(id, eventType, handler) {
+        const el = document.getElementById(id);
+        if(el) el.addEventListener(eventType, handler);
+    }
+
+    attachEvent('searchInput', 'input', function(e) { searchQuery = e.target.value.toLowerCase().trim(); currentPage = 1; renderTable(); });
+    attachEvent('minVolume', 'input', function() { currentPage = 1; renderTable(); });
+    attachEvent('maxVolume', 'input', function() { currentPage = 1; renderTable(); });
+    attachEvent('searchCategory', 'change', function(e) { searchCategory = e.target.value; currentPage = 1; renderTable(); });
+    attachEvent('sortOption', 'change', function(e) { currentSort = e.target.value; currentPage = 1; renderTable(); });
+    attachEvent('trendFilter', 'change', function(e) { currentPage = 1; renderTable(); });
+    attachEvent('itemsPerPageSelect', 'change', function(e) { 
         let val = e.target.value;
         itemsPerPage = (val === 'all') ? 999999 : parseInt(val);
         currentPage = 1; 
@@ -352,17 +380,25 @@
         if (isEditing) return; 
         try {
             const res = await fetch("{{ url_for('monitoring.get_saved_keywords') }}");
+            if(!res.ok) throw new Error("서버 통신 오류 (HTTP " + res.status + ")");
+            
             const result = await res.json();
             if (result.success) { 
                 allKeywordsData = result.data; 
                 populateGraphSelect(); 
                 renderTable(); 
+            } else {
+                document.getElementById('savedKeywordsBody').innerHTML = `<tr><td colspan="19" class="text-danger fw-bold py-5"><i class="bi bi-exclamation-triangle"></i> 데이터 로딩 실패: ${result.message}</td></tr>`;
             }
-        } catch (e) { console.error("Error:", e); }
+        } catch (e) { 
+            console.error("Error:", e); 
+            document.getElementById('savedKeywordsBody').innerHTML = `<tr><td colspan="19" class="text-danger fw-bold py-5"><i class="bi bi-x-octagon fs-2 d-block mb-2"></i>데이터를 가져오는 중 문제가 발생했습니다.<br>새로고침(F5)을 시도해 주세요. (${e.message})</td></tr>`;
+        }
     }
 
     function populateGraphSelect() {
         const select = document.getElementById('graphBookSelect');
+        if(!select) return;
         const currentVal = select.value;
         select.innerHTML = allKeywordsData.map(k => `<option value="${k.id}">${k.keyword || '이름없음'}</option>`).join('');
         
@@ -377,7 +413,7 @@
         const currentVal = select.value;
         
         const filteredHtml = allKeywordsData
-            .filter(k => (k.keyword || '').toLowerCase().includes(query))
+            .filter(k => String(k.keyword || '').toLowerCase().includes(query))
             .map(k => `<option value="${k.id}">${k.keyword || '이름없음'}</option>`)
             .join('');
             
@@ -390,17 +426,6 @@
         } else {
             if (chartInstance) chartInstance.destroy(); 
         }
-    }
-
-    function goToGraph(bookId, dataType) {
-        document.getElementById('btnGraphView').checked = true;
-        switchView('graph');
-        document.getElementById('graphKeywordSearch').value = '';
-        populateGraphSelect();
-        document.getElementById('graphBookSelect').value = bookId;
-        document.getElementById('graphTypeSelect').value = dataType; 
-        renderChart();
-        window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
     function getRankNum(rankStr) {
@@ -474,7 +499,6 @@
         paginationEl.innerHTML = html;
     }
 
-    // ✨ 데이터 표 렌더링 및 계산
     function renderTable() {
         if (isEditing) return;
         const tbody = document.getElementById('savedKeywordsBody');
@@ -487,10 +511,9 @@
         let maxVol = isNaN(maxVolVal) ? Infinity : maxVolVal;
         
         let periodDays = parseInt(document.getElementById('tablePeriodSelect').value) || 1;
-        let trendFilter = document.getElementById('trendFilter').value; // 추세 필터 값 읽기
+        let trendFilter = document.getElementById('trendFilter').value; 
 
         let filteredData = allKeywordsData.filter(k => {
-            // 1. 변화량 계산 (필터링 및 정렬을 위해 미리 계산)
             let diffNaver = 0;
             let diffSales = 0;
             if(k.history && k.history.length > 0) {
@@ -500,22 +523,19 @@
                 diffNaver = currentH.search_volume - pastH.search_volume;
                 diffSales = (currentH.sales_quantity || 0) - (pastH.sales_quantity || 0);
             }
-            // 임시 저장
             k._tempDiffNaver = diffNaver;
             k._tempDiffSales = diffSales;
 
-            // 2. 추세 필터링 적용 (+만 보기, -만 보기)
             if (trendFilter === 'naver_up' && diffNaver <= 0) return false;
             if (trendFilter === 'naver_down' && diffNaver >= 0) return false;
             if (trendFilter === 'sales_up' && diffSales <= 0) return false;
             if (trendFilter === 'sales_down' && diffSales >= 0) return false;
 
-            // 3. 기존 검색 조건 필터링
             let matchSearch = true;
             if (isGlobalSearch) {
-                const kw = (k.keyword || '').toLowerCase();
-                const pub = (k.publisher || '').toLowerCase();
-                const isbn = (k.isbn || '').toLowerCase();
+                const kw = String(k.keyword || '').toLowerCase();
+                const pub = String(k.publisher || '').toLowerCase();
+                const isbn = String(k.isbn || '').toLowerCase();
                 if (searchCategory === 'keyword') matchSearch = kw.includes(searchQuery);
                 else if (searchCategory === 'publisher') matchSearch = pub.includes(searchQuery);
                 else if (searchCategory === 'isbn') matchSearch = isbn.includes(searchQuery);
@@ -533,14 +553,13 @@
             }
         });
 
-        // ✨ 4. 강력한 다중 정렬 적용 (+ 높은순, - 낮은순 등)
         if (currentSort === 'vol_desc') filteredData.sort((a, b) => b.search_volume - a.search_volume);
         else if (currentSort === 'vol_asc') filteredData.sort((a, b) => a.search_volume - b.search_volume);
         else if (currentSort === 'diff_naver_desc') filteredData.sort((a, b) => b._tempDiffNaver - a._tempDiffNaver);
         else if (currentSort === 'diff_naver_asc') filteredData.sort((a, b) => a._tempDiffNaver - b._tempDiffNaver);
         else if (currentSort === 'diff_sales_desc') filteredData.sort((a, b) => b._tempDiffSales - a._tempDiffSales);
         else if (currentSort === 'diff_sales_asc') filteredData.sort((a, b) => a._tempDiffSales - b._tempDiffSales);
-        else filteredData.sort((a, b) => b.id - a.id); // recent (default)
+        else filteredData.sort((a, b) => b.id - a.id); 
         
         let totalItems = filteredData.length;
         let totalPages = Math.ceil(totalItems / itemsPerPage) || 1;
@@ -572,8 +591,8 @@
                     linkBtn = `<a href="${finalUrl}" target="_blank" class="btn btn-sm btn-outline-primary py-0 px-2 text-decoration-none"><i class="bi bi-link-45deg"></i> 상품</a>`;
                 }
 
-                let safeRank = k.store_rank || '-';
-                let safePrevRank = k.prev_store_rank || '-';
+                let safeRank = String(k.store_rank || '-');
+                let safePrevRank = String(k.prev_store_rank || '-');
                 let rankDisplay = `<span class="fs-6 fw-bold">${safeRank}</span>`;
                 
                 if (safePrevRank !== '-') {
@@ -589,7 +608,7 @@
                     }
                 }
 
-                let safeTitleName = k.book_title || '-';
+                let safeTitleName = String(k.book_title || '-');
                 let titleNameDisplay = safeTitleName.includes('⚠️') ? `<span class="text-danger fw-bold">${safeTitleName}</span>` : `<span class="text-dark fw-bold">${safeTitleName}</span>`;
                 let isChecked = checkedIds.has(k.id.toString()) ? 'checked' : '';
                 let searchLink = `https://search.naver.com/search.naver?where=nexearch&query=${encodeURIComponent(k.keyword || '')}`;
@@ -601,7 +620,7 @@
                 else if(k.sales_status === '판매중') salesStatusColor = 'text-success fw-bold';
 
                 let storeOptions = ['-', '데일리러닝', '스터디박스', '러닝메이트'];
-                let currentStore = k.store_name || '-';
+                let currentStore = String(k.store_name || '-');
                 let storeSelectHtml = `<select class="form-select form-select-sm border-secondary fw-bold text-dark store-select shadow-sm" data-id="${k.id}" style="width: 105px; cursor:pointer;">`;
                 storeOptions.forEach(opt => {
                     let selected = currentStore === opt ? 'selected' : '';
@@ -649,7 +668,10 @@
     }
     
     function renderChart() {
-        const bookId = document.getElementById('graphBookSelect').value;
+        const bookSelect = document.getElementById('graphBookSelect');
+        if(!bookSelect) return;
+
+        const bookId = bookSelect.value;
         const dataType = document.getElementById('graphTypeSelect').value; 
         const periodDays = parseInt(document.getElementById('graphPeriodSelect').value) || 30;
         
@@ -717,7 +739,7 @@
                 alert(result.message);
                 document.getElementById('selectAll').checked = false;
                 checkedIds.clear();
-                loadSavedKeywords(); // 표 새로고침
+                loadSavedKeywords(); 
             } else {
                 alert(result.message);
             }
