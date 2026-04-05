@@ -33,7 +33,7 @@
                         <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center mb-3 gap-3">
                             <div>
                                 <h6 class="fw-bold mb-1 text-primary fs-6 fs-md-5">체크박스 다중 선택 및 기능 관리</h6>
-                                <span class="text-muted small d-none d-md-block"><i class="bi bi-info-circle text-primary"></i> 검색창에 입력 시 <b>모든 탭을 통합해서 검색</b>합니다! 표의 텍스트를 더블클릭하면 수정 가능합니다.</span>
+                                <span class="text-muted small d-none d-md-block"><i class="bi bi-info-circle text-primary"></i> 표의 텍스트를 더블클릭하면 수정 가능합니다. 상점은 탭에 따라 자동 선택됩니다.</span>
                             </div>
                             
                             <div class="d-flex flex-column flex-md-row gap-2 control-btns align-items-md-center">
@@ -57,11 +57,17 @@
                                 </div>
                                 
                                 <button class="btn btn-outline-danger fw-bold shadow-sm w-100 w-md-auto text-nowrap" onclick="deleteSelectedKeywords()"><i class="bi bi-trash"></i> 선택 일괄삭제</button>
+                                
+                                <button class="btn btn-outline-secondary fw-bold shadow-sm w-100 w-md-auto text-nowrap" onclick="clearSelectedIsbn()"><i class="bi bi-eraser"></i> ISBN 비우기</button>
+
+                                <button class="btn btn-outline-info fw-bold shadow-sm w-100 w-md-auto text-nowrap" onclick="copyToTarget('rm')"><i class="bi bi-send"></i> RM 복사</button>
+                                <button class="btn btn-outline-warning fw-bold shadow-sm w-100 w-md-auto text-nowrap" onclick="copyToTarget('dl')"><i class="bi bi-send"></i> DL 복사</button>
+                                
                                 <button class="btn btn-outline-success fw-bold shadow-sm w-100 w-md-auto text-nowrap" onclick="downloadExcel()"><i class="bi bi-file-earmark-excel"></i> 엑셀 저장</button>
                                 
                                 <div class="btn-group shadow-sm w-100 w-md-auto">
                                     <button type="button" id="mainUpdateBtn" class="btn btn-primary fw-bold text-nowrap" onclick="refreshByIsbn('all', event)">
-                                        <i class="bi bi-upc-scan"></i> 모두 업데이트
+                                        <i class="bi bi-upc-scan"></i> 업데이트
                                     </button>
                                     <button type="button" id="subUpdateBtn" class="btn btn-primary dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" data-toggle="dropdown" aria-expanded="false">
                                     </button>
@@ -166,7 +172,6 @@
                                         <th class="text-primary fw-bold" title="더블클릭 시 그래프 화면으로 이동합니다."><i class="bi bi-graph-up-arrow"></i> 네이버카운트</th>
                                         <th class="text-danger fw-bold" title="더블클릭 시 그래프 화면으로 이동합니다."><i class="bi bi-graph-up-arrow"></i> 판매수</th> 
                                         <th>순위</th>
-                                        <th class="text-primary fw-bold">상점 선택</th>
                                         <th>재고수</th>
                                         <th>판매상태</th>
                                         <th>키워드검색</th>
@@ -181,7 +186,7 @@
                                     </tr>
                                 </thead>
                                 <tbody id="savedKeywordsBody">
-                                    <tr><td colspan="19" class="text-center py-5 text-muted"><div class="spinner-border text-primary" role="status"></div><br>안전하게 데이터를 불러오는 중입니다...</td></tr>
+                                    <tr><td colspan="18" class="text-center py-5 text-muted"><div class="spinner-border text-primary" role="status"></div><br>안전하게 데이터를 불러오는 중입니다...</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -281,7 +286,7 @@
     let pollingInterval = null;
     
     let chartInstance = null;
-    let renderTimeout = null; // ✨ 충돌 방지를 위한 대기열 타이머
+    let renderTimeout = null;
 
     function switchView(mode) {
         const tableWrapper = document.getElementById('tableViewWrapper');
@@ -356,11 +361,11 @@
                 populateGraphSelect(); 
                 renderTable(); 
             } else {
-                document.getElementById('savedKeywordsBody').innerHTML = `<tr><td colspan="19" class="text-danger fw-bold py-5"><i class="bi bi-exclamation-triangle"></i> 데이터 로딩 실패: ${result.message}</td></tr>`;
+                document.getElementById('savedKeywordsBody').innerHTML = `<tr><td colspan="18" class="text-danger fw-bold py-5"><i class="bi bi-exclamation-triangle"></i> 데이터 로딩 실패: ${result.message}</td></tr>`;
             }
         } catch (e) { 
             console.error("Error:", e); 
-            document.getElementById('savedKeywordsBody').innerHTML = `<tr><td colspan="19" class="text-danger fw-bold py-5"><i class="bi bi-x-octagon fs-2 d-block mb-2"></i>데이터를 가져오는 중 문제가 발생했습니다.<br>새로고침(F5)을 시도해 주세요. (${e.message})</td></tr>`;
+            document.getElementById('savedKeywordsBody').innerHTML = `<tr><td colspan="18" class="text-danger fw-bold py-5"><i class="bi bi-x-octagon fs-2 d-block mb-2"></i>데이터를 가져오는 중 문제가 발생했습니다.<br>새로고침(F5)을 시도해 주세요. (${e.message})</td></tr>`;
         }
     }
 
@@ -562,12 +567,6 @@
                 
                 let salesStatusColor = (k.sales_status === '품절' || k.sales_status === '판매중지') ? 'text-danger fw-bold' : (k.sales_status === '판매중' ? 'text-success fw-bold' : 'text-muted');
 
-                let storeOptions = ['-', '데일리러닝', '스터디박스', '러닝메이트'];
-                let currentStore = String(k.store_name || '-');
-                let storeSelectHtml = `<select class="form-select form-select-sm border-secondary fw-bold text-dark store-select shadow-sm" data-id="${k.id}" style="width: 105px; cursor:pointer;">`;
-                storeOptions.forEach(opt => { storeSelectHtml += `<option value="${opt}" ${currentStore === opt ? 'selected' : ''}>${opt === '-' ? '선택 안됨' : opt}</option>`; });
-                storeSelectHtml += `</select>`;
-
                 return `
                 <tr class="${isChecked ? 'row-selected' : ''}">
                     <td class="align-middle bg-light"><input type="checkbox" class="form-check-input row-checkbox" value="${k.id}" onclick="handleRowCheck(event, this)" style="cursor: pointer;" ${isChecked}></td>
@@ -583,7 +582,6 @@
                     </td>
                     
                     <td class="align-middle ${kwBgColor} text-dark editable-cell" data-id="${k.id}" data-field="store_rank" data-val="${safeRank}" title="더블클릭하여 수정">${rankDisplay}</td>
-                    <td class="align-middle bg-light">${storeSelectHtml}</td>
                     <td class="align-middle text-primary fw-bold editable-cell" data-id="${k.id}" data-field="stock_quantity" title="더블클릭하여 수정">${k.stock_quantity || '-'}</td>
                     <td class="align-middle ${salesStatusColor} editable-cell" data-id="${k.id}" data-field="sales_status" title="더블클릭하여 수정">${k.sales_status || '-'}</td>
                     <td class="align-middle"><a href="${searchLink}" target="_blank" class="btn btn-sm btn-outline-secondary py-0 px-2 text-decoration-none"><i class="bi bi-search"></i> 검색</a></td>
@@ -600,13 +598,12 @@
             }).join('');
             renderPagination(totalItems);
         } else {
-            tbody.innerHTML = `<tr><td colspan="19" class="text-center py-5 text-muted">해당하는 데이터가 없습니다.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="18" class="text-center py-5 text-muted">해당하는 데이터가 없습니다.</td></tr>`;
             document.getElementById('paginationContainer').innerHTML = ''; 
         }
         renderTableColors();
     }
     
-    // ✨ 그래프 하드 리셋 기법 완벽 유지!
     function renderChart() {
         if(typeof Chart === 'undefined') return;
         const bookSelect = document.getElementById('graphBookSelect');
@@ -633,7 +630,6 @@
         const lineColor = dataType === 'naver' ? 'rgb(255, 99, 132)' : 'rgb(54, 162, 235)';
         const bgColor = dataType === 'naver' ? 'rgba(255, 99, 132, 0.2)' : 'rgba(54, 162, 235, 0.2)';
 
-        // 도화지를 완전히 부수고 다시 깔기 (하드 리셋)
         const container = document.getElementById('chartContainer');
         if(!container) return;
 
@@ -667,11 +663,10 @@
         } catch (err) { console.error("차트 에러:", err); }
     }
 
-    // 복사 API 함수 (화면 버튼은 없지만 만약을 위해 유지)
     async function copyToTarget(targetCode) {
         if (checkedIds.size === 0) { alert('복사할 항목을 왼쪽 체크박스로 선택해주세요!'); return; }
         let tName = targetCode === 'rm' ? '러닝메이트' : '데일리러닝';
-        if(!confirm(`선택한 ${checkedIds.size}개 항목을 [${tName}] 모니터링으로 복사하시겠습니까?`)) return;
+        if(!confirm(`선택한 ${checkedIds.size}개 항목을 [${tName}] 모니터링으로 복사하시겠습니까?\n(키워드, 카운트, 판매수만 복사됩니다)`)) return;
 
         const fd = new FormData();
         checkedIds.forEach(id => fd.append('ids[]', id));
@@ -688,6 +683,14 @@
                 renderTableColors(); 
             } else { alert(result.message); }
         } catch(e) { alert('오류가 발생했습니다.'); }
+    }
+
+    async function clearSelectedIsbn() {
+        if (checkedIds.size === 0) { alert("ISBN을 비울 항목을 왼쪽 체크박스로 먼저 선택해주세요!"); return; }
+        if(!confirm(`선택한 ${checkedIds.size}개 항목의 ISBN을 모두 비우시겠습니까?\n(새로 입력할 수 있도록 빈칸으로 만듭니다)`)) return;
+
+        const fd = new FormData(); checkedIds.forEach(id => fd.append('ids[]', id)); fd.append('target_page', 'studybox');
+        try { const res = await fetch("{{ url_for('monitoring.clear_isbn') }}", { method: 'POST', body: fd }); const result = await res.json(); if(result.success) { alert(result.message); document.getElementById('selectAll').checked = false; checkedIds.clear(); loadSavedKeywords(); } else { alert(result.message); } } catch(e) { alert('오류가 발생했습니다.'); }
     }
 
     async function deleteSelectedKeywords() {
@@ -708,24 +711,6 @@
             } else { alert(result.message); }
         } catch(e) { alert('삭제 중 오류가 발생했습니다.'); }
     }
-
-    document.addEventListener('change', async function(e) {
-        if (e.target && e.target.classList.contains('store-select')) {
-            let id = e.target.getAttribute('data-id');
-            let newStore = e.target.value;
-            let item = allKeywordsData.find(i => i.id == id);
-            
-            const fd = new FormData();
-            fd.append('id', id);
-            fd.append('store_name', newStore);
-
-            try {
-                const res = await fetch("{{ url_for('monitoring.update_keyword') }}", { method: 'POST', body: fd });
-                const result = await res.json();
-                if (result.success) { item.store_name = newStore; } else { alert(result.message); }
-            } catch(error) { alert('상점 정보 저장 중 오류가 발생했습니다.'); }
-        }
-    });
 
     document.getElementById('savedKeywordsBody').addEventListener('dblclick', function(e) {
         let graphCell = e.target.closest('.graph-link-cell');
@@ -820,20 +805,6 @@
         if(event) event.preventDefault();
         if (checkedIds.size === 0) { alert("업데이트할 항목을 왼쪽 체크박스로 먼저 선택해주세요!"); return; }
 
-        let hasUnselectedStore = false;
-        let validStoreCount = 0;
-        
-        checkedIds.forEach(id => {
-            let item = allKeywordsData.find(i => i.id == id);
-            if (!item.store_name || item.store_name === '-') hasUnselectedStore = true;
-            else validStoreCount++;
-        });
-
-        if (validStoreCount === 0) {
-            alert("선택하신 모든 항목의 상점이 [선택 안됨] 상태입니다.\n업데이트하시려면 표의 드롭다운에서 상점을 먼저 선택해주세요!");
-            return;
-        }
-
         let fillEmptyOnly = document.getElementById('fillEmptyOnly').checked;
 
         const fd = new FormData();
@@ -847,7 +818,6 @@
         if(mode === 'info') modeText = "상품 정보만";
 
         let confirmMsg = `선택한 ${checkedIds.size}개 항목을 [${modeText}] 업데이트 하시겠습니까?`;
-        if (hasUnselectedStore) confirmMsg += `\n\n⚠️ 주의: 상점이 [선택 안됨]인 ${checkedIds.size - validStoreCount}개 항목은 안전하게 건너뜁니다!`;
         if (fillEmptyOnly) confirmMsg += "\n(기존에 작성된 데이터는 건너뛰고 빈 칸만 채웁니다)";
 
         if(!confirm(confirmMsg)) return;
