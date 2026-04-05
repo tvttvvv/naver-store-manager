@@ -58,7 +58,6 @@
                                 </div>
                                 
                                 <button class="btn btn-outline-danger fw-bold shadow-sm w-100 w-md-auto text-nowrap" onclick="deleteSelectedKeywords()"><i class="bi bi-trash"></i> 선택 일괄삭제</button>
-                                
                                 <button class="btn btn-outline-info fw-bold shadow-sm w-100 w-md-auto text-nowrap" onclick="copyToRunningmate()"><i class="bi bi-send"></i> 러닝메이트 복사</button>
                                 <button class="btn btn-outline-success fw-bold shadow-sm w-100 w-md-auto text-nowrap" onclick="downloadExcel()"><i class="bi bi-file-earmark-excel"></i> 엑셀 저장</button>
                                 
@@ -122,6 +121,18 @@
                             <div class="vr mx-2 d-none d-xl-block"></div>
                             
                             <div class="d-flex align-items-center w-100 w-xl-auto justify-content-end mt-2 mt-md-0 flex-wrap gap-2">
+                                
+                                <div class="d-flex align-items-center w-100 w-md-auto">
+                                    <i class="bi bi-activity text-secondary me-2"></i>
+                                    <select id="trendFilter" class="form-select form-select-sm fw-bold text-dark w-100 w-md-auto border-secondary shadow-sm" style="cursor: pointer; min-width: 140px;">
+                                        <option value="all" selected>모든 추세 보기</option>
+                                        <option value="naver_up">N카운트 상승(+)만</option>
+                                        <option value="naver_down">N카운트 하락(-)만</option>
+                                        <option value="sales_up">판매수 상승(+)만</option>
+                                        <option value="sales_down">판매수 하락(-)만</option>
+                                    </select>
+                                </div>
+                                
                                 <div class="d-flex align-items-center w-100 w-md-auto">
                                     <i class="bi bi-list-ol text-secondary me-2"></i>
                                     <select id="itemsPerPageSelect" class="form-select form-select-sm fw-bold text-dark w-100 w-md-auto border-secondary" style="cursor: pointer; min-width: 110px;">
@@ -135,10 +146,14 @@
                                 
                                 <div class="d-flex align-items-center w-100 w-md-auto mt-2 mt-md-0">
                                     <i class="bi bi-sort-down text-secondary me-2"></i>
-                                    <select id="sortOption" class="form-select form-select-sm fw-bold text-primary w-100 w-md-auto" style="cursor: pointer; border-color: #0d6efd; min-width: 140px;">
+                                    <select id="sortOption" class="form-select form-select-sm fw-bold text-primary w-100 w-md-auto shadow-sm" style="cursor: pointer; border-color: #0d6efd; min-width: 160px;">
                                         <option value="recent">최근 등록순</option>
                                         <option value="vol_desc">검색량 높은순</option>
                                         <option value="vol_asc">검색량 낮은순</option>
+                                        <option value="diff_naver_desc">N카운트 상승(+)순</option>
+                                        <option value="diff_naver_asc">N카운트 하락(-)순</option>
+                                        <option value="diff_sales_desc">판매수 상승(+)순</option>
+                                        <option value="diff_sales_asc">판매수 하락(-)순</option>
                                     </select>
                                 </div>
                             </div>
@@ -323,8 +338,9 @@
     document.getElementById('maxVolume').addEventListener('input', function() { currentPage = 1; renderTable(); });
     document.getElementById('searchCategory').addEventListener('change', function(e) { searchCategory = e.target.value; currentPage = 1; renderTable(); });
     document.getElementById('sortOption').addEventListener('change', function(e) { currentSort = e.target.value; currentPage = 1; renderTable(); });
+    // ✨ 추세 필터 이벤트 리스너 추가
+    document.getElementById('trendFilter').addEventListener('change', function(e) { currentPage = 1; renderTable(); });
     
-    // ✨ 전체 보기 옵션 처리
     document.getElementById('itemsPerPageSelect').addEventListener('change', function(e) { 
         let val = e.target.value;
         itemsPerPage = (val === 'all') ? 999999 : parseInt(val);
@@ -458,6 +474,7 @@
         paginationEl.innerHTML = html;
     }
 
+    // ✨ 데이터 표 렌더링 및 계산
     function renderTable() {
         if (isEditing) return;
         const tbody = document.getElementById('savedKeywordsBody');
@@ -470,8 +487,30 @@
         let maxVol = isNaN(maxVolVal) ? Infinity : maxVolVal;
         
         let periodDays = parseInt(document.getElementById('tablePeriodSelect').value) || 1;
+        let trendFilter = document.getElementById('trendFilter').value; // 추세 필터 값 읽기
 
         let filteredData = allKeywordsData.filter(k => {
+            // 1. 변화량 계산 (필터링 및 정렬을 위해 미리 계산)
+            let diffNaver = 0;
+            let diffSales = 0;
+            if(k.history && k.history.length > 0) {
+                let currentH = k.history[k.history.length - 1]; 
+                let pastIndex = Math.max(0, k.history.length - 1 - periodDays); 
+                let pastH = k.history[pastIndex];
+                diffNaver = currentH.search_volume - pastH.search_volume;
+                diffSales = (currentH.sales_quantity || 0) - (pastH.sales_quantity || 0);
+            }
+            // 임시 저장
+            k._tempDiffNaver = diffNaver;
+            k._tempDiffSales = diffSales;
+
+            // 2. 추세 필터링 적용 (+만 보기, -만 보기)
+            if (trendFilter === 'naver_up' && diffNaver <= 0) return false;
+            if (trendFilter === 'naver_down' && diffNaver >= 0) return false;
+            if (trendFilter === 'sales_up' && diffSales <= 0) return false;
+            if (trendFilter === 'sales_down' && diffSales >= 0) return false;
+
+            // 3. 기존 검색 조건 필터링
             let matchSearch = true;
             if (isGlobalSearch) {
                 const kw = (k.keyword || '').toLowerCase();
@@ -494,9 +533,14 @@
             }
         });
 
+        // ✨ 4. 강력한 다중 정렬 적용 (+ 높은순, - 낮은순 등)
         if (currentSort === 'vol_desc') filteredData.sort((a, b) => b.search_volume - a.search_volume);
         else if (currentSort === 'vol_asc') filteredData.sort((a, b) => a.search_volume - b.search_volume);
-        else filteredData.sort((a, b) => b.id - a.id);
+        else if (currentSort === 'diff_naver_desc') filteredData.sort((a, b) => b._tempDiffNaver - a._tempDiffNaver);
+        else if (currentSort === 'diff_naver_asc') filteredData.sort((a, b) => a._tempDiffNaver - b._tempDiffNaver);
+        else if (currentSort === 'diff_sales_desc') filteredData.sort((a, b) => b._tempDiffSales - a._tempDiffSales);
+        else if (currentSort === 'diff_sales_asc') filteredData.sort((a, b) => a._tempDiffSales - b._tempDiffSales);
+        else filteredData.sort((a, b) => b.id - a.id); // recent (default)
         
         let totalItems = filteredData.length;
         let totalPages = Math.ceil(totalItems / itemsPerPage) || 1;
@@ -512,15 +556,8 @@
                 if(k.grade === 'C') kwBgColor = 'bg-neon-orange';
                 if(k.grade === 'MAIN') kwBgColor = 'bg-neon-pink';
                 
-                let diffNaver = 0;
-                let diffSales = 0;
-                if(k.history && k.history.length > 0) {
-                    let currentH = k.history[k.history.length - 1]; 
-                    let pastIndex = Math.max(0, k.history.length - 1 - periodDays); 
-                    let pastH = k.history[pastIndex];
-                    diffNaver = currentH.search_volume - pastH.search_volume;
-                    diffSales = (currentH.sales_quantity || 0) - (pastH.sales_quantity || 0);
-                }
+                let diffNaver = k._tempDiffNaver || 0;
+                let diffSales = k._tempDiffSales || 0;
                 
                 const formatBadge = (diff) => {
                     if(diff > 0) return `<span class="badge bg-danger rounded-pill ms-1">+${diff}</span>`;
@@ -663,7 +700,6 @@
         });
     }
 
-    // ✨ 일괄 삭제 함수
     async function deleteSelectedKeywords() {
         if (checkedIds.size === 0) {
             alert("삭제할 항목을 왼쪽 체크박스로 먼저 선택해주세요!");
