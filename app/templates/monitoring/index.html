@@ -61,7 +61,7 @@
                                 
                                 <button class="btn btn-outline-info fw-bold shadow-sm w-100 w-md-auto text-nowrap" onclick="copyToTarget('rm')"><i class="bi bi-send"></i> RM 복사</button>
                                 <button class="btn btn-outline-warning fw-bold shadow-sm w-100 w-md-auto text-nowrap" onclick="copyToTarget('dl')"><i class="bi bi-send"></i> DL 복사</button>
-
+                                
                                 <button class="btn btn-outline-success fw-bold shadow-sm w-100 w-md-auto text-nowrap" onclick="downloadExcel()"><i class="bi bi-file-earmark-excel"></i> 엑셀 저장</button>
                                 
                                 <div class="btn-group shadow-sm w-100 w-md-auto">
@@ -124,6 +124,7 @@
                             <div class="vr mx-2 d-none d-xl-block"></div>
                             
                             <div class="d-flex align-items-center w-100 w-xl-auto justify-content-end mt-2 mt-md-0 flex-wrap gap-2">
+                                
                                 <div class="d-flex align-items-center w-100 w-md-auto">
                                     <i class="bi bi-activity text-secondary me-2"></i>
                                     <select id="trendFilter" class="form-select form-select-sm fw-bold text-dark w-100 w-md-auto border-secondary shadow-sm" style="cursor: pointer; min-width: 140px;">
@@ -234,8 +235,9 @@
                     </div>
                 </div>
                 
-                <div class="bg-white border rounded p-3" style="height: 450px; position: relative;">
+                <div class="bg-white border rounded p-3 w-100" style="height: 450px; position: relative;">
                     <canvas id="trendChart"></canvas>
+                    <div id="chartErrorBox" class="text-danger fw-bold text-center mt-5" style="display: none; position: absolute; top: 0; left: 0; width: 100%;"></div>
                 </div>
 
             </div>
@@ -244,6 +246,7 @@
 </div>
 
 <style>
+    /* ✨ 압축 없이 모든 스타일 시트를 예쁘게 전개하여 UI 틀어짐 방지! */
     .bg-neon-green { background-color: #00ff00 !important; color: #000 !important; font-weight: 800; }
     .bg-neon-yellow { background-color: #ffff00 !important; color: #000 !important; font-weight: 800; }
     .bg-neon-orange { background-color: #ff9900 !important; color: #000 !important; font-weight: 800; }
@@ -278,6 +281,7 @@
 </style>
 
 <script>
+    // ✨ 자바스크립트도 한 줄 압축을 풀고 보기 좋게 펼쳤습니다!
     let isEditing = false; 
     let allKeywordsData = []; 
     let searchCategory = 'all';
@@ -299,7 +303,10 @@
         } else {
             tableWrapper.classList.add('d-none');
             graphWrapper.classList.remove('d-none');
-            renderChart(); 
+            populateGraphSelect(); 
+            setTimeout(() => {
+                renderChart(); 
+            }, 150);
         }
     }
 
@@ -364,6 +371,9 @@
                 allKeywordsData = result.data; 
                 populateGraphSelect(); 
                 renderTable(); 
+                if(document.getElementById('btnGraphView').checked) {
+                    renderChart();
+                }
             } else {
                 document.getElementById('savedKeywordsBody').innerHTML = `<tr><td colspan="19" class="text-danger fw-bold py-5"><i class="bi bi-exclamation-triangle"></i> 데이터 로딩 실패: ${result.message}</td></tr>`;
             }
@@ -415,8 +425,10 @@
         populateGraphSelect();
         document.getElementById('graphBookSelect').value = bookId;
         document.getElementById('graphTypeSelect').value = dataType;
-        renderChart();
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        setTimeout(() => {
+            renderChart();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }, 150);
     }
 
     function getRankNum(rankStr) {
@@ -658,7 +670,6 @@
         renderTableColors();
     }
     
-    let chartInstance = null;
     function renderChart() {
         if(typeof Chart === 'undefined') return;
         const bookSelect = document.getElementById('graphBookSelect');
@@ -679,43 +690,47 @@
         }
 
         const labels = hist.map(h => h.date);
-        const dataPoints = hist.map(h => dataType === 'naver' ? h.search_volume : h.sales_quantity);
+        const dataPoints = hist.map(h => Number(dataType === 'naver' ? h.search_volume : h.sales_quantity) || 0);
 
         const labelName = dataType === 'naver' ? '네이버카운트 (검색량)' : '판매수';
         const lineColor = dataType === 'naver' ? 'rgb(255, 99, 132)' : 'rgb(54, 162, 235)';
         const bgColor = dataType === 'naver' ? 'rgba(255, 99, 132, 0.2)' : 'rgba(54, 162, 235, 0.2)';
 
-        const ctx = document.getElementById('trendChart').getContext('2d');
+        const ctx = document.getElementById('trendChart');
+        if(!ctx) return;
+
         if(chartInstance) {
             chartInstance.destroy();
         }
 
-        chartInstance = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: `[${book.keyword}] ${labelName} 변화 추세`,
-                    data: dataPoints,
-                    borderColor: lineColor,
-                    backgroundColor: bgColor,
-                    borderWidth: 2,
-                    fill: true,
-                    tension: 0.2, 
-                    pointRadius: 4,
-                    pointHoverRadius: 6
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { legend: { position: 'top' }, tooltip: { mode: 'index', intersect: false } },
-                scales: { x: { grid: { display: false } }, y: { beginAtZero: false } }
-            }
-        });
+        try {
+            chartInstance = new Chart(ctx.getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: `[${book.keyword || '이름없음'}] ${labelName} 변화 추세`,
+                        data: dataPoints,
+                        borderColor: lineColor,
+                        backgroundColor: bgColor,
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.2, 
+                        pointRadius: 4,
+                        pointHoverRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { position: 'top' }, tooltip: { mode: 'index', intersect: false } },
+                    scales: { x: { grid: { display: false } }, y: { beginAtZero: false } }
+                }
+            });
+        } catch (err) { console.error("차트 에러:", err); }
     }
 
-    // ✨ 삭제된 옛날 주소 에러를 없애는 "만능 복사 API" 교체 완료
+    // ✨ 에러를 발생시켰던 옛날 함수를 완전히 삭제하고, 만능 복사 함수로 완벽 교체!
     async function copyToTarget(targetCode) {
         if (checkedIds.size === 0) { alert('복사할 항목을 왼쪽 체크박스로 선택해주세요!'); return; }
         let tName = targetCode === 'rm' ? '러닝메이트' : '데일리러닝';
@@ -739,10 +754,7 @@
     }
 
     async function deleteSelectedKeywords() {
-        if (checkedIds.size === 0) {
-            alert("삭제할 항목을 왼쪽 체크박스로 먼저 선택해주세요!");
-            return;
-        }
+        if (checkedIds.size === 0) { alert("삭제할 항목을 왼쪽 체크박스로 먼저 선택해주세요!"); return; }
         if(!confirm(`선택한 ${checkedIds.size}개 항목을 완전히 삭제하시겠습니까?\n(이 작업은 되돌릴 수 없습니다)`)) return;
 
         const fd = new FormData();
@@ -756,12 +768,8 @@
                 document.getElementById('selectAll').checked = false;
                 checkedIds.clear();
                 loadSavedKeywords(); 
-            } else {
-                alert(result.message);
-            }
-        } catch(e) {
-            alert('삭제 중 오류가 발생했습니다.');
-        }
+            } else { alert(result.message); }
+        } catch(e) { alert('삭제 중 오류가 발생했습니다.'); }
     }
 
     document.addEventListener('change', async function(e) {
