@@ -71,7 +71,7 @@
                                         <li class="px-3 py-2 bg-light border-bottom mb-1" onclick="event.stopPropagation();">
                                             <div class="form-check form-switch mb-0">
                                                 <input class="form-check-input" type="checkbox" id="fillEmptyOnly" style="cursor: pointer;">
-                                                <label class="form-check-label fw-bold text-secondary small" for="fillEmptyOnly" style="cursor: pointer;">빈 칸만 채우기</label>
+                                                <label class="form-check-label fw-bold text-secondary small" for="fillEmptyOnly" style="cursor: pointer;">빈 칸만 채우기 (덮어쓰기 방지)</label>
                                             </div>
                                         </li>
                                         <li><a class="dropdown-item fw-bold text-primary" href="#" onclick="refreshByIsbn('all', event)"><i class="bi bi-check-all"></i> 모두 업데이트</a></li>
@@ -93,7 +93,8 @@
                                 <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-success" role="progressbar" style="width: 0%;">0%</div>
                             </div>
                             <div class="bg-white border rounded p-2 overflow-auto" style="height: 100px;">
-                                <ul id="logList" class="list-unstyled mb-0 small text-muted font-monospace"></ul>
+                                <ul id="logList" class="list-unstyled mb-0 small text-muted font-monospace">
+                                </ul>
                             </div>
                         </div>
 
@@ -280,10 +281,15 @@
     let currentPage = 1;
     let itemsPerPage = 50;
     let pollingInterval = null;
+    
+    let chartInstance = null;
+    let renderTimeout = null; // ✨ 충돌 방지를 위한 대기열 타이머
 
+    // ✨ 중복 실행을 막아주는 안전한 화면 전환
     function switchView(mode) {
         const tableWrapper = document.getElementById('tableViewWrapper');
         const graphWrapper = document.getElementById('graphViewWrapper');
+        
         if(mode === 'table') {
             tableWrapper.classList.remove('d-none');
             graphWrapper.classList.add('d-none');
@@ -291,7 +297,10 @@
             tableWrapper.classList.add('d-none');
             graphWrapper.classList.remove('d-none');
             populateGraphSelect(); 
-            setTimeout(() => { renderChart(); }, 200);
+            
+            // 기존에 대기중인 그리기 명령이 있으면 취소! (안전장치)
+            if(renderTimeout) clearTimeout(renderTimeout);
+            renderTimeout = setTimeout(() => { renderChart(); }, 150);
         }
     }
 
@@ -384,21 +393,36 @@
             select.value = select.options[0].value;
             renderChart(); 
         } else {
-            if (chartInstance) chartInstance.destroy(); 
+            // 항목이 없으면 캔버스 부수기!
+            if (chartInstance) {
+                chartInstance.destroy(); 
+                chartInstance = null;
+            }
+            document.getElementById('chartContainer').innerHTML = '<canvas id="trendChart"></canvas>';
         }
     }
 
+    // ✨ 중복 실행을 막아주는 안전한 강제 이동 함수
     function goToGraph(bookId, dataType) {
         document.getElementById('btnGraphView').checked = true;
-        switchView('graph');
+        
+        const tableWrapper = document.getElementById('tableViewWrapper');
+        const graphWrapper = document.getElementById('graphViewWrapper');
+        tableWrapper.classList.add('d-none');
+        graphWrapper.classList.remove('d-none');
+
         document.getElementById('graphKeywordSearch').value = '';
         populateGraphSelect();
+        
         document.getElementById('graphBookSelect').value = bookId;
         document.getElementById('graphTypeSelect').value = dataType;
-        setTimeout(() => {
+        
+        // 0.15초 뒤에 한 번만 딱 실행!
+        if(renderTimeout) clearTimeout(renderTimeout);
+        renderTimeout = setTimeout(() => {
             renderChart();
             window.scrollTo({ top: 0, behavior: 'smooth' });
-        }, 200);
+        }, 150);
     }
 
     function getRankNum(rankStr) {
@@ -589,7 +613,7 @@
         renderTableColors();
     }
     
-    // ✨ 그래프 렌더링을 위한 하드 리셋 기법
+    // ✨ 차트 파괴 및 재조립(하드 리셋) 로직 완벽 적용
     function renderChart() {
         if(typeof Chart === 'undefined') return;
         const bookSelect = document.getElementById('graphBookSelect');
@@ -616,11 +640,18 @@
         const lineColor = dataType === 'naver' ? 'rgb(255, 99, 132)' : 'rgb(54, 162, 235)';
         const bgColor = dataType === 'naver' ? 'rgba(255, 99, 132, 0.2)' : 'rgba(54, 162, 235, 0.2)';
 
-        // 캔버스를 완전히 다시 깔아 고장 방지!
-        document.getElementById('chartContainer').innerHTML = '<canvas id="trendChart"></canvas>';
-        const ctx = document.getElementById('trendChart').getContext('2d');
+        // ✨ 핵심: 차트를 먼저 안전하게 파괴해야 에러가 안 납니다!
+        if(chartInstance) {
+            chartInstance.destroy();
+            chartInstance = null;
+        }
 
-        if(chartInstance) { chartInstance.destroy(); }
+        // 그 후 캔버스를 교체
+        const container = document.getElementById('chartContainer');
+        if(!container) return;
+        container.innerHTML = '<canvas id="trendChart"></canvas>';
+        
+        const ctx = document.getElementById('trendChart').getContext('2d');
 
         try {
             chartInstance = new Chart(ctx, {
@@ -644,7 +675,6 @@
         } catch (err) { console.error("차트 에러:", err); }
     }
 
-    // ✨ 에러를 막아주는 새로운 만능 복사 API
     async function copyToTarget(targetCode) {
         if (checkedIds.size === 0) { alert('복사할 항목을 왼쪽 체크박스로 선택해주세요!'); return; }
         let tName = targetCode === 'rm' ? '러닝메이트' : '데일리러닝';
@@ -743,10 +773,15 @@
         async function saveChanges() {
             if (isSaved) return; 
             isSaved = true;
+
             let newVal = input.value.trim();
             let item = allKeywordsData.find(i => i.id === id);
 
-            if (newVal === currentVal) { isEditing = false; renderTable(); return; }
+            if (newVal === currentVal) {
+                isEditing = false;
+                renderTable(); 
+                return;
+            }
 
             const fd = new FormData();
             fd.append('id', id);
@@ -894,6 +929,24 @@
             const result = await res.json();
             if(result.success) { alert(result.message); loadSavedKeywords(); }
         } catch(e) { alert('초기화 중 오류가 발생했습니다.'); }
+    }
+
+    function downloadExcel() {
+        if (allKeywordsData.length === 0) { alert('다운로드할 데이터가 없습니다.'); return; }
+        let csvContent = "\uFEFF";
+        csvContent += "순번,등록일자,키워드,등급,검색량,판매수,순위,상점,재고수,판매상태,출판사,공급률,ISBN,가격,택배비,상품명,상품링크\n";
+        allKeywordsData.forEach((k, idx) => {
+            let row = [ idx + 1, k.registered_at, k.keyword, k.grade, k.search_volume, k.sales_quantity, k.store_rank, k.store_name, k.stock_quantity, k.sales_status, k.publisher, k.supply_rate, k.isbn, k.price, k.shipping_fee, k.book_title, k.product_link ].map(v => `"${(v || '').toString().replace(/"/g, '""')}"`).join(",");
+            csvContent += row + "\n";
+        });
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.setAttribute("href", url);
+        link.setAttribute("download", "모니터링_전체데이터.csv");
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
     }
 
     document.addEventListener("DOMContentLoaded", () => {
