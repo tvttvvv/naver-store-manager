@@ -159,8 +159,14 @@ def background_delete_job(app, store_id, delete_mode, isbn_list, user_id):
                         future_to_item = {}
                         for p in new_items:
                             origin_no = p.get('originProductNo')
-                            channel_no = p.get('channelProductNo')
-                            name = str(p.get('name', '이름 없음'))
+                            
+                            # ✨ [수정] 일괄 삭제에서도 정확한 채널 ID와 상품명을 가져오도록 변경
+                            c_prods = p.get('channelProducts', [{}])
+                            c_prod = c_prods[0] if c_prods else {}
+                            
+                            channel_no = c_prod.get('channelProductNo') or p.get('channelProductNo')
+                            name = str(c_prod.get('name') or p.get('name') or '이름 없음')
+                            
                             future = executor.submit(delete_product, token, origin_no, channel_no)
                             future_to_item[future] = (origin_no, channel_no, name)
                             
@@ -212,7 +218,7 @@ def background_delete_job(app, store_id, delete_mode, isbn_list, user_id):
 
 
 # ==============================================================================
-# 2. 상품 중복 체크용 멀티 엔진 (✨ 판매중 & 정밀 ISBN 검사 탑재 완료 ✨)
+# 2. 상품 중복 체크용 멀티 엔진
 # ==============================================================================
 global_dup_tasks = {}
 
@@ -277,17 +283,13 @@ def background_duplicate_check_job(app, store_id, user_id):
                 total_fetched += len(contents)
                 
                 for p in contents:
-                    # ✨ 1. 스마트스토어 채널의 실제 상품 상태를 확인합니다.
                     channel_products = p.get('channelProducts', [{}])
                     c_prod = channel_products[0] if channel_products else {}
-                    
                     channel_status = str(c_prod.get('statusType', '')).upper()
                     
-                    # ✨ 2. 채널 상태가 비어 있다면 원상품의 상태를 가져옵니다.
                     if not channel_status:
                         channel_status = str(p.get('statusType', '')).upper()
                     
-                    # ✨ 3. 오직 '판매중(SALE)' 상태인 상품만 중복 검사 대상에 추가합니다.
                     if channel_status == 'SALE':
                         all_products.append(p)
                     
@@ -322,15 +324,12 @@ def background_duplicate_check_job(app, store_id, user_id):
                 is_duplicate = False
                 original_id = None
                 
-                # ✨ 핵심 수정: ISBN이 있으면 무조건 ISBN으로만 판단! (이름이 같아도 다른 책이면 넘어감)
                 if is_valid_isbn:
                     if raw_isbn in seen_isbns:
                         is_duplicate = True
                         original_id = seen_isbns[raw_isbn]
                     else:
                         seen_isbns[raw_isbn] = prod_id
-                
-                # ✨ ISBN이 없는 상품에 한해서만 이름 검사 진행
                 else:
                     clean_name = re.sub(r'[\s\-_\(\)\[\]]', '', name).lower().replace('복사본', '').replace('copy', '')
                     if clean_name in seen_names:
