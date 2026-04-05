@@ -212,7 +212,7 @@ def background_delete_job(app, store_id, delete_mode, isbn_list, user_id):
 
 
 # ==============================================================================
-# 2. 상품 중복 체크용 멀티 엔진 (✨ 속도 최적화 & 대기/복사본 필터 탑재 완료 ✨)
+# 2. 상품 중복 체크용 멀티 엔진 (✨ 판매중 상품 전용 스캔 탑재 완료 ✨)
 # ==============================================================================
 global_dup_tasks = {}
 
@@ -248,7 +248,7 @@ def background_duplicate_check_job(app, store_id, user_id):
                 update_dup_task(user_id, store_id, status='error', message='API 인증에 실패했습니다.')
                 return
 
-            update_dup_task(user_id, store_id, status='start', message='초고속 판매중(SALE/WAIT) 상품 스캔 가동...')
+            update_dup_task(user_id, store_id, status='start', message='초고속 판매중(SALE) 상품 스캔 가동...')
             url = "https://api.commerce.naver.com/external/v1/products/search"
             headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
             
@@ -277,14 +277,21 @@ def background_duplicate_check_job(app, store_id, user_id):
                 total_fetched += len(contents)
                 
                 for p in contents:
-                    # ✨ 바깥쪽 루트에 있는 진짜 상태값을 가져옵니다.
-                    status_type = str(p.get('statusType', '')).upper()
+                    # 1. 스마트스토어 채널의 실제 상품 상태를 가장 먼저 확인합니다.
+                    channel_products = p.get('channelProducts', [{}])
+                    channel_status = ''
+                    if channel_products:
+                        channel_status = str(channel_products[0].get('statusType', '')).upper()
+                        
+                    # 2. 채널 상태가 비어 있다면 원상품의 상태를 가져옵니다.
+                    if not channel_status:
+                        channel_status = str(p.get('statusType', '')).upper()
                     
-                    # ✨ 치명적 버그 수정: 등록 직후 검사 시 'WAIT(판매대기)' 상태일 수 있으므로 같이 담습니다!
-                    if status_type in ['SALE', 'WAIT']:
+                    # 3. 오직 '판매중(SALE)' 상태인 상품만 중복 검사 대상에 추가합니다.
+                    if channel_status == 'SALE':
                         all_products.append(p)
                     
-                update_dup_task(user_id, store_id, status='progress', current=len(all_products), message=f'초고속 스캔 중... (스토어 전체: {total_fetched}개 탐색 / 대상: {len(all_products)}개 획득)')
+                update_dup_task(user_id, store_id, status='progress', current=len(all_products), message=f'초고속 스캔 중... (스토어 전체: {total_fetched}개 탐색 / 판매중 대상: {len(all_products)}개 획득)')
                 
                 if len(contents) < 50: break
                 page += 1
@@ -294,7 +301,7 @@ def background_duplicate_check_job(app, store_id, user_id):
                 update_dup_task(user_id, store_id, status='error', message='사용자에 의해 검사가 강제 종료되었습니다.')
                 return
 
-            update_dup_task(user_id, store_id, status='info', message=f'스캔 완료! {len(all_products)}개 상품의 중복(복사본 포함) 정밀 분석 중...')
+            update_dup_task(user_id, store_id, status='info', message=f'스캔 완료! {len(all_products)}개 판매중 상품의 중복(복사본 포함) 정밀 분석 중...')
             
             seen_isbns = {}
             seen_names = {}
