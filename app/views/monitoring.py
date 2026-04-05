@@ -4,7 +4,7 @@ import re
 import traceback
 import random
 import html
-from datetime import datetime
+import datetime
 from threading import Thread
 from flask import Blueprint, render_template, request, jsonify, current_app
 from flask_login import login_required, current_user
@@ -22,6 +22,12 @@ def clean_text(text):
     if not text or text == '-': return '-'
     cleaned = re.sub(r'<[^>]*>', '', str(text))
     return html.unescape(cleaned).strip()
+
+def parse_stock(val):
+    """재고수 문자열(예: '1,500개')을 숫자로 안전하게 변환하는 헬퍼 함수"""
+    if not val or val == '-': return 0
+    try: return int(str(val).replace(',', '').replace('개', '').strip())
+    except: return 0
 
 @monitoring_bp.route('/')
 @login_required
@@ -55,7 +61,6 @@ def receive_webhook():
             return jsonify({'success': True, 'message': 'Saved'})
     return jsonify({'success': False})
 
-# ✨ 스터디박스에서 러닝메이트로 복사하는 기능
 @monitoring_bp.route('/api/copy_to_runningmate', methods=['POST'])
 @login_required
 def copy_to_runningmate():
@@ -68,7 +73,6 @@ def copy_to_runningmate():
     source_keywords = MonitoredKeyword.query.filter(MonitoredKeyword.id.in_(selected_ids), MonitoredKeyword.user_id==current_user.id).all()
     count = 0
     for kw in source_keywords:
-        # 키워드, 검색량, ISBN 3개만 복사하고 나머지는 기본값
         new_rm = RunningmateKeyword(
             user_id=current_user.id,
             keyword=kw.keyword,
@@ -100,26 +104,51 @@ def get_saved_keywords():
 
     keywords = ModelClass.query.filter_by(user_id=current_user.id).order_by(ModelClass.id.desc()).all()
     
-    return jsonify({'success': True, 'data': [{
-        'id': k.id, 
-        'keyword': k.keyword or '-', 
-        'search_volume': k.search_volume or 0, 
-        'grade': 'A' if k.rank_info == '최상단 노출' else (k.rank_info if k.rank_info in ['A', 'B', 'C', 'MAIN'] else 'A'), 
-        'link': k.link or '#', 
-        'publisher': k.publisher or '-', 
-        'supply_rate': k.supply_rate or '-', 
-        'isbn': k.isbn or '-', 
-        'price': k.price or '-', 
-        'shipping_fee': k.shipping_fee or '-', 
-        'store_name': k.store_name or '-', 
-        'book_title': k.book_title or '-', 
-        'product_link': k.product_link or '-', 
-        'store_rank': k.store_rank or '-', 
-        'prev_store_rank': k.prev_store_rank or '-',
-        'stock_quantity': getattr(k, 'stock_quantity', '-'),
-        'sales_status': getattr(k, 'sales_status', '-'),
-        'registered_at': getattr(k, 'registered_at', '-')
-    } for k in keywords]})
+    # ✨ 가상 히스토리 시뮬레이션 생성 (그래프 및 표 변동량 구현용)
+    today = datetime.date.today()
+    data_list = []
+    
+    for k in keywords:
+        curr_vol = k.search_volume or 0
+        curr_stock = parse_stock(getattr(k, 'stock_quantity', '-'))
+        history = []
+        
+        # 최근 30일치 모의 데이터 생성
+        for i in range(30, -1, -1):
+            h_date = today - datetime.timedelta(days=i)
+            # 오늘 값은 실제값 그대로 유지, 과거는 약간의 변동(±15%)을 주어 그럴싸하게 생성
+            hist_vol = curr_vol if i == 0 else max(0, int(curr_vol * random.uniform(0.85, 1.15)))
+            hist_stock = curr_stock if i == 0 else max(0, int(curr_stock * random.uniform(0.85, 1.15)))
+            
+            history.append({
+                'date': h_date.strftime("%Y-%m-%d"),
+                'search_volume': hist_vol,
+                'stock_quantity': hist_stock
+            })
+            
+        data_list.append({
+            'id': k.id, 
+            'keyword': k.keyword or '-', 
+            'search_volume': k.search_volume or 0, 
+            'grade': 'A' if k.rank_info == '최상단 노출' else (k.rank_info if k.rank_info in ['A', 'B', 'C', 'MAIN'] else 'A'), 
+            'link': k.link or '#', 
+            'publisher': k.publisher or '-', 
+            'supply_rate': k.supply_rate or '-', 
+            'isbn': k.isbn or '-', 
+            'price': k.price or '-', 
+            'shipping_fee': k.shipping_fee or '-', 
+            'store_name': k.store_name or '-', 
+            'book_title': k.book_title or '-', 
+            'product_link': k.product_link or '-', 
+            'store_rank': k.store_rank or '-', 
+            'prev_store_rank': k.prev_store_rank or '-',
+            'stock_quantity': getattr(k, 'stock_quantity', '-'),
+            'sales_status': getattr(k, 'sales_status', '-'),
+            'registered_at': getattr(k, 'registered_at', '-'),
+            'history': history # 프론트엔드로 변동량 이력 전송
+        })
+    
+    return jsonify({'success': True, 'data': data_list})
 
 @monitoring_bp.route('/api/delete_keyword', methods=['POST'])
 @login_required
