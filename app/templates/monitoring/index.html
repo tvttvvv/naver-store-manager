@@ -152,6 +152,7 @@
                                         <th>등록날짜</th>
                                         <th>키워드</th>
                                         <th>네이버카운트</th>
+                                        <th class="text-danger">판매수</th> 
                                         <th>순위</th>
                                         <th class="text-primary fw-bold">상점 선택</th>
                                         <th>재고수</th>
@@ -168,7 +169,7 @@
                                     </tr>
                                 </thead>
                                 <tbody id="savedKeywordsBody">
-                                    <tr><td colspan="18" class="text-center py-5 text-muted">데이터를 가져오는 중입니다...</td></tr>
+                                    <tr><td colspan="19" class="text-center py-5 text-muted">데이터를 가져오는 중입니다...</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -191,13 +192,13 @@
                     <div class="col-md-4 mb-3 mb-md-0">
                         <label class="form-label fw-bold text-muted mb-1" style="font-size: 13px;"><i class="bi bi-funnel"></i> 대상 키워드 선택</label>
                         <select id="graphBookSelect" class="form-select border-primary fw-bold" onchange="renderChart()">
-                            </select>
+                        </select>
                     </div>
                     <div class="col-md-4 mb-3 mb-md-0">
                         <label class="form-label fw-bold text-muted mb-1" style="font-size: 13px;"><i class="bi bi-bar-chart"></i> 그래프 데이터 선택</label>
                         <select id="graphTypeSelect" class="form-select fw-bold" onchange="renderChart()">
                             <option value="naver" selected>네이버 카운트 변화</option>
-                            <option value="stock">재고수 변화</option>
+                            <option value="sales">판매수 변화</option>
                         </select>
                     </div>
                     <div class="col-md-4">
@@ -259,10 +260,8 @@
     let lastCheckedCheckbox = null;
     let currentPage = 1;
     let itemsPerPage = 50;
-    
     let pollingInterval = null;
 
-    // ✨ 탭 전환 제어 함수
     function switchView(mode) {
         const tableWrapper = document.getElementById('tableViewWrapper');
         const graphWrapper = document.getElementById('graphViewWrapper');
@@ -272,7 +271,7 @@
         } else {
             tableWrapper.classList.add('d-none');
             graphWrapper.classList.remove('d-none');
-            renderChart(); // 탭 이동 시 그래프 즉시 렌더링
+            renderChart(); 
         }
     }
 
@@ -409,7 +408,6 @@
         let minVol = isNaN(minVolVal) ? 0 : minVolVal;
         let maxVol = isNaN(maxVolVal) ? Infinity : maxVolVal;
         
-        // ✨ 기간 선택 값 읽어오기
         let periodDays = parseInt(document.getElementById('tablePeriodSelect').value) || 1;
 
         let filteredData = allKeywordsData.filter(k => {
@@ -453,15 +451,15 @@
                 if(k.grade === 'C') kwBgColor = 'bg-neon-orange';
                 if(k.grade === 'MAIN') kwBgColor = 'bg-neon-pink';
                 
-                // ✨ 변동량 계산 (+/- 배지 생성)
+                // ✨ 네이버 카운트 & 판매수 증감 배지 계산
                 let diffNaver = 0;
-                let diffStock = 0;
+                let diffSales = 0;
                 if(k.history && k.history.length > 0) {
-                    let currentH = k.history[k.history.length - 1]; // 오늘
-                    let pastIndex = Math.max(0, k.history.length - 1 - periodDays); // N일 전
+                    let currentH = k.history[k.history.length - 1]; 
+                    let pastIndex = Math.max(0, k.history.length - 1 - periodDays); 
                     let pastH = k.history[pastIndex];
                     diffNaver = currentH.search_volume - pastH.search_volume;
-                    diffStock = currentH.stock_quantity - pastH.stock_quantity;
+                    diffSales = (currentH.sales_quantity || 0) - (pastH.sales_quantity || 0);
                 }
                 
                 const formatBadge = (diff) => {
@@ -522,9 +520,10 @@
                     <td class="align-middle text-muted small">${k.registered_at || '-'}</td>
                     <td class="align-middle ${kwBgColor} fw-bold editable-cell" data-id="${k.id}" data-field="keyword" title="더블클릭하여 수정">${k.keyword || '-'}${gradeBadge}</td>
                     <td class="align-middle ${kwBgColor} fs-6">${(k.search_volume || 0).toLocaleString()} <br> ${formatBadge(diffNaver)}</td>
+                    <td class="align-middle text-danger fw-bold fs-6 editable-cell" data-id="${k.id}" data-field="sales_quantity" title="더블클릭하여 수정">${k.sales_quantity || '-'} <br> ${formatBadge(diffSales)}</td>
                     <td class="align-middle ${kwBgColor} text-dark editable-cell" data-id="${k.id}" data-field="store_rank" data-val="${safeRank}" title="더블클릭하여 수정">${rankDisplay}</td>
                     <td class="align-middle bg-light">${storeSelectHtml}</td>
-                    <td class="align-middle text-primary fw-bold editable-cell" data-id="${k.id}" data-field="stock_quantity" title="더블클릭하여 수정">${k.stock_quantity || '-'} <br> ${formatBadge(diffStock)}</td>
+                    <td class="align-middle text-primary fw-bold editable-cell" data-id="${k.id}" data-field="stock_quantity" title="더블클릭하여 수정">${k.stock_quantity || '-'}</td>
                     <td class="align-middle ${salesStatusColor} editable-cell" data-id="${k.id}" data-field="sales_status" title="더블클릭하여 수정">${k.sales_status || '-'}</td>
                     <td class="align-middle"><a href="${searchLink}" target="_blank" class="btn btn-sm btn-outline-secondary py-0 px-2 text-decoration-none"><i class="bi bi-search"></i> 검색</a></td>
                     <td class="align-middle editable-cell" data-id="${k.id}" data-field="product_link" data-val="${plink_val}" title="더블클릭하여 링크 수정">${linkBtn}</td>
@@ -540,24 +539,23 @@
             }).join('');
             renderPagination(totalItems);
         } else {
-            tbody.innerHTML = `<tr><td colspan="18" class="text-center py-5 text-muted">해당하는 데이터가 없습니다.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="19" class="text-center py-5 text-muted">해당하는 데이터가 없습니다.</td></tr>`;
             document.getElementById('paginationContainer').innerHTML = ''; 
         }
         renderTableColors();
     }
     
-    // ✨ 그래프 렌더링 함수
+    // ✨ 그래프 렌더링 (판매수 연동)
     let chartInstance = null;
     function renderChart() {
         const bookSelect = document.getElementById('graphBookSelect');
-        // 키워드 목록을 그래프 셀렉트박스에 초기 설정
         if(bookSelect.options.length === 0 || bookSelect.dataset.updated !== 'true') {
             bookSelect.innerHTML = allKeywordsData.map(k => `<option value="${k.id}">${k.keyword || '이름없음'}</option>`).join('');
             bookSelect.dataset.updated = 'true';
         }
         
         const bookId = bookSelect.value;
-        const dataType = document.getElementById('graphTypeSelect').value;
+        const dataType = document.getElementById('graphTypeSelect').value; // 'naver' 또는 'sales'
         const periodDays = parseInt(document.getElementById('graphPeriodSelect').value) || 30;
         
         const book = allKeywordsData.find(k => k.id == bookId);
@@ -569,9 +567,9 @@
         }
 
         const labels = hist.map(h => h.date);
-        const dataPoints = hist.map(h => dataType === 'naver' ? h.search_volume : h.stock_quantity);
+        const dataPoints = hist.map(h => dataType === 'naver' ? h.search_volume : h.sales_quantity);
 
-        const labelName = dataType === 'naver' ? '네이버카운트 (검색량)' : '재고수';
+        const labelName = dataType === 'naver' ? '네이버카운트 (검색량)' : '판매수';
         const lineColor = dataType === 'naver' ? 'rgb(255, 99, 132)' : 'rgb(54, 162, 235)'; // 핑크 vs 파랑
         const bgColor = dataType === 'naver' ? 'rgba(255, 99, 132, 0.2)' : 'rgba(54, 162, 235, 0.2)';
 
@@ -605,7 +603,7 @@
         });
     }
 
-    // 기타 이벤트 리스너들
+    // 기존 이벤트 리스너들
     document.addEventListener('change', async function(e) {
         if (e.target && e.target.classList.contains('store-select')) {
             let id = e.target.getAttribute('data-id');
@@ -842,9 +840,9 @@
     function downloadExcel() {
         if (allKeywordsData.length === 0) { alert('다운로드할 데이터가 없습니다.'); return; }
         let csvContent = "\uFEFF";
-        csvContent += "순번,등록일자,키워드,등급,검색량,순위,상점,재고수,판매상태,출판사,공급률,ISBN,가격,택배비,상품명,상품링크\n";
+        csvContent += "순번,등록일자,키워드,등급,검색량,판매수,순위,상점,재고수,판매상태,출판사,공급률,ISBN,가격,택배비,상품명,상품링크\n";
         allKeywordsData.forEach((k, idx) => {
-            let row = [ idx + 1, k.registered_at, k.keyword, k.grade, k.search_volume, k.store_rank, k.store_name, k.stock_quantity, k.sales_status, k.publisher, k.supply_rate, k.isbn, k.price, k.shipping_fee, k.book_title, k.product_link ].map(v => `"${(v || '').toString().replace(/"/g, '""')}"`).join(",");
+            let row = [ idx + 1, k.registered_at, k.keyword, k.grade, k.search_volume, k.sales_quantity, k.store_rank, k.store_name, k.stock_quantity, k.sales_status, k.publisher, k.supply_rate, k.isbn, k.price, k.shipping_fee, k.book_title, k.product_link ].map(v => `"${(v || '').toString().replace(/"/g, '""')}"`).join(",");
             csvContent += row + "\n";
         });
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
