@@ -216,6 +216,25 @@ def delete_keywords_bulk():
     db.session.commit()
     return jsonify({'success': True, 'message': f'✅ 선택한 {len(selected_ids)}개 항목이 성공적으로 삭제되었습니다.'})
 
+# ✨ 신규: 선택한 항목의 ISBN을 비워주는 API
+@monitoring_bp.route('/api/clear_isbn', methods=['POST'])
+@login_required
+def clear_isbn():
+    target = request.form.get('target_page', 'studybox')
+    ModelClass = MonitoredKeyword
+    if target == 'rm': ModelClass = RunningmateKeyword
+    elif target == 'dl': ModelClass = DailylearningKeyword
+    
+    selected_ids = request.form.getlist('ids[]')
+    if not selected_ids: return jsonify({'success': False, 'message': '선택된 항목이 없습니다.'})
+    
+    keywords = ModelClass.query.filter(ModelClass.id.in_(selected_ids), ModelClass.user_id == current_user.id).all()
+    for kw in keywords:
+        kw.isbn = '-'
+    db.session.commit()
+    
+    return jsonify({'success': True, 'message': f'✅ 선택한 {len(keywords)}개 항목의 ISBN이 초기화(비우기) 되었습니다!'})
+
 @monitoring_bp.route('/api/update_keyword', methods=['POST'])
 @login_required
 def update_keyword():
@@ -357,7 +376,6 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
     monitoring_tasks[task_key] = {"is_running": True, "total": len(target_ids), "current": 0, "logs": [], "mode": update_mode}
 
     with app.app_context():
-        # 상점 선택이 사라졌으므로, 유저의 첫 번째 유효한 API를 무조건 사용합니다.
         api_key = ApiKey.query.filter_by(user_id=user_id).first()
         commerce_token = None
         if api_key: commerce_token = get_naver_token(api_key.client_id, api_key.client_secret)
