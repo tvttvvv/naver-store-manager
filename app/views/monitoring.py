@@ -43,10 +43,12 @@ def runningmate():
 def dailylearning():
     return render_template('monitoring/dailylearning.html')
 
+# ✨ 핵심 업데이트: Bookall (웹훅)에서 데이터 수신 시 3곳 모두 중복 없이 처리!
 @monitoring_bp.route('/api/webhook', methods=['POST'])
 def receive_webhook():
     data = request.get_json()
     if not data: return jsonify({'success': False, 'message': 'No data'})
+    
     grade_str = str(data.get('grade', '')).upper()
     keyword = data.get('keyword', '')
     search_volume = data.get('search_volume', 0)
@@ -62,34 +64,48 @@ def receive_webhook():
         user = User.query.first()
         if not user: return jsonify({'success': False, 'message': 'No user found'})
 
+        # 테이블이 아직 생성되지 않은 경우를 대비 (안전장치)
+        try: RunningmateKeyword.__table__.create(db.engine, checkfirst=True)
+        except Exception: pass
+        try: DailylearningKeyword.__table__.create(db.engine, checkfirst=True)
+        except Exception: pass
+
+        # 1. 스터디박스 (MonitoredKeyword)
         existing_sb = MonitoredKeyword.query.filter_by(user_id=user.id, keyword=keyword).first()
         if existing_sb:
             existing_sb.search_volume = search_volume
             existing_sb.store_rank = store_rank
             existing_sb.rank_info = grade_char
         else:
-            new_kw = MonitoredKeyword(user_id=user.id, keyword=keyword, search_volume=search_volume, rank_info=grade_char, link=link, shipping_fee='-', store_rank=store_rank, prev_store_rank='-')
-            db.session.add(new_kw)
+            new_sb = MonitoredKeyword(user_id=user.id, keyword=keyword, search_volume=search_volume, rank_info=grade_char, link=link, shipping_fee='-', store_rank=store_rank, prev_store_rank='-')
+            db.session.add(new_sb)
 
-        try:
-            existing_rm = RunningmateKeyword.query.filter_by(user_id=user.id, keyword=keyword).first()
-            if existing_rm:
-                existing_rm.search_volume = search_volume
-                existing_rm.store_rank = store_rank
-                existing_rm.rank_info = grade_char
-                
-            existing_dl = DailylearningKeyword.query.filter_by(user_id=user.id, keyword=keyword).first()
-            if existing_dl:
-                existing_dl.search_volume = search_volume
-                existing_dl.store_rank = store_rank
-                existing_dl.rank_info = grade_char
-        except: pass
+        # 2. 러닝메이트 (RunningmateKeyword)
+        existing_rm = RunningmateKeyword.query.filter_by(user_id=user.id, keyword=keyword).first()
+        if existing_rm:
+            existing_rm.search_volume = search_volume
+            existing_rm.store_rank = store_rank
+            existing_rm.rank_info = grade_char
+        else:
+            new_rm = RunningmateKeyword(user_id=user.id, keyword=keyword, search_volume=search_volume, rank_info=grade_char, link=link, shipping_fee='-', store_rank=store_rank, prev_store_rank='-')
+            db.session.add(new_rm)
+            
+        # 3. 데일리러닝 (DailylearningKeyword)
+        existing_dl = DailylearningKeyword.query.filter_by(user_id=user.id, keyword=keyword).first()
+        if existing_dl:
+            existing_dl.search_volume = search_volume
+            existing_dl.store_rank = store_rank
+            existing_dl.rank_info = grade_char
+        else:
+            new_dl = DailylearningKeyword(user_id=user.id, keyword=keyword, search_volume=search_volume, rank_info=grade_char, link=link, shipping_fee='-', store_rank=store_rank, prev_store_rank='-')
+            db.session.add(new_dl)
 
         db.session.commit()
-        return jsonify({'success': True, 'message': 'Saved'})
+        return jsonify({'success': True, 'message': 'Saved to all 3 monitorings'})
+        
     return jsonify({'success': False})
 
-# ✨ 핵심 변경: 복사할 때 키워드, 검색량, 판매수만 가져오고 나머지는 싹 다 비웁니다!
+# 복사 시 키워드, 카운트, 판매수만 남기고 비우는 로직 유지
 @monitoring_bp.route('/api/copy_to_target', methods=['POST'])
 @login_required
 def copy_to_target():
@@ -113,7 +129,6 @@ def copy_to_target():
     source_keywords = SourceModel.query.filter(SourceModel.id.in_(selected_ids), SourceModel.user_id==current_user.id).all()
     count = 0
     for kw in source_keywords:
-        # 오직 키워드, 네이버카운트, 판매수만 빼오고 나머지는 강제 초기화('-')
         new_kw = TargetModel(
             user_id=current_user.id,
             keyword=kw.keyword,
@@ -334,21 +349,6 @@ def get_exact_product_info_commerce_api(token, isbn):
                     matched_product = item
                     break
     except Exception: pass
-
-    if not matched_product:
-        try:
-            payload = {"page": 1, "size": 50}
-            res = requests.post(url, headers=headers, json=payload, timeout=5)
-            if res.status_code == 200:
-                contents = res.json().get('contents', [])
-                for item in contents:
-                    c_prod = item.get('channelProducts', [{}])[0]
-                    item_code = str(c_prod.get('sellerManagementCode', '')).strip().replace('-', '')
-                    item_name = str(c_prod.get('name', '')).replace('-', '')
-                    if pure_isbn in item_code or pure_isbn in item_name:
-                        matched_product = item
-                        break
-        except Exception: pass
 
     result = {}
     if matched_product:
