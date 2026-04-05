@@ -4,119 +4,135 @@
 
 <h4 class="mb-4 fw-bold">스터디박스 모니터링</h4>
 
-<div class="card shadow-sm border-0 mb-4">
-    <div class="card-body p-4">
-        
-        <div class="d-flex justify-content-between align-items-center mb-3">
-            <h6 class="mb-0 fw-bold text-muted">키워드 및 내 상점 순위 현황</h6>
-            <div class="d-flex align-items-center gap-3">
-                <div class="input-group input-group-sm">
-                    <span class="input-group-text bg-white">변동 기간</span>
-                    <select id="tablePeriodSelect" class="form-select" onchange="updateTableDiffs()">
-                        <option value="1" selected>하루 전 대비</option>
-                        <option value="7">1주일 전 대비</option>
-                        <option value="30">한달 전 대비</option>
-                    </select>
+<ul class="nav nav-tabs mb-4" id="studyboxTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active fw-bold px-4" id="table-tab" data-bs-toggle="tab" data-bs-target="#table-pane" type="button" role="tab">
+            <i class="bi bi-table me-1"></i> 데이터 표
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link fw-bold px-4" id="graph-tab" data-bs-toggle="tab" data-bs-target="#graph-pane" type="button" role="tab">
+            <i class="bi bi-graph-up me-1"></i> 변화량 그래프
+        </button>
+    </li>
+</ul>
+
+<div class="tab-content" id="studyboxTabContent">
+    
+    <div class="tab-pane fade show active" id="table-pane" role="tabpanel" tabindex="0">
+        <div class="card shadow-sm border-0 mb-4">
+            <div class="card-body p-4">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h6 class="mb-0 fw-bold text-muted">키워드 및 내 상점 순위 현황</h6>
+                    <div class="d-flex align-items-center gap-3">
+                        <div class="input-group input-group-sm">
+                            <span class="input-group-text bg-white">변동 기간</span>
+                            <select id="tablePeriodSelect" class="form-select" onchange="updateTableDiffs()">
+                                <option value="1" selected>하루 전 대비</option>
+                                <option value="7">1주일 전 대비</option>
+                                <option value="30">한달 전 대비</option>
+                            </select>
+                        </div>
+                        <button class="btn btn-primary px-4 py-2 btn-sm" onclick="triggerManualUpdate()" id="updateBtn">
+                            수동 업데이트 및 Pro 연동
+                        </button>
+                    </div>
                 </div>
-                <button class="btn btn-primary px-4 py-2" onclick="triggerManualUpdate()" id="updateBtn">
-                    수동 업데이트 및 Pro 연동
-                </button>
+                
+                <div class="table-responsive border rounded">
+                    <table class="table table-bordered text-center align-middle mb-0" style="font-size: 14px;">
+                        <thead style="background-color: #00FFFF;">
+                            <tr>
+                                <th class="py-2">순번</th>
+                                <th class="py-2">키워드</th>
+                                <th class="py-2">네이버카운트</th>
+                                <th class="py-2">재고수</th>
+                                <th class="py-2">내상점순위</th>
+                                <th class="py-2">키워드네이버링크</th>
+                                <th class="py-2">출판사명</th>
+                                <th class="py-2">공급률</th>
+                                <th class="py-2">ISBN</th>
+                                <th class="py-2">가격</th>
+                                <th class="py-2">택배비</th>
+                                <th class="py-2">상점 책제목</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for book in books %}
+                            <tr data-id="{{ book.id }}">
+                                <td class="text-muted">{{ loop.index }}</td>
+                                <td style="background-color: #00FF00; font-weight: bold;">{{ book.keyword }}</td>
+                                <td style="background-color: #00FF00; font-weight: bold;">
+                                    {{ book.naver_count }}
+                                    <span class="diff-naver badge rounded-pill ms-1"></span>
+                                </td>
+                                <td style="background-color: #E6E6FA; font-weight: bold;">
+                                    {{ book.stock_quantity }}
+                                    <span class="diff-stock badge rounded-pill ms-1"></span>
+                                </td>
+                                <td style="background-color: #00FF00; font-weight: bold;">{{ book.shop_rank }}</td>
+                                <td>
+                                    {% if book.link and book.link != '#' %}
+                                    <a href="{{ book.link }}" target="_blank" class="text-decoration-none"><i class="bi bi-box-arrow-up-right"></i></a>
+                                    {% endif %}
+                                </td>
+                                <td class="text-muted">{{ book.publisher }}</td>
+                                <td class="text-muted">{{ book.supply_rate }}</td>
+                                <td class="font-monospace">{{ book.isbn }}</td>
+                                <td>{{ book.price }}</td>
+                                <td>{{ book.shipping }}</td>
+                                <td class="text-truncate text-muted" style="max-width: 150px;" title="{{ book.shop_title }}">{{ book.shop_title }}</td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="12" class="text-center py-5 text-muted">
+                                    <i class="bi bi-inbox fs-1 d-block mb-2"></i>
+                                    데이터가 없습니다.
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
-        
-        <div class="table-responsive border rounded">
-            <table class="table table-bordered text-center align-middle mb-0" style="font-size: 14px;">
-                <thead style="background-color: #00FFFF;">
-                    <tr>
-                        <th class="py-2">순번</th>
-                        <th class="py-2">키워드</th>
-                        <th class="py-2">네이버카운트</th>
-                        <th class="py-2">재고수</th> <th class="py-2">내상점순위</th>
-                        <th class="py-2">키워드네이버링크</th>
-                        <th class="py-2">출판사명</th>
-                        <th class="py-2">공급률</th>
-                        <th class="py-2">ISBN</th>
-                        <th class="py-2">가격</th>
-                        <th class="py-2">택배비</th>
-                        <th class="py-2">상점 책제목</th>
-                        <th class="py-2">상세보기</th> </tr>
-                </thead>
-                <tbody>
-                    {% for book in books %}
-                    <tr data-id="{{ book.id }}">
-                        <td class="text-muted">{{ loop.index }}</td>
-                        <td style="background-color: #00FF00; font-weight: bold;">{{ book.keyword }}</td>
-                        <td style="background-color: #00FF00; font-weight: bold;">
-                            {{ book.naver_count }}
-                            <span class="diff-naver badge rounded-pill ms-1"></span>
-                        </td>
-                        <td style="background-color: #E6E6FA; font-weight: bold;">
-                            {{ book.stock_quantity }}
-                            <span class="diff-stock badge rounded-pill ms-1"></span>
-                        </td>
-                        <td style="background-color: #00FF00; font-weight: bold;">{{ book.shop_rank }}</td>
-                        <td>
-                            {% if book.link and book.link != '#' %}
-                            <a href="{{ book.link }}" target="_blank" class="text-decoration-none"><i class="bi bi-box-arrow-up-right"></i></a>
-                            {% endif %}
-                        </td>
-                        <td class="text-muted">{{ book.publisher }}</td>
-                        <td class="text-muted">{{ book.supply_rate }}</td>
-                        <td class="font-monospace">{{ book.isbn }}</td>
-                        <td>{{ book.price }}</td>
-                        <td>{{ book.shipping }}</td>
-                        <td class="text-truncate text-muted" style="max-width: 150px;" title="{{ book.shop_title }}">{{ book.shop_title }}</td>
-                        <td>
-                            <button class="btn btn-sm btn-outline-dark" onclick="openGraphModal({{ book.id }})">
-                                <i class="bi bi-graph-up"></i> 그래프
-                            </button>
-                        </td>
-                    </tr>
-                    {% else %}
-                    <tr>
-                        <td colspan="13" class="text-center py-5 text-muted">
-                            <i class="bi bi-inbox fs-1 d-block mb-2"></i>
-                            데이터가 없습니다.
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-
     </div>
-</div>
 
-<div class="modal fade" id="graphModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h5 class="modal-title fw-bold" id="graphModalLabel">추세 그래프</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+    <div class="tab-pane fade" id="graph-pane" role="tabpanel" tabindex="0">
+        <div class="card shadow-sm border-0 mb-4">
+            <div class="card-body p-4">
+                
+                <div class="row mb-4 bg-light p-3 rounded align-items-center">
+                    <div class="col-md-4 mb-2 mb-md-0">
+                        <label class="form-label fw-bold text-muted mb-1" style="font-size: 13px;">대상 키워드 선택</label>
+                        <select id="graphBookSelect" class="form-select" onchange="renderChart()">
+                            {% for book in books %}
+                            <option value="{{ book.id }}">{{ book.keyword }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-4 mb-2 mb-md-0">
+                        <label class="form-label fw-bold text-muted mb-1" style="font-size: 13px;">그래프 데이터 선택</label>
+                        <select id="graphTypeSelect" class="form-select" onchange="renderChart()">
+                            <option value="naver" selected>네이버 카운트 변화</option>
+                            <option value="stock">재고수 변화</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold text-muted mb-1" style="font-size: 13px;">조회 기간</label>
+                        <select id="graphPeriodSelect" class="form-select" onchange="renderChart()">
+                            <option value="7">최근 1주일 (7일)</option>
+                            <option value="30" selected>최근 1개월 (30일)</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div style="height: 400px; position: relative;">
+                    <canvas id="trendChart"></canvas>
+                </div>
+
+            </div>
         </div>
-        <div class="modal-body">
-          <ul class="nav nav-tabs mb-3" id="graphTabs">
-            <li class="nav-item">
-              <button class="nav-link active" data-bs-toggle="tab" type="button" onclick="renderChart('naver')">네이버카운트 변화</button>
-            </li>
-            <li class="nav-item">
-              <button class="nav-link" data-bs-toggle="tab" type="button" onclick="renderChart('stock')">재고수 변화</button>
-            </li>
-          </ul>
-
-          <div class="d-flex justify-content-end mb-2">
-              <div class="input-group input-group-sm w-auto">
-                  <span class="input-group-text bg-white">조회 기간</span>
-                  <select id="graphPeriodSelect" class="form-select" onchange="renderChart(currentChartType)">
-                      <option value="7">최근 1주일</option>
-                      <option value="30" selected>최근 1개월</option>
-                  </select>
-              </div>
-          </div>
-
-          <canvas id="trendChart" width="400" height="150"></canvas>
-        </div>
-      </div>
     </div>
 </div>
 
@@ -126,7 +142,9 @@
     const booksMap = {};
     booksData.forEach(b => booksMap[b.id] = b);
 
-    // 1. 테이블의 +/- 변동량을 계산하는 함수
+    // =====================================
+    // 1. 표(Table) 증감량 계산 함수
+    // =====================================
     function updateTableDiffs() {
         const periodDays = parseInt(document.getElementById('tablePeriodSelect').value);
         
@@ -134,12 +152,11 @@
             const hist = book.history;
             if (hist.length === 0) return;
 
-            const current = hist[hist.length - 1]; // 가장 최신 데이터 (오늘)
+            const current = hist[hist.length - 1]; 
             let pastIndex = hist.length - 1 - periodDays;
-            if (pastIndex < 0) pastIndex = 0; // 초과하면 가장 오래된 데이터로 대체
+            if (pastIndex < 0) pastIndex = 0; 
             const past = hist[pastIndex];
 
-            // 변동량 계산
             const diffNaver = current.naver_count - past.naver_count;
             const diffStock = current.stock_quantity - past.stock_quantity;
 
@@ -148,7 +165,6 @@
                 const spanNaver = row.querySelector('.diff-naver');
                 const spanStock = row.querySelector('.diff-stock');
 
-                // 한국 주식/쇼핑몰 기준 빨간색(상승), 파란색(하락) 적용
                 const formatBadge = (span, diff) => {
                     span.innerHTML = diff > 0 ? `+${diff}` : diff === 0 ? '-' : diff;
                     span.className = `badge rounded-pill ms-2 ${diff > 0 ? 'bg-danger' : diff < 0 ? 'bg-primary' : 'bg-secondary'}`;
@@ -157,37 +173,33 @@
                 formatBadge(spanNaver, diffNaver);
                 formatBadge(spanStock, diffStock);
                 
-                // +몇, -몇 시각적 식별 클래스 추가 (선택용)
                 spanNaver.classList.add('diff-naver');
                 spanStock.classList.add('diff-stock');
             }
         });
     }
 
-    // 초기 페이지 로드 시 1일 전 대비 변동량 렌더링
+    // 초기 로드 시 표 업데이트
     document.addEventListener("DOMContentLoaded", function() {
         updateTableDiffs();
+        // 탭이 '그래프'로 변경될 때 차트 크기를 정확히 잡기 위해 렌더링 호출
+        const graphTabEl = document.querySelector('#graph-tab');
+        graphTabEl.addEventListener('shown.bs.tab', function (event) {
+            renderChart();
+        });
     });
 
-    // 2. 팝업창 그래프 그리기 함수
+    // =====================================
+    // 2. 그래프(Graph) 렌더링 함수
+    // =====================================
     let chartInstance = null;
-    let currentBookId = null;
-    let currentChartType = 'naver'; 
 
-    function openGraphModal(bookId) {
-        currentBookId = bookId;
-        const book = booksMap[bookId];
-        document.getElementById('graphModalLabel').innerText = `[${book.keyword}] 변동 추세 그래프`;
-        
-        const modal = new bootstrap.Modal(document.getElementById('graphModal'));
-        modal.show();
-        renderChart(currentChartType);
-    }
-
-    function renderChart(type) {
-        currentChartType = type;
+    function renderChart() {
+        const bookId = document.getElementById('graphBookSelect').value;
+        const dataType = document.getElementById('graphTypeSelect').value;
         const periodDays = parseInt(document.getElementById('graphPeriodSelect').value);
-        const book = booksMap[currentBookId];
+        
+        const book = booksMap[bookId];
         if(!book) return;
 
         let hist = book.history;
@@ -196,15 +208,15 @@
         }
 
         const labels = hist.map(h => h.date);
-        const dataPoints = hist.map(h => type === 'naver' ? h.naver_count : h.stock_quantity);
+        const dataPoints = hist.map(h => dataType === 'naver' ? h.naver_count : h.stock_quantity);
 
-        const labelName = type === 'naver' ? '네이버카운트 변화량' : '재고수 변화량';
-        const lineColor = type === 'naver' ? 'rgb(255, 99, 132)' : 'rgb(54, 162, 235)'; // 핑크 vs 파랑
-        const bgColor = type === 'naver' ? 'rgba(255, 99, 132, 0.2)' : 'rgba(54, 162, 235, 0.2)';
+        const labelName = dataType === 'naver' ? '네이버카운트' : '재고수';
+        const lineColor = dataType === 'naver' ? 'rgb(255, 99, 132)' : 'rgb(54, 162, 235)'; // 빨강 vs 파랑
+        const bgColor = dataType === 'naver' ? 'rgba(255, 99, 132, 0.2)' : 'rgba(54, 162, 235, 0.2)';
 
         const ctx = document.getElementById('trendChart').getContext('2d');
         if(chartInstance) {
-            chartInstance.destroy(); // 기존 차트 파괴 후 새로 그리기
+            chartInstance.destroy(); // 기존 차트 지우기
         }
 
         chartInstance = new Chart(ctx, {
@@ -212,27 +224,42 @@
             data: {
                 labels: labels,
                 datasets: [{
-                    label: labelName,
+                    label: `[${book.keyword}] ${labelName} 변화 추세`,
                     data: dataPoints,
                     borderColor: lineColor,
                     backgroundColor: bgColor,
                     borderWidth: 2,
                     fill: true,
-                    tension: 0.2
+                    tension: 0.2, // 곡선 부드럽게
+                    pointRadius: 4,
+                    pointHoverRadius: 6
                 }]
             },
             options: {
                 responsive: true,
+                maintainAspectRatio: false,
                 plugins: {
-                    legend: { position: 'top' }
+                    legend: { position: 'top' },
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false,
+                    }
                 },
                 scales: {
-                    y: { beginAtZero: false } // 추세를 잘 보기 위해 최저점부터 시작
+                    x: {
+                        grid: { display: false }
+                    },
+                    y: { 
+                        beginAtZero: false 
+                    }
                 }
             }
         });
     }
 
+    // =====================================
+    // 3. 수동 업데이트 로직
+    // =====================================
     function triggerManualUpdate() {
         const btn = document.getElementById('updateBtn');
         const originalText = btn.innerHTML;
