@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
 
 <div class="container-fluid py-3 px-sm-2 px-md-4 mb-5">
     
@@ -232,8 +232,9 @@
                     </div>
                 </div>
                 
-                <div class="bg-white border rounded p-3" style="height: 450px; position: relative;">
+                <div class="bg-white border rounded p-3 w-100" style="height: 450px; position: relative;">
                     <canvas id="trendChart"></canvas>
+                    <div id="chartErrorBox" class="text-danger fw-bold text-center mt-5" style="display: none; position: absolute; top: 0; left: 0; width: 100%;"></div>
                 </div>
 
             </div>
@@ -288,7 +289,6 @@
     let itemsPerPage = 50;
     let pollingInterval = null;
 
-    // ✨ 오리지널 탭 전환 함수로 복구
     function switchView(mode) {
         const tableWrapper = document.getElementById('tableViewWrapper');
         const graphWrapper = document.getElementById('graphViewWrapper');
@@ -298,6 +298,8 @@
         } else {
             tableWrapper.classList.add('d-none');
             graphWrapper.classList.remove('d-none');
+            // ✨ 그래프 탭 클릭 시 셀렉트 박스 확실히 채우기
+            populateGraphSelect(); 
             renderChart();
         }
     }
@@ -363,6 +365,10 @@
                 allKeywordsData = result.data; 
                 populateGraphSelect(); 
                 renderTable(); 
+                // 만약 현재 그래프 탭을 보고 있다면 새로 그리기
+                if(document.getElementById('btnGraphView').checked) {
+                    renderChart();
+                }
             } else {
                 document.getElementById('savedKeywordsBody').innerHTML = `<tr><td colspan="19" class="text-danger fw-bold py-5"><i class="bi bi-exclamation-triangle"></i> 데이터 로딩 실패: ${result.message}</td></tr>`;
             }
@@ -407,7 +413,6 @@
         }
     }
 
-    // ✨ 더블클릭 오리지널 이동 함수
     function goToGraph(bookId, dataType) {
         document.getElementById('btnGraphView').checked = true;
         switchView('graph');
@@ -658,61 +663,80 @@
         renderTableColors();
     }
     
-    // ✨ 오리지널 그래프 그리기 로직 완벽 복구
+    // ✨ 에러까지 화면에 뿌려주는 완전 무장 렌더링 로직
     let chartInstance = null;
     function renderChart() {
-        const bookSelect = document.getElementById('graphBookSelect');
-        if(!bookSelect) return;
+        const errorBox = document.getElementById('chartErrorBox');
+        if(errorBox) errorBox.style.display = 'none';
 
-        const bookId = bookSelect.value;
-        const dataType = document.getElementById('graphTypeSelect').value; 
-        const periodDays = parseInt(document.getElementById('graphPeriodSelect').value) || 30;
-        
-        if(!bookId) return;
-        const book = allKeywordsData.find(k => k.id == bookId);
-        if(!book || !book.history) return;
-
-        let hist = book.history;
-        let pointsNeeded = periodDays + 1;
-        if(hist.length > pointsNeeded) {
-            hist = hist.slice(hist.length - pointsNeeded);
-        }
-
-        const labels = hist.map(h => h.date);
-        const dataPoints = hist.map(h => dataType === 'naver' ? h.search_volume : h.sales_quantity);
-
-        const labelName = dataType === 'naver' ? '네이버카운트 (검색량)' : '판매수';
-        const lineColor = dataType === 'naver' ? 'rgb(255, 99, 132)' : 'rgb(54, 162, 235)';
-        const bgColor = dataType === 'naver' ? 'rgba(255, 99, 132, 0.2)' : 'rgba(54, 162, 235, 0.2)';
-
-        const ctx = document.getElementById('trendChart').getContext('2d');
-        if(chartInstance) {
-            chartInstance.destroy();
-        }
-
-        chartInstance = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: `[${book.keyword}] ${labelName} 변화 추세`,
-                    data: dataPoints,
-                    borderColor: lineColor,
-                    backgroundColor: bgColor,
-                    borderWidth: 2,
-                    fill: true,
-                    tension: 0.2, 
-                    pointRadius: 4,
-                    pointHoverRadius: 6
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { legend: { position: 'top' }, tooltip: { mode: 'index', intersect: false } },
-                scales: { x: { grid: { display: false } }, y: { beginAtZero: false } }
+        try {
+            if (typeof Chart === 'undefined') {
+                throw new Error("Chart.js 라이브러리 연결이 원활하지 않습니다. 인터넷 연결이나 방화벽 설정을 확인해주세요.");
             }
-        });
+
+            const bookSelect = document.getElementById('graphBookSelect');
+            if(!bookSelect || !bookSelect.value) return; 
+
+            const bookId = bookSelect.value;
+            const dataType = document.getElementById('graphTypeSelect').value; 
+            const periodDays = parseInt(document.getElementById('graphPeriodSelect').value) || 30;
+            
+            const book = allKeywordsData.find(k => k.id == bookId);
+            if(!book || !book.history || book.history.length === 0) {
+                throw new Error("선택하신 항목의 그래프를 그릴 과거 데이터(히스토리)가 아직 없습니다.");
+            }
+
+            let hist = book.history;
+            let pointsNeeded = periodDays + 1;
+            if(hist.length > pointsNeeded) {
+                hist = hist.slice(hist.length - pointsNeeded);
+            }
+
+            const labels = hist.map(h => h.date);
+            const dataPoints = hist.map(h => Number(dataType === 'naver' ? h.search_volume : h.sales_quantity) || 0);
+
+            const labelName = dataType === 'naver' ? '네이버카운트 (검색량)' : '판매수';
+            const lineColor = dataType === 'naver' ? 'rgb(255, 99, 132)' : 'rgb(54, 162, 235)';
+            const bgColor = dataType === 'naver' ? 'rgba(255, 99, 132, 0.2)' : 'rgba(54, 162, 235, 0.2)';
+
+            const ctx = document.getElementById('trendChart');
+            if(!ctx) throw new Error("도화지(Canvas)를 찾을 수 없습니다.");
+
+            if(chartInstance) {
+                chartInstance.destroy();
+            }
+
+            chartInstance = new Chart(ctx.getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: `[${book.keyword || '이름없음'}] ${labelName} 변화 추세`,
+                        data: dataPoints,
+                        borderColor: lineColor,
+                        backgroundColor: bgColor,
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.2, 
+                        pointRadius: 4,
+                        pointHoverRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { position: 'top' }, tooltip: { mode: 'index', intersect: false } },
+                    scales: { x: { grid: { display: false } }, y: { beginAtZero: false } }
+                }
+            });
+
+        } catch(err) {
+            console.error("그래프 에러:", err);
+            if(errorBox) {
+                errorBox.innerHTML = `<i class="bi bi-x-circle fs-3 d-block mb-2"></i>그래프를 표시할 수 없습니다.<br>${err.message}`;
+                errorBox.style.display = 'block';
+            }
+        }
     }
 
     async function deleteSelectedKeywords() {
