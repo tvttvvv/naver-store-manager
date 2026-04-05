@@ -68,8 +68,8 @@ def receive_webhook():
             existing_sb.store_rank = store_rank
             existing_sb.rank_info = grade_char
         else:
-            new_kw = MonitoredKeyword(user_id=user.id, keyword=keyword, search_volume=search_volume, rank_info=grade_char, link=link, shipping_fee='-', store_rank=store_rank, prev_store_rank='-')
-            db.session.add(new_kw)
+            new_sb = MonitoredKeyword(user_id=user.id, keyword=keyword, search_volume=search_volume, rank_info=grade_char, link=link, shipping_fee='-', store_rank=store_rank, prev_store_rank='-')
+            db.session.add(new_sb)
 
         try:
             existing_rm = RunningmateKeyword.query.filter_by(user_id=user.id, keyword=keyword).first()
@@ -77,16 +77,22 @@ def receive_webhook():
                 existing_rm.search_volume = search_volume
                 existing_rm.store_rank = store_rank
                 existing_rm.rank_info = grade_char
+            else:
+                new_rm = RunningmateKeyword(user_id=user.id, keyword=keyword, search_volume=search_volume, rank_info=grade_char, link=link, shipping_fee='-', store_rank=store_rank, prev_store_rank='-')
+                db.session.add(new_rm)
                 
             existing_dl = DailylearningKeyword.query.filter_by(user_id=user.id, keyword=keyword).first()
             if existing_dl:
                 existing_dl.search_volume = search_volume
                 existing_dl.store_rank = store_rank
                 existing_dl.rank_info = grade_char
+            else:
+                new_dl = DailylearningKeyword(user_id=user.id, keyword=keyword, search_volume=search_volume, rank_info=grade_char, link=link, shipping_fee='-', store_rank=store_rank, prev_store_rank='-')
+                db.session.add(new_dl)
         except: pass
 
         db.session.commit()
-        return jsonify({'success': True, 'message': 'Saved'})
+        return jsonify({'success': True, 'message': 'Saved to all 3 monitorings'})
     return jsonify({'success': False})
 
 @monitoring_bp.route('/api/copy_to_target', methods=['POST'])
@@ -139,7 +145,8 @@ def copy_to_target():
     t_name = "스터디박스"
     if target == 'rm': t_name = "러닝메이트"
     elif target == 'dl': t_name = "데일리러닝"
-    return jsonify({'success': True, 'message': f'✅ 선택한 {count}개 항목이 [{t_name}] 모니터링으로 복사되었습니다!\n(키워드, 네이버카운트, 판매수만 복사되었습니다)'})
+    
+    return jsonify({'success': True, 'message': f'✅ 선택한 {count}개 항목이 [{t_name}] 모니터링으로 복사되었습니다!\n(키워드, 네이버카운트, 판매수만 가져오고 나머지는 비워집니다)'})
 
 @monitoring_bp.route('/api/saved_keywords', methods=['GET'])
 @login_required
@@ -416,14 +423,26 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
 
     try:
         with app.app_context():
-            api_key = ApiKey.query.filter_by(user_id=user_id).first()
+            # ✨ 핵심 변경: 탭 이름에 맞춰서 어떤 상점 API를 쓸지 알아서 자동 매칭합니다!
+            store_mapping = {
+                'studybox': '스터디박스',
+                'rm': '러닝메이트',
+                'dl': '데일리러닝'
+            }
+            target_store_name = store_mapping.get(target, '스터디박스')
+
+            # 해당 상점 이름으로 저장된 API 키를 가져옵니다.
+            api_key = ApiKey.query.filter_by(user_id=user_id, store_name=target_store_name).first()
             commerce_token = None
             if api_key: 
                 commerce_token = get_naver_token(api_key.client_id, api_key.client_secret)
+            else:
+                monitoring_tasks[task_key]["logs"].append(f"❌ '{target_store_name}' 상점의 API 키가 등록되지 않았습니다.")
+                monitoring_tasks[task_key]["is_running"] = False
+                return
 
             for k_id in target_ids:
                 try:
-                    # 1. DB에서 키워드와 ISBN을 빠르게 읽고 락(Lock)을 방지하기 위해 세션을 초기화합니다.
                     kw = db.session.get(ModelClass, k_id)
                     if not kw: 
                         monitoring_tasks[task_key]["current"] += 1
@@ -432,7 +451,6 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                     target_isbn = str(kw.isbn).strip() if kw.isbn and kw.isbn != '-' else ""
                     keyword_name = kw.keyword or f"ID:{k_id}"
                     
-                    # ✨ DB 과부하 방지: 느린 네이버 API 통신 전에 DB 점유를 풀어줍니다!
                     db.session.rollback()
                     
                     if not target_isbn:
@@ -445,7 +463,6 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                         monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ❌ API 연결 실패")
                         continue
 
-                    # 2. 네이버 서버와 통신 (DB를 쥐고 있지 않으므로 다른 작업이 멈추지 않음)
                     updates = {}
                     if update_mode in ['all', 'info', 'stock']:
                         exact_info = get_exact_product_info_commerce_api(commerce_token, target_isbn)
@@ -460,7 +477,6 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                         if update_mode in ['all', 'stock']:
                             if exact_info.get('my_stock'): updates['stock_quantity'] = exact_info['my_stock']
 
-                    # 3. 데이터가 모이면 다시 DB를 열고 빛의 속도로 저장
                     kw_update = db.session.get(ModelClass, k_id)
                     if kw_update and updates:
                         def should_update(current_val):
@@ -487,13 +503,11 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                     monitoring_tasks[task_key]["current"] += 1
                     monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ❌ 오류")
                 
-                # ✨ 네이버 API 호출 제한(429 Error)을 피하기 위해 대기 시간 증가 (1.5초)
                 time.sleep(1.5) 
                 
     except Exception as outer_e:
         monitoring_tasks[task_key]["logs"].append(f"⚠️ 시스템 오류가 발생했습니다.")
     finally:
-        # ✨ 중간에 에러가 나거나 멈추더라도 무조건 화면의 무한 로딩바를 끝내주도록 강제 지시!
         monitoring_tasks[task_key]["is_running"] = False
         if monitoring_tasks[task_key]["current"] < monitoring_tasks[task_key]["total"]:
             monitoring_tasks[task_key]["current"] = monitoring_tasks[task_key]["total"]
