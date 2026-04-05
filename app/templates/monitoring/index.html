@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <div class="container-fluid py-3 px-sm-2 px-md-4 mb-5">
     
@@ -232,7 +232,7 @@
                     </div>
                 </div>
                 
-                <div id="chartContainer" class="bg-white border rounded p-3 w-100" style="height: 450px; position: relative;">
+                <div class="bg-white border rounded p-3" style="height: 450px; position: relative;">
                     <canvas id="trendChart"></canvas>
                 </div>
 
@@ -288,7 +288,7 @@
     let itemsPerPage = 50;
     let pollingInterval = null;
 
-    // ✨ 탭을 넘길 때 그래프 옵션을 한 번 더 갱신해주고 화면을 기다립니다.
+    // ✨ 오리지널 탭 전환 함수로 복구
     function switchView(mode) {
         const tableWrapper = document.getElementById('tableViewWrapper');
         const graphWrapper = document.getElementById('graphViewWrapper');
@@ -298,12 +298,7 @@
         } else {
             tableWrapper.classList.add('d-none');
             graphWrapper.classList.remove('d-none');
-            
-            populateGraphSelect(); // 셀렉트 박스가 비어있을 수 있으니 한 번 더 채움
-            
-            setTimeout(() => {
-                renderChart(); 
-            }, 150); // 시간을 조금 더 넉넉하게 0.15초 배정
+            renderChart();
         }
     }
 
@@ -377,7 +372,6 @@
         }
     }
 
-    // ✨ 데이터가 없어서 빈칸을 방치하지 않도록, 무조건 첫 번째 항목을 자동 선택시킵니다.
     function populateGraphSelect() {
         const select = document.getElementById('graphBookSelect');
         if(!select) return;
@@ -387,7 +381,7 @@
         if (currentVal && Array.from(select.options).some(opt => opt.value === currentVal)) {
             select.value = currentVal;
         } else if (select.options.length > 0) {
-            select.value = select.options[0].value; // 강제 초기값 세팅
+            select.value = select.options[0].value; 
         }
     }
 
@@ -413,24 +407,16 @@
         }
     }
 
+    // ✨ 더블클릭 오리지널 이동 함수
     function goToGraph(bookId, dataType) {
         document.getElementById('btnGraphView').checked = true;
-        
-        const tableWrapper = document.getElementById('tableViewWrapper');
-        const graphWrapper = document.getElementById('graphViewWrapper');
-        tableWrapper.classList.add('d-none');
-        graphWrapper.classList.remove('d-none');
-
+        switchView('graph');
         document.getElementById('graphKeywordSearch').value = '';
         populateGraphSelect();
-        
         document.getElementById('graphBookSelect').value = bookId;
-        document.getElementById('graphTypeSelect').value = dataType; 
-        
-        setTimeout(() => {
-            renderChart();
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-        }, 150);
+        document.getElementById('graphTypeSelect').value = dataType;
+        renderChart();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
     function getRankNum(rankStr) {
@@ -672,13 +658,9 @@
         renderTableColors();
     }
     
-    // ✨ 마법의 "하드 리셋" 그리기 함수 - 무조건 그려집니다!
+    // ✨ 오리지널 그래프 그리기 로직 완벽 복구
+    let chartInstance = null;
     function renderChart() {
-        if (typeof Chart === 'undefined') {
-            console.error("Chart.js 로딩 실패!");
-            return;
-        }
-
         const bookSelect = document.getElementById('graphBookSelect');
         if(!bookSelect) return;
 
@@ -697,51 +679,40 @@
         }
 
         const labels = hist.map(h => h.date);
-        // 데이터를 안전한 숫자(Number)로 강제 변환
-        const dataPoints = hist.map(h => Number(dataType === 'naver' ? h.search_volume : h.sales_quantity) || 0);
+        const dataPoints = hist.map(h => dataType === 'naver' ? h.search_volume : h.sales_quantity);
 
         const labelName = dataType === 'naver' ? '네이버카운트 (검색량)' : '판매수';
         const lineColor = dataType === 'naver' ? 'rgb(255, 99, 132)' : 'rgb(54, 162, 235)';
         const bgColor = dataType === 'naver' ? 'rgba(255, 99, 132, 0.2)' : 'rgba(54, 162, 235, 0.2)';
 
-        // ✨ 꼬여버린 캔버스를 완전히 부수고 새 캔버스를 만듭니다. (하드 리셋)
-        const container = document.getElementById('chartContainer');
-        container.innerHTML = '<canvas id="trendChart"></canvas>';
         const ctx = document.getElementById('trendChart').getContext('2d');
-
         if(chartInstance) {
             chartInstance.destroy();
-            chartInstance = null;
         }
 
-        try {
-            chartInstance = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: labels,
-                    datasets: [{
-                        label: `[${book.keyword || '이름없음'}] ${labelName} 변화 추세`,
-                        data: dataPoints,
-                        borderColor: lineColor,
-                        backgroundColor: bgColor,
-                        borderWidth: 2,
-                        fill: true,
-                        tension: 0.2, 
-                        pointRadius: 4,
-                        pointHoverRadius: 6
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: { legend: { position: 'top' } },
-                    scales: { x: { grid: { display: false } }, y: { beginAtZero: false } }
-                }
-            });
-        } catch (err) {
-            console.error("차트 렌더링 중 에러 발생:", err);
-            container.innerHTML = `<div class="text-danger fw-bold mt-5 text-center">그래프를 그리는 데 실패했습니다.<br>${err.message}</div>`;
-        }
+        chartInstance = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: `[${book.keyword}] ${labelName} 변화 추세`,
+                    data: dataPoints,
+                    borderColor: lineColor,
+                    backgroundColor: bgColor,
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.2, 
+                    pointRadius: 4,
+                    pointHoverRadius: 6
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { position: 'top' }, tooltip: { mode: 'index', intersect: false } },
+                scales: { x: { grid: { display: false } }, y: { beginAtZero: false } }
+            }
+        });
     }
 
     async function deleteSelectedKeywords() {
