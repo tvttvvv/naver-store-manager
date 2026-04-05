@@ -212,7 +212,7 @@ def background_delete_job(app, store_id, delete_mode, isbn_list, user_id):
 
 
 # ==============================================================================
-# 2. 상품 중복 체크용 멀티 엔진 (✨ 판매중 상품 전용 스캔 탑재 완료 ✨)
+# 2. 상품 중복 체크용 멀티 엔진 (✨ 판매중 상품 스캔 & 정밀 추출 탑재 완료 ✨)
 # ==============================================================================
 global_dup_tasks = {}
 
@@ -308,10 +308,16 @@ def background_duplicate_check_job(app, store_id, user_id):
             duplicates = []
             
             for p in all_products:
-                name = str(p.get('name', '이름 없는 상품'))
-                prod_id = str(p.get('channelProductNo', 'ID 없음'))
+                # ✨ 네이버 API 구조에 맞게 채널 상품 정보를 먼저 꺼냅니다.
+                channel_products = p.get('channelProducts', [{}])
+                c_prod = channel_products[0] if channel_products else {}
                 
-                raw_isbn = str(p.get('sellerManagementCode', '')).strip()
+                # ✨ 채널 상품에서 먼저 찾고, 없으면 원상품에서 찾도록 이중으로 처리합니다.
+                name = str(c_prod.get('name') or p.get('name') or '이름 없는 상품')
+                prod_id = str(c_prod.get('channelProductNo') or p.get('channelProductNo') or 'ID 없음')
+                
+                raw_isbn = str(c_prod.get('sellerManagementCode') or p.get('sellerManagementCode') or '').strip()
+                
                 # ✨ 가짜 ISBN 완벽 방어막
                 dummy_isbns = ['isbn없음', '없음', 'none', 'null', '단품', '0', '-', '']
                 is_valid_isbn = bool(raw_isbn and raw_isbn.replace(" ", "").lower() not in dummy_isbns)
