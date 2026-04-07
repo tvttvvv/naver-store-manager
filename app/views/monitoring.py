@@ -43,18 +43,15 @@ def runningmate():
 def dailylearning():
     return render_template('monitoring/dailylearning.html')
 
-# ✨ 웹훅 수신 시 무조건 3곳 모두 저장되도록 '철벽 방어 코드' 적용
 @monitoring_bp.route('/api/webhook', methods=['POST'])
 def receive_webhook():
     data = request.get_json()
     if not data: return jsonify({'success': False, 'message': 'No data'})
-    
     grade_str = str(data.get('grade', '')).upper()
     keyword = data.get('keyword', '')
     search_volume = data.get('search_volume', 0)
     store_rank = data.get('store_rank', '-')
     link = data.get('link', '#')
-    isbn = data.get('isbn', '-')
 
     grade_char = 'A'
     if 'C' in grade_str: grade_char = 'C'
@@ -65,72 +62,42 @@ def receive_webhook():
         user = User.query.first()
         if not user: return jsonify({'success': False, 'message': 'No user found'})
 
-        # [방어 1] 테이블이 아직 안 만들어졌다면 즉시 강제 생성!
-        try: MonitoredKeyword.__table__.create(db.engine, checkfirst=True)
-        except Exception: pass
-        try: RunningmateKeyword.__table__.create(db.engine, checkfirst=True)
-        except Exception: pass
-        try: DailylearningKeyword.__table__.create(db.engine, checkfirst=True)
-        except Exception: pass
-
-        # [방어 2] 필수 컬럼이 누락되어 에러나는 것을 막기 위해 강제 추가!
-        for table_name in ['monitored_keyword', 'runningmate_keyword', 'dailylearning_keyword']:
-            try: db.session.execute(text(f"ALTER TABLE {table_name} ADD COLUMN stock_quantity VARCHAR(50) DEFAULT '-'")); db.session.commit()
-            except: db.session.rollback()
-            try: db.session.execute(text(f"ALTER TABLE {table_name} ADD COLUMN sales_quantity VARCHAR(50) DEFAULT '-'")); db.session.commit()
-            except: db.session.rollback()
-            try: db.session.execute(text(f"ALTER TABLE {table_name} ADD COLUMN registered_at VARCHAR(50) DEFAULT '-'")); db.session.commit()
-            except: db.session.rollback()
-            try: db.session.execute(text(f"ALTER TABLE {table_name} ADD COLUMN sales_status VARCHAR(50) DEFAULT '-'")); db.session.commit()
-            except: db.session.rollback()
+        existing_sb = MonitoredKeyword.query.filter_by(user_id=user.id, keyword=keyword).first()
+        if existing_sb:
+            existing_sb.search_volume = search_volume
+            existing_sb.store_rank = store_rank
+            existing_sb.rank_info = grade_char
+        else:
+            new_sb = MonitoredKeyword(user_id=user.id, keyword=keyword, search_volume=search_volume, rank_info=grade_char, link=link, shipping_fee='-', store_rank=store_rank, prev_store_rank='-')
+            db.session.add(new_sb)
 
         try:
-            # 1. 스터디박스 (정상적으로 모두 저장, ISBN 포함)
-            existing_sb = MonitoredKeyword.query.filter_by(user_id=user.id, keyword=keyword).first()
-            if existing_sb:
-                existing_sb.search_volume = search_volume
-                existing_sb.store_rank = store_rank
-                existing_sb.rank_info = grade_char
-                if isbn and isbn != '-': existing_sb.isbn = isbn
-            else:
-                new_sb = MonitoredKeyword(user_id=user.id, keyword=keyword, search_volume=search_volume, rank_info=grade_char, link=link, isbn=isbn, shipping_fee='-', store_rank=store_rank, prev_store_rank='-')
-                db.session.add(new_sb)
-
-            # 2. 러닝메이트 (ISBN은 강제로 비워둠 '-')
             existing_rm = RunningmateKeyword.query.filter_by(user_id=user.id, keyword=keyword).first()
             if existing_rm:
                 existing_rm.search_volume = search_volume
                 existing_rm.store_rank = store_rank
                 existing_rm.rank_info = grade_char
-            else:
-                new_rm = RunningmateKeyword(user_id=user.id, keyword=keyword, search_volume=search_volume, rank_info=grade_char, link=link, isbn='-', shipping_fee='-', store_rank=store_rank, prev_store_rank='-')
-                db.session.add(new_rm)
                 
-            # 3. 데일리러닝 (ISBN은 강제로 비워둠 '-')
             existing_dl = DailylearningKeyword.query.filter_by(user_id=user.id, keyword=keyword).first()
             if existing_dl:
                 existing_dl.search_volume = search_volume
                 existing_dl.store_rank = store_rank
                 existing_dl.rank_info = grade_char
-            else:
-                new_dl = DailylearningKeyword(user_id=user.id, keyword=keyword, search_volume=search_volume, rank_info=grade_char, link=link, isbn='-', shipping_fee='-', store_rank=store_rank, prev_store_rank='-')
-                db.session.add(new_dl)
+        except: pass
 
-            db.session.commit()
-            return jsonify({'success': True, 'message': 'Saved to all 3 monitorings'})
-        except Exception as e:
-            db.session.rollback()
-            print(f"Webhook Insert Error: {e}")
-            return jsonify({'success': False, 'message': str(e)})
-            
-    return jsonify({'success': False, 'message': 'No keyword'})
+        db.session.commit()
+        return jsonify({'success': True, 'message': 'Saved'})
+    return jsonify({'success': False})
 
 @monitoring_bp.route('/api/copy_to_target', methods=['POST'])
 @login_required
 def copy_to_target():
     target = request.form.get('target')
     source_target = request.form.get('source_target', 'studybox')
-    selected_ids = request.form.getlist('ids[]')
+    
+    # ✨ 묶음 배송된 아이디 텍스트를 해체합니다 (1000개 제한 우회)
+    ids_str = request.form.get('ids', '')
+    selected_ids = [i for i in ids_str.split(',') if i.strip()]
     
     if not selected_ids: return jsonify({'success': False, 'message': '선택된 항목이 없습니다.'})
     
@@ -175,8 +142,7 @@ def copy_to_target():
     t_name = "스터디박스"
     if target == 'rm': t_name = "러닝메이트"
     elif target == 'dl': t_name = "데일리러닝"
-    
-    return jsonify({'success': True, 'message': f'✅ 선택한 {count}개 항목이 [{t_name}] 모니터링으로 복사되었습니다!\n(키워드, 네이버카운트, 판매수만 가져오고 나머지는 비워집니다)'})
+    return jsonify({'success': True, 'message': f'✅ 선택한 {count}개 항목이 [{t_name}] 모니터링으로 복사되었습니다!\n(키워드, 네이버카운트, 판매수만 복사되었습니다)'})
 
 @monitoring_bp.route('/api/saved_keywords', methods=['GET'])
 @login_required
@@ -257,7 +223,10 @@ def delete_keywords_bulk():
     ModelClass = MonitoredKeyword
     if target == 'rm': ModelClass = RunningmateKeyword
     elif target == 'dl': ModelClass = DailylearningKeyword
-    selected_ids = request.form.getlist('ids[]')
+    
+    # ✨ 묶음 배송 해체 적용
+    ids_str = request.form.get('ids', '')
+    selected_ids = [i for i in ids_str.split(',') if i.strip()]
 
     if not selected_ids: return jsonify({'success': False, 'message': '선택된 항목이 없습니다.'})
     ModelClass.query.filter(ModelClass.id.in_(selected_ids), ModelClass.user_id == current_user.id).delete(synchronize_session=False)
@@ -272,7 +241,10 @@ def clear_isbn():
     if target == 'rm': ModelClass = RunningmateKeyword
     elif target == 'dl': ModelClass = DailylearningKeyword
     
-    selected_ids = request.form.getlist('ids[]')
+    # ✨ 묶음 배송 해체 적용
+    ids_str = request.form.get('ids', '')
+    selected_ids = [i for i in ids_str.split(',') if i.strip()]
+    
     if not selected_ids: return jsonify({'success': False, 'message': '선택된 항목이 없습니다.'})
     
     keywords = ModelClass.query.filter(ModelClass.id.in_(selected_ids), ModelClass.user_id == current_user.id).all()
@@ -317,7 +289,11 @@ def change_grade():
     ModelClass = MonitoredKeyword
     if target == 'rm': ModelClass = RunningmateKeyword
     elif target == 'dl': ModelClass = DailylearningKeyword
-    selected_ids = request.form.getlist('ids[]')
+    
+    # ✨ 묶음 배송 해체 적용
+    ids_str = request.form.get('ids', '')
+    selected_ids = [i for i in ids_str.split(',') if i.strip()]
+    
     new_grade = request.form.get('grade', 'A')
     if not selected_ids: return jsonify({'success': False, 'message': '이동할 항목을 선택해주세요.'})
     keywords = ModelClass.query.filter(ModelClass.id.in_(selected_ids), ModelClass.user_id==current_user.id).all()
@@ -332,7 +308,11 @@ def clear_data():
     ModelClass = MonitoredKeyword
     if target == 'rm': ModelClass = RunningmateKeyword
     elif target == 'dl': ModelClass = DailylearningKeyword
-    selected_ids = request.form.getlist('ids[]')
+    
+    # ✨ 묶음 배송 해체 적용
+    ids_str = request.form.get('ids', '')
+    selected_ids = [i for i in ids_str.split(',') if i.strip()]
+    
     query = ModelClass.query.filter_by(user_id=current_user.id)
     if selected_ids: query = query.filter(ModelClass.id.in_(selected_ids))
     for kw in query.all():
@@ -555,9 +535,9 @@ def refresh_by_isbn():
     if monitoring_tasks.get(task_key, {}).get("is_running", False):
         return jsonify({'success': False, 'message': '⚠️ 이미 진행 중입니다.'})
         
-    selected_ids = request.form.getlist('ids[]')
-    update_mode = request.form.get('update_mode', 'all') 
-    fill_empty_only = request.form.get('fill_empty_only') == 'true'
+    # ✨ 묶음 배송 해체 적용
+    ids_str = request.form.get('ids', '')
+    selected_ids = [i for i in ids_str.split(',') if i.strip()]
     
     if not selected_ids: return jsonify({'success': False, 'message': '⚠️ 업데이트할 항목을 선택해주세요.'})
     keywords = ModelClass.query.filter(ModelClass.id.in_(selected_ids), ModelClass.user_id==user_id).all()
