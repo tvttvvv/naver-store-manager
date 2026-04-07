@@ -28,6 +28,13 @@ def parse_number(val):
     try: return int(re.sub(r'[^0-9]', '', str(val)))
     except: return 0
 
+# ✨ 화면에서 보낸 수많은 ID들을 안전하게 받아오는 공통 함수
+def get_selected_ids(req):
+    ids_str = req.form.get('ids', '')
+    if ids_str:
+        return [i.strip() for i in ids_str.split(',') if i.strip()]
+    return req.form.getlist('ids[]')
+
 @monitoring_bp.route('/')
 @login_required
 def index():
@@ -94,10 +101,7 @@ def receive_webhook():
 def copy_to_target():
     target = request.form.get('target')
     source_target = request.form.get('source_target', 'studybox')
-    
-    # ✨ 묶음 배송된 아이디 텍스트를 해체합니다 (1000개 제한 우회)
-    ids_str = request.form.get('ids', '')
-    selected_ids = [i for i in ids_str.split(',') if i.strip()]
+    selected_ids = get_selected_ids(request)
     
     if not selected_ids: return jsonify({'success': False, 'message': '선택된 항목이 없습니다.'})
     
@@ -112,7 +116,12 @@ def copy_to_target():
     try: TargetModel.__table__.create(db.engine, checkfirst=True)
     except Exception: pass
     
-    source_keywords = SourceModel.query.filter(SourceModel.id.in_(selected_ids), SourceModel.user_id==current_user.id).all()
+    source_keywords = []
+    # ✨ 999개 DB 한계를 돌파하는 500개씩 분할 요청 로직
+    for i in range(0, len(selected_ids), 500):
+        chunk = selected_ids[i:i + 500]
+        source_keywords.extend(SourceModel.query.filter(SourceModel.id.in_(chunk), SourceModel.user_id==current_user.id).all())
+        
     count = 0
     for kw in source_keywords:
         new_kw = TargetModel(
@@ -224,12 +233,14 @@ def delete_keywords_bulk():
     if target == 'rm': ModelClass = RunningmateKeyword
     elif target == 'dl': ModelClass = DailylearningKeyword
     
-    # ✨ 묶음 배송 해체 적용
-    ids_str = request.form.get('ids', '')
-    selected_ids = [i for i in ids_str.split(',') if i.strip()]
-
+    selected_ids = get_selected_ids(request)
     if not selected_ids: return jsonify({'success': False, 'message': '선택된 항목이 없습니다.'})
-    ModelClass.query.filter(ModelClass.id.in_(selected_ids), ModelClass.user_id == current_user.id).delete(synchronize_session=False)
+    
+    # ✨ 999개 한계 돌파 분할 삭제 로직
+    for i in range(0, len(selected_ids), 500):
+        chunk = selected_ids[i:i + 500]
+        ModelClass.query.filter(ModelClass.id.in_(chunk), ModelClass.user_id == current_user.id).delete(synchronize_session=False)
+        
     db.session.commit()
     return jsonify({'success': True, 'message': f'✅ 선택한 {len(selected_ids)}개 항목이 성공적으로 삭제되었습니다.'})
 
@@ -241,18 +252,18 @@ def clear_isbn():
     if target == 'rm': ModelClass = RunningmateKeyword
     elif target == 'dl': ModelClass = DailylearningKeyword
     
-    # ✨ 묶음 배송 해체 적용
-    ids_str = request.form.get('ids', '')
-    selected_ids = [i for i in ids_str.split(',') if i.strip()]
-    
+    selected_ids = get_selected_ids(request)
     if not selected_ids: return jsonify({'success': False, 'message': '선택된 항목이 없습니다.'})
     
-    keywords = ModelClass.query.filter(ModelClass.id.in_(selected_ids), ModelClass.user_id == current_user.id).all()
-    for kw in keywords:
-        kw.isbn = '-'
+    # ✨ 분할 처리
+    for i in range(0, len(selected_ids), 500):
+        chunk = selected_ids[i:i + 500]
+        keywords = ModelClass.query.filter(ModelClass.id.in_(chunk), ModelClass.user_id == current_user.id).all()
+        for kw in keywords:
+            kw.isbn = '-'
+            
     db.session.commit()
-    
-    return jsonify({'success': True, 'message': f'✅ 선택한 {len(keywords)}개 항목의 ISBN이 초기화(비우기) 되었습니다!'})
+    return jsonify({'success': True, 'message': f'✅ 선택한 {len(selected_ids)}개 항목의 ISBN이 초기화(비우기) 되었습니다!'})
 
 @monitoring_bp.route('/api/update_keyword', methods=['POST'])
 @login_required
@@ -290,16 +301,19 @@ def change_grade():
     if target == 'rm': ModelClass = RunningmateKeyword
     elif target == 'dl': ModelClass = DailylearningKeyword
     
-    # ✨ 묶음 배송 해체 적용
-    ids_str = request.form.get('ids', '')
-    selected_ids = [i for i in ids_str.split(',') if i.strip()]
-    
+    selected_ids = get_selected_ids(request)
     new_grade = request.form.get('grade', 'A')
     if not selected_ids: return jsonify({'success': False, 'message': '이동할 항목을 선택해주세요.'})
-    keywords = ModelClass.query.filter(ModelClass.id.in_(selected_ids), ModelClass.user_id==current_user.id).all()
-    for kw in keywords: kw.rank_info = new_grade
+    
+    # ✨ 분할 처리
+    for i in range(0, len(selected_ids), 500):
+        chunk = selected_ids[i:i + 500]
+        keywords = ModelClass.query.filter(ModelClass.id.in_(chunk), ModelClass.user_id==current_user.id).all()
+        for kw in keywords: 
+            kw.rank_info = new_grade
+            
     db.session.commit()
-    return jsonify({'success': True, 'message': f'✅ 선택한 {len(keywords)}개 항목이 {new_grade}등급으로 이동되었습니다.'})
+    return jsonify({'success': True, 'message': f'✅ 선택한 {len(selected_ids)}개 항목이 {new_grade}등급으로 이동되었습니다.'})
 
 @monitoring_bp.route('/api/clear_data', methods=['POST'])
 @login_required
@@ -309,22 +323,37 @@ def clear_data():
     if target == 'rm': ModelClass = RunningmateKeyword
     elif target == 'dl': ModelClass = DailylearningKeyword
     
-    # ✨ 묶음 배송 해체 적용
-    ids_str = request.form.get('ids', '')
-    selected_ids = [i for i in ids_str.split(',') if i.strip()]
+    selected_ids = get_selected_ids(request)
     
-    query = ModelClass.query.filter_by(user_id=current_user.id)
-    if selected_ids: query = query.filter(ModelClass.id.in_(selected_ids))
-    for kw in query.all():
-        kw.store_rank = '-'
-        kw.prev_store_rank = '-'
-        kw.product_link = '-'
-        kw.price = '-'
-        kw.shipping_fee = '-'
-        kw.book_title = '-'
-        if hasattr(kw, 'stock_quantity'): kw.stock_quantity = '-'
-        if hasattr(kw, 'sales_quantity'): kw.sales_quantity = '-'
-        if hasattr(kw, 'sales_status'): kw.sales_status = '-'
+    if selected_ids: 
+        # ✨ 분할 처리
+        for i in range(0, len(selected_ids), 500):
+            chunk = selected_ids[i:i + 500]
+            keywords = ModelClass.query.filter(ModelClass.id.in_(chunk), ModelClass.user_id == current_user.id).all()
+            for kw in keywords:
+                kw.store_rank = '-'
+                kw.prev_store_rank = '-'
+                kw.product_link = '-'
+                kw.price = '-'
+                kw.shipping_fee = '-'
+                kw.book_title = '-'
+                if hasattr(kw, 'stock_quantity'): kw.stock_quantity = '-'
+                if hasattr(kw, 'sales_quantity'): kw.sales_quantity = '-'
+                if hasattr(kw, 'sales_status'): kw.sales_status = '-'
+    else:
+        # 전체 초기화 시
+        query = ModelClass.query.filter_by(user_id=current_user.id)
+        for kw in query.all():
+            kw.store_rank = '-'
+            kw.prev_store_rank = '-'
+            kw.product_link = '-'
+            kw.price = '-'
+            kw.shipping_fee = '-'
+            kw.book_title = '-'
+            if hasattr(kw, 'stock_quantity'): kw.stock_quantity = '-'
+            if hasattr(kw, 'sales_quantity'): kw.sales_quantity = '-'
+            if hasattr(kw, 'sales_status'): kw.sales_status = '-'
+            
     db.session.commit()
     return jsonify({'success': True, 'message': f'✅ 선택한 항목의 검색 정보가 초기화되었습니다.'})
 
@@ -535,14 +564,20 @@ def refresh_by_isbn():
     if monitoring_tasks.get(task_key, {}).get("is_running", False):
         return jsonify({'success': False, 'message': '⚠️ 이미 진행 중입니다.'})
         
-    # ✨ 묶음 배송 해체 적용
-    ids_str = request.form.get('ids', '')
-    selected_ids = [i for i in ids_str.split(',') if i.strip()]
+    selected_ids = get_selected_ids(request)
+    update_mode = request.form.get('update_mode', 'all') 
+    fill_empty_only = request.form.get('fill_empty_only') == 'true'
     
     if not selected_ids: return jsonify({'success': False, 'message': '⚠️ 업데이트할 항목을 선택해주세요.'})
-    keywords = ModelClass.query.filter(ModelClass.id.in_(selected_ids), ModelClass.user_id==user_id).all()
-    target_ids = [kw.id for kw in keywords]
-    if not target_ids: return jsonify({'success': False, 'message': '⚠️ 선택한 항목이 없습니다.'})
+    
+    # ✨ 999개 한계 돌파 분할 조회
+    target_ids = []
+    for i in range(0, len(selected_ids), 500):
+        chunk = selected_ids[i:i + 500]
+        keywords = ModelClass.query.filter(ModelClass.id.in_(chunk), ModelClass.user_id==user_id).all()
+        target_ids.extend([kw.id for kw in keywords])
+        
+    if not target_ids: return jsonify({'success': False, 'message': '⚠️ 유효한 항목이 없습니다.'})
         
     thread = Thread(target=async_refresh_by_isbn, args=(app, user_id, target_ids, update_mode, fill_empty_only, target))
     thread.start()
