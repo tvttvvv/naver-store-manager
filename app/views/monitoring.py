@@ -35,16 +35,19 @@ def get_selected_ids(req):
         return [i.strip() for i in ids_str.split(',') if i.strip()]
     return req.form.getlist('ids[]')
 
-# ✨ [신규] 네이버 쇼핑 실시간 순위 추적 (크롤링) 엔진
+# ✨ [신규 탑재] ISBN 없이도 작동하는 무적의 네이버 쇼핑 순위 추적 엔진!
 def get_naver_shopping_rank(keyword, store_name):
     if not keyword or not store_name or store_name == '-':
         return '-'
         
     url = f"https://search.shopping.naver.com/search/all?query={urllib.parse.quote(keyword)}"
+    # 네이버의 봇 차단을 우회하기 위한 실제 브라우저 위장 헤더
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7"
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Cache-Control": "max-age=0",
+        "Upgrade-Insecure-Requests": "1"
     }
     
     try:
@@ -52,42 +55,50 @@ def get_naver_shopping_rank(keyword, store_name):
         if res.status_code != 200:
             return "에러"
             
-        soup = BeautifulSoup(res.text, 'html.parser')
-        script_tag = soup.find('script', id='__NEXT_DATA__')
-        if not script_tag:
-            return "에러"
-            
-        data = json.loads(script_tag.string)
-        items = []
-        
-        # JSON 내부 깊숙이 숨겨진 상품 목록(mallName, rank)을 모두 찾아내는 로직
-        def extract_items(obj):
-            if isinstance(obj, dict):
-                if 'mallName' in obj and 'rank' in obj:
-                    items.append(obj)
-                for k, v in obj.items():
-                    extract_items(v)
-            elif isinstance(obj, list):
-                for i in obj:
-                    extract_items(i)
-                    
-        extract_items(data)
-        
-        # 순위 순서대로 정렬
-        valid_items = [i for i in items if str(i.get('rank')).isdigit()]
-        valid_items.sort(key=lambda x: int(x.get('rank')))
-        
-        # 내 상점 이름과 일치하는지 검사 (공백 무시)
+        text_data = res.text
+        soup = BeautifulSoup(text_data, 'html.parser')
         target_store = store_name.replace(" ", "")
-        for item in valid_items:
-            mall_name = str(item.get('mallName', '')).replace(" ", "")
-            if target_store in mall_name:
-                return str(item.get('rank'))
-                
+        
+        # 1차 방어막 돌파: 숨겨진 JSON 데이터에서 순위 찾기
+        script_tag = soup.find('script', id='__NEXT_DATA__')
+        if script_tag:
+            data = json.loads(script_tag.string)
+            items = []
+            def extract(obj):
+                if isinstance(obj, dict):
+                    if 'mallName' in obj and 'rank' in obj:
+                        items.append(obj)
+                    for k, v in obj.items(): extract(v)
+                elif isinstance(obj, list):
+                    for i in obj: extract(i)
+            extract(data)
+            
+            valid_items = [i for i in items if str(i.get('rank')).isdigit()]
+            valid_items.sort(key=lambda x: int(x.get('rank')))
+            for item in valid_items:
+                m_name = str(item.get('mallName', '')).replace(" ", "")
+                if target_store in m_name:
+                    return str(item.get('rank'))
+
+        # 2차 방어막 돌파: 정규식(Regex)을 이용한 텍스트 긁기
+        products = re.findall(r'"mallName":"([^"]+)".*?"rank":(\d+)', text_data)
+        ranks = [int(r) for m, r in products if target_store in m.replace(" ", "")]
+        if ranks:
+            return str(min(ranks))
+            
+        # 3차 방어막 돌파: 화면 태그(DOM) 직접 분석
+        product_list = soup.select('div[class*="product_item__"], div[class*="basicList_item__"], div[class*="adProduct_item__"]')
+        for idx, prod in enumerate(product_list, 1):
+            mall_tag = prod.select_one('a[class*="product_mall__"], a[class*="basicList_mall__"], span[class*="product_mall__"]')
+            if mall_tag:
+                m_name = mall_tag.text.replace(" ", "")
+                if target_store in m_name:
+                    return str(idx)
+                    
         return "40위 밖"
     except Exception as e:
-        print(f"Rank scrape error for {keyword}: {e}")
-        return "실패"
+        print(f"Rank scrape error: {e}")
+        return "에러"
 
 @monitoring_bp.route('/')
 @login_required
@@ -123,32 +134,58 @@ def receive_webhook():
         user = User.query.first()
         if not user: return jsonify({'success': False, 'message': 'No user found'})
 
-        existing_sb = MonitoredKeyword.query.filter_by(user_id=user.id, keyword=keyword).first()
-        if existing_sb:
-            existing_sb.search_volume = search_volume
-            existing_sb.store_rank = store_rank
-            existing_sb.rank_info = grade_char
-        else:
-            new_sb = MonitoredKeyword(user_id=user.id, keyword=keyword, search_volume=search_volume, rank_info=grade_char, link=link, shipping_fee='-', store_rank=store_rank, prev_store_rank='-')
-            db.session.add(new_sb)
+        try: MonitoredKeyword.__table__.create(db.engine, checkfirst=True)
+        except Exception: pass
+        try: RunningmateKeyword.__table__.create(db.engine, checkfirst=True)
+        except Exception: pass
+        try: DailylearningKeyword.__table__.create(db.engine, checkfirst=True)
+        except Exception: pass
+
+        for table_name in ['monitored_keyword', 'runningmate_keyword', 'dailylearning_keyword']:
+            try: db.session.execute(text(f"ALTER TABLE {table_name} ADD COLUMN stock_quantity VARCHAR(50) DEFAULT '-'")); db.session.commit()
+            except: db.session.rollback()
+            try: db.session.execute(text(f"ALTER TABLE {table_name} ADD COLUMN sales_quantity VARCHAR(50) DEFAULT '-'")); db.session.commit()
+            except: db.session.rollback()
+            try: db.session.execute(text(f"ALTER TABLE {table_name} ADD COLUMN registered_at VARCHAR(50) DEFAULT '-'")); db.session.commit()
+            except: db.session.rollback()
+            try: db.session.execute(text(f"ALTER TABLE {table_name} ADD COLUMN sales_status VARCHAR(50) DEFAULT '-'")); db.session.commit()
+            except: db.session.rollback()
 
         try:
+            existing_sb = MonitoredKeyword.query.filter_by(user_id=user.id, keyword=keyword).first()
+            if existing_sb:
+                existing_sb.search_volume = search_volume
+                existing_sb.store_rank = store_rank
+                existing_sb.rank_info = grade_char
+            else:
+                new_sb = MonitoredKeyword(user_id=user.id, keyword=keyword, search_volume=search_volume, rank_info=grade_char, link=link, isbn='-', shipping_fee='-', store_rank=store_rank, prev_store_rank='-')
+                db.session.add(new_sb)
+
             existing_rm = RunningmateKeyword.query.filter_by(user_id=user.id, keyword=keyword).first()
             if existing_rm:
                 existing_rm.search_volume = search_volume
                 existing_rm.store_rank = store_rank
                 existing_rm.rank_info = grade_char
+            else:
+                new_rm = RunningmateKeyword(user_id=user.id, keyword=keyword, search_volume=search_volume, rank_info=grade_char, link=link, isbn='-', shipping_fee='-', store_rank=store_rank, prev_store_rank='-')
+                db.session.add(new_rm)
                 
             existing_dl = DailylearningKeyword.query.filter_by(user_id=user.id, keyword=keyword).first()
             if existing_dl:
                 existing_dl.search_volume = search_volume
                 existing_dl.store_rank = store_rank
                 existing_dl.rank_info = grade_char
-        except: pass
+            else:
+                new_dl = DailylearningKeyword(user_id=user.id, keyword=keyword, search_volume=search_volume, rank_info=grade_char, link=link, isbn='-', shipping_fee='-', store_rank=store_rank, prev_store_rank='-')
+                db.session.add(new_dl)
 
-        db.session.commit()
-        return jsonify({'success': True, 'message': 'Saved'})
-    return jsonify({'success': False})
+            db.session.commit()
+            return jsonify({'success': True, 'message': 'Saved to all 3 monitorings'})
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({'success': False, 'message': str(e)})
+            
+    return jsonify({'success': False, 'message': 'No keyword'})
 
 @monitoring_bp.route('/api/copy_to_target', methods=['POST'])
 @login_required
@@ -521,7 +558,7 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
             commerce_token = None
             if api_key: 
                 commerce_token = get_naver_token(api_key.client_id, api_key.client_secret)
-            
+
             for k_id in target_ids:
                 try:
                     kw = db.session.get(ModelClass, k_id)
@@ -532,16 +569,18 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                     target_isbn = str(kw.isbn).strip() if kw.isbn and kw.isbn != '-' else ""
                     keyword_name = kw.keyword or f"ID:{k_id}"
                     
+                    # DB 잠금 해제
                     db.session.rollback()
                     
                     updates = {}
                     
                     # 1. API 기반 업데이트 (상품 정보, 재고)
                     if update_mode in ['all', 'info', 'stock']:
+                        # ✨ 수정됨: ISBN이 없으면 "순위"는 진행하되 "상품정보"는 스킵하도록 로직 분리!
                         if not target_isbn or not commerce_token:
                             if update_mode != 'all':
                                 monitoring_tasks[task_key]["current"] += 1
-                                monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ❌ ISBN 또는 API 연동 필요")
+                                monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ❌ ISBN/API키 필요 (스킵)")
                                 continue
                         else:
                             exact_info = get_exact_product_info_commerce_api(commerce_token, target_isbn)
@@ -554,13 +593,19 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                             if update_mode in ['all', 'stock']:
                                 if exact_info.get('my_stock'): updates['stock_quantity'] = exact_info['my_stock']
 
-                    # 2. 크롤링 기반 업데이트 (순위 추적) - ISBN이 없어도 독립적으로 실행!
+                    # 2. 크롤링 기반 순위 업데이트 (✨ 핵심: ISBN 유무와 상관없이 무조건 실행!)
                     if update_mode in ['all', 'rank']:
-                        rank_result = get_naver_shopping_rank(kw.keyword, target_store_name)
+                        rank_result = get_naver_shopping_rank(keyword_name, target_store_name)
                         if rank_result and rank_result not in ['에러', '실패']:
                             updates['store_rank'] = rank_result
+                            if rank_result == "40위 밖":
+                                monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] 📉 40위 밖")
+                            else:
+                                monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] 🏆 {rank_result}위 확인!")
+                        else:
+                            monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ⚠️ 순위 검색 실패")
 
-                    # 업데이트 적용
+                    # 업데이트 사항 DB에 최종 저장
                     kw_update = db.session.get(ModelClass, k_id)
                     if kw_update and updates:
                         def should_update(current_val):
@@ -578,23 +623,29 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                             if updates.get('stock_quantity') and should_update(getattr(kw_update, 'stock_quantity', '-')):
                                 kw_update.stock_quantity = updates['stock_quantity']
                                 
+                        # 이전 순위 백업 및 저장
                         if update_mode in ['all', 'rank'] and 'store_rank' in updates:
                             if should_update(kw_update.store_rank):
-                                # 이전 순위 백업 (변동 추세 기록용)
-                                if kw_update.store_rank != updates['store_rank'] and kw_update.store_rank not in ['-', '에러', '실패', '매칭중']:
+                                if kw_update.store_rank != updates['store_rank'] and kw_update.store_rank not in ['-', '에러', '실패', '매칭중', '40위 밖']:
                                     kw_update.prev_store_rank = kw_update.store_rank
                                 kw_update.store_rank = updates['store_rank']
 
                         db.session.commit()
                         
                     monitoring_tasks[task_key]["current"] += 1
-                    monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ✅ 업데이트 완료")
+                    if update_mode == 'info' and not updates:
+                        pass # 이미 위에서 로그를 남김
+                    elif 'store_rank' not in updates and update_mode == 'rank':
+                        pass # 이미 위에서 실패 로그를 남김
+                    elif updates and update_mode != 'rank':
+                        monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ✅ 업데이트 완료")
                     
                 except Exception as inner_e:
                     db.session.rollback()
                     monitoring_tasks[task_key]["current"] += 1
-                    monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ❌ 오류")
+                    monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ❌ 오류 발생")
                 
+                # 네이버 차단 방지용 안전 딜레이
                 time.sleep(1.5) 
                 
     except Exception as outer_e:
@@ -603,7 +654,7 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
         monitoring_tasks[task_key]["is_running"] = False
         if monitoring_tasks[task_key]["current"] < monitoring_tasks[task_key]["total"]:
             monitoring_tasks[task_key]["current"] = monitoring_tasks[task_key]["total"]
-            monitoring_tasks[task_key]["logs"].append("⚠️ 업데이트가 강제 중단되었습니다.")
+            monitoring_tasks[task_key]["logs"].append("⚠️ 업데이트가 종료되었습니다.")
 
 @monitoring_bp.route('/api/refresh_by_isbn', methods=['POST'])
 @login_required
