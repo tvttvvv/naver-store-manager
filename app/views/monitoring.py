@@ -15,6 +15,7 @@ import urllib.parse
 import json
 from sqlalchemy import text
 from app.naver_api import get_naver_token
+from bs4 import BeautifulSoup
 
 monitoring_bp = Blueprint('monitoring', __name__)
 
@@ -28,12 +29,65 @@ def parse_number(val):
     try: return int(re.sub(r'[^0-9]', '', str(val)))
     except: return 0
 
-# ✨ 화면에서 보낸 수많은 ID들을 안전하게 받아오는 공통 함수
 def get_selected_ids(req):
     ids_str = req.form.get('ids', '')
     if ids_str:
         return [i.strip() for i in ids_str.split(',') if i.strip()]
     return req.form.getlist('ids[]')
+
+# ✨ [신규] 네이버 쇼핑 실시간 순위 추적 (크롤링) 엔진
+def get_naver_shopping_rank(keyword, store_name):
+    if not keyword or not store_name or store_name == '-':
+        return '-'
+        
+    url = f"https://search.shopping.naver.com/search/all?query={urllib.parse.quote(keyword)}"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7"
+    }
+    
+    try:
+        res = requests.get(url, headers=headers, timeout=10)
+        if res.status_code != 200:
+            return "에러"
+            
+        soup = BeautifulSoup(res.text, 'html.parser')
+        script_tag = soup.find('script', id='__NEXT_DATA__')
+        if not script_tag:
+            return "에러"
+            
+        data = json.loads(script_tag.string)
+        items = []
+        
+        # JSON 내부 깊숙이 숨겨진 상품 목록(mallName, rank)을 모두 찾아내는 로직
+        def extract_items(obj):
+            if isinstance(obj, dict):
+                if 'mallName' in obj and 'rank' in obj:
+                    items.append(obj)
+                for k, v in obj.items():
+                    extract_items(v)
+            elif isinstance(obj, list):
+                for i in obj:
+                    extract_items(i)
+                    
+        extract_items(data)
+        
+        # 순위 순서대로 정렬
+        valid_items = [i for i in items if str(i.get('rank')).isdigit()]
+        valid_items.sort(key=lambda x: int(x.get('rank')))
+        
+        # 내 상점 이름과 일치하는지 검사 (공백 무시)
+        target_store = store_name.replace(" ", "")
+        for item in valid_items:
+            mall_name = str(item.get('mallName', '')).replace(" ", "")
+            if target_store in mall_name:
+                return str(item.get('rank'))
+                
+        return "40위 밖"
+    except Exception as e:
+        print(f"Rank scrape error for {keyword}: {e}")
+        return "실패"
 
 @monitoring_bp.route('/')
 @login_required
@@ -117,7 +171,6 @@ def copy_to_target():
     except Exception: pass
     
     source_keywords = []
-    # ✨ 999개 DB 한계를 돌파하는 500개씩 분할 요청 로직
     for i in range(0, len(selected_ids), 500):
         chunk = selected_ids[i:i + 500]
         source_keywords.extend(SourceModel.query.filter(SourceModel.id.in_(chunk), SourceModel.user_id==current_user.id).all())
@@ -236,7 +289,6 @@ def delete_keywords_bulk():
     selected_ids = get_selected_ids(request)
     if not selected_ids: return jsonify({'success': False, 'message': '선택된 항목이 없습니다.'})
     
-    # ✨ 999개 한계 돌파 분할 삭제 로직
     for i in range(0, len(selected_ids), 500):
         chunk = selected_ids[i:i + 500]
         ModelClass.query.filter(ModelClass.id.in_(chunk), ModelClass.user_id == current_user.id).delete(synchronize_session=False)
@@ -255,7 +307,6 @@ def clear_isbn():
     selected_ids = get_selected_ids(request)
     if not selected_ids: return jsonify({'success': False, 'message': '선택된 항목이 없습니다.'})
     
-    # ✨ 분할 처리
     for i in range(0, len(selected_ids), 500):
         chunk = selected_ids[i:i + 500]
         keywords = ModelClass.query.filter(ModelClass.id.in_(chunk), ModelClass.user_id == current_user.id).all()
@@ -305,7 +356,6 @@ def change_grade():
     new_grade = request.form.get('grade', 'A')
     if not selected_ids: return jsonify({'success': False, 'message': '이동할 항목을 선택해주세요.'})
     
-    # ✨ 분할 처리
     for i in range(0, len(selected_ids), 500):
         chunk = selected_ids[i:i + 500]
         keywords = ModelClass.query.filter(ModelClass.id.in_(chunk), ModelClass.user_id==current_user.id).all()
@@ -326,7 +376,6 @@ def clear_data():
     selected_ids = get_selected_ids(request)
     
     if selected_ids: 
-        # ✨ 분할 처리
         for i in range(0, len(selected_ids), 500):
             chunk = selected_ids[i:i + 500]
             keywords = ModelClass.query.filter(ModelClass.id.in_(chunk), ModelClass.user_id == current_user.id).all()
@@ -341,7 +390,6 @@ def clear_data():
                 if hasattr(kw, 'sales_quantity'): kw.sales_quantity = '-'
                 if hasattr(kw, 'sales_status'): kw.sales_status = '-'
     else:
-        # 전체 초기화 시
         query = ModelClass.query.filter_by(user_id=current_user.id)
         for kw in query.all():
             kw.store_rank = '-'
@@ -473,11 +521,7 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
             commerce_token = None
             if api_key: 
                 commerce_token = get_naver_token(api_key.client_id, api_key.client_secret)
-            else:
-                monitoring_tasks[task_key]["logs"].append(f"❌ '{target_store_name}' 상점의 API 키가 등록되지 않았습니다.")
-                monitoring_tasks[task_key]["is_running"] = False
-                return
-
+            
             for k_id in target_ids:
                 try:
                     kw = db.session.get(ModelClass, k_id)
@@ -490,30 +534,33 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                     
                     db.session.rollback()
                     
-                    if not target_isbn:
-                        monitoring_tasks[task_key]["current"] += 1
-                        monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ⏩ ISBN 없음 (스킵)")
-                        continue 
-
-                    if not commerce_token:
-                        monitoring_tasks[task_key]["current"] += 1
-                        monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ❌ API 연결 실패")
-                        continue
-
                     updates = {}
+                    
+                    # 1. API 기반 업데이트 (상품 정보, 재고)
                     if update_mode in ['all', 'info', 'stock']:
-                        exact_info = get_exact_product_info_commerce_api(commerce_token, target_isbn)
+                        if not target_isbn or not commerce_token:
+                            if update_mode != 'all':
+                                monitoring_tasks[task_key]["current"] += 1
+                                monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ❌ ISBN 또는 API 연동 필요")
+                                continue
+                        else:
+                            exact_info = get_exact_product_info_commerce_api(commerce_token, target_isbn)
+                            if update_mode in ['all', 'info']:
+                                if exact_info.get('my_title'): updates['book_title'] = exact_info['my_title']
+                                if exact_info.get('my_link'): updates['product_link'] = exact_info['my_link']
+                                if exact_info.get('my_price'): updates['price'] = exact_info['my_price']
+                                if exact_info.get('my_publisher'): updates['publisher'] = exact_info['my_publisher']
+                                if exact_info.get('my_status'): updates['sales_status'] = exact_info['my_status'] 
+                            if update_mode in ['all', 'stock']:
+                                if exact_info.get('my_stock'): updates['stock_quantity'] = exact_info['my_stock']
 
-                        if update_mode in ['all', 'info']:
-                            if exact_info.get('my_title'): updates['book_title'] = exact_info['my_title']
-                            if exact_info.get('my_link'): updates['product_link'] = exact_info['my_link']
-                            if exact_info.get('my_price'): updates['price'] = exact_info['my_price']
-                            if exact_info.get('my_publisher'): updates['publisher'] = exact_info['my_publisher']
-                            if exact_info.get('my_status'): updates['sales_status'] = exact_info['my_status'] 
+                    # 2. 크롤링 기반 업데이트 (순위 추적) - ISBN이 없어도 독립적으로 실행!
+                    if update_mode in ['all', 'rank']:
+                        rank_result = get_naver_shopping_rank(kw.keyword, target_store_name)
+                        if rank_result and rank_result not in ['에러', '실패']:
+                            updates['store_rank'] = rank_result
 
-                        if update_mode in ['all', 'stock']:
-                            if exact_info.get('my_stock'): updates['stock_quantity'] = exact_info['my_stock']
-
+                    # 업데이트 적용
                     kw_update = db.session.get(ModelClass, k_id)
                     if kw_update and updates:
                         def should_update(current_val):
@@ -530,6 +577,14 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                         if update_mode in ['all', 'stock']:
                             if updates.get('stock_quantity') and should_update(getattr(kw_update, 'stock_quantity', '-')):
                                 kw_update.stock_quantity = updates['stock_quantity']
+                                
+                        if update_mode in ['all', 'rank'] and 'store_rank' in updates:
+                            if should_update(kw_update.store_rank):
+                                # 이전 순위 백업 (변동 추세 기록용)
+                                if kw_update.store_rank != updates['store_rank'] and kw_update.store_rank not in ['-', '에러', '실패', '매칭중']:
+                                    kw_update.prev_store_rank = kw_update.store_rank
+                                kw_update.store_rank = updates['store_rank']
+
                         db.session.commit()
                         
                     monitoring_tasks[task_key]["current"] += 1
@@ -570,7 +625,6 @@ def refresh_by_isbn():
     
     if not selected_ids: return jsonify({'success': False, 'message': '⚠️ 업데이트할 항목을 선택해주세요.'})
     
-    # ✨ 999개 한계 돌파 분할 조회
     target_ids = []
     for i in range(0, len(selected_ids), 500):
         chunk = selected_ids[i:i + 500]
