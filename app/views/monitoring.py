@@ -10,13 +10,11 @@ from flask import Blueprint, render_template, request, jsonify, current_app
 from flask_login import login_required, current_user
 from app import db
 from app.models import User, MonitoredKeyword, RunningmateKeyword, DailylearningKeyword, ApiKey
-import urllib.request
+import requests
 import urllib.parse
 import json
-import requests
 from sqlalchemy import text
 from app.naver_api import get_naver_token
-from bs4 import BeautifulSoup
 
 monitoring_bp = Blueprint('monitoring', __name__)
 
@@ -36,127 +34,102 @@ def get_selected_ids(req):
         return [i.strip() for i in ids_str.split(',') if i.strip()]
     return req.form.getlist('ids[]')
 
-# ✨ [강력 업그레이드] 네이버 봇 차단 완벽 우회! 500위 심층 탐색 엔진
+# ✨ [초강력 업그레이드] 네이버 봇 차단막(403/Captcha) 완벽 우회! 3중 스텔스 엔진
 def get_naver_shopping_rank(keyword, store_name):
     if not keyword or not store_name or store_name == '-':
         return '-'
         
     target_store = store_name.replace(" ", "").lower()
     
-    # 1차 시도: PC 버전 심층 탐색 (80개씩 7페이지 = 최대 560위까지 검사)
+    # 봇으로 의심받지 않도록 쿠키(Cookie)를 유지하는 세션(Session) 사용
+    session = requests.Session()
+    
+    # 실제 사람들이 쓰는 최신 브라우저 목록
+    user_agents = [
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0"
+    ]
+    
+    headers = {
+        "User-Agent": random.choice(user_agents),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1"
+    }
+
     try:
-        for page in range(1, 8):
+        # 1차 스텔스: 차단율이 가장 낮은 "네이버 통합검색"에 먼저 접속하여 사람인 척 쿠키를 받음
+        n_url = f"https://search.naver.com/search.naver?where=nexearch&query={urllib.parse.quote(keyword)}"
+        res_n = session.get(n_url, headers=headers, timeout=5)
+        
+        if res_n.status_code == 200:
+            # 통합검색 파워링크/쇼핑 탭에 상점이 최상위 노출되어 있다면 즉시 순위 반환!
+            malls = re.findall(r'class="mall_name[^>]*>([^<]+)<', res_n.text)
+            if malls:
+                for idx, m in enumerate(malls, 1):
+                    if target_store in m.replace(" ", "").lower():
+                        return str(idx)
+                        
+        headers["Referer"] = n_url # 다음 쇼핑 검색을 위해 "통합검색에서 넘어왔음"으로 위장
+    except:
+        pass
+
+    try:
+        # 2차 스텔스: 인증된 쿠키를 들고 PC 네이버 쇼핑 탐색 (최대 4페이지 = 320위)
+        for page in range(1, 5): 
             url = f"https://search.shopping.naver.com/search/all?query={urllib.parse.quote(keyword)}&pagingIndex={page}&pagingSize=80"
-            req = urllib.request.Request(url, headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-                "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8",
-                "Referer": "https://shopping.naver.com/"
-            })
-            html_data = urllib.request.urlopen(req, timeout=7).read().decode('utf-8')
+            res = session.get(url, headers=headers, timeout=5)
             
-            # 네이버 봇 차단막(Captcha) 감지 시 예외 발생시켜 모바일로 우회
-            if "captcha" in html_data or "자동입력 방지" in html_data:
+            # 네이버가 봇으로 감지하고 캡챠를 띄우거나 차단했으면 즉시 중단하고 모바일로 도망!
+            if res.status_code != 200 or "captcha" in res.url or "자동입력 방지" in res.text:
                 raise Exception("PC Blocked")
                 
-            soup = BeautifulSoup(html_data, 'html.parser')
-            script_tag = soup.find('script', id='__NEXT_DATA__')
-            
-            found_items = False
-            if script_tag:
-                try:
-                    data = json.loads(script_tag.string)
-                    items = []
-                    def extract(obj):
-                        if isinstance(obj, dict):
-                            if 'mallName' in obj: items.append(obj)
-                            for v in obj.values(): extract(v)
-                        elif isinstance(obj, list):
-                            for i in obj: extract(i)
-                    extract(data)
-                    
-                    if items: found_items = True
-                    for i in items:
-                        r = i.get('rank') or i.get('productRank') or i.get('itemRank')
-                        m = str(i.get('mallName', '')).replace(" ", "").lower()
-                        if str(r).isdigit() and target_store in m:
-                            return str(r)
-                except: pass
-            
-            # JSON 데이터가 없거나 파싱에 실패했을 경우 정규식 스캔
-            if not script_tag or not found_items:
-                malls = re.findall(r'"mallName"\s*:\s*"([^"]+)"', html_data)
-                if not malls:
-                    malls = re.findall(r"'mallName'\s*:\s*'([^']+)'", html_data)
-                    
-                if malls:
-                    found_items = True
-                    for idx, m in enumerate(malls, 1):
-                        if target_store in m.replace(" ", "").lower():
-                            return str((page - 1) * 80 + idx)
-                            
-            if not found_items:
-                break # 상품이 더 이상 없으면 다음 페이지 조회를 멈춥니다
+            malls = re.findall(r'"mallName"\s*:\s*"([^"]+)"', res.text)
+            if not malls:
+                malls = re.findall(r"'mallName'\s*:\s*'([^']+)'", res.text)
                 
-            time.sleep(0.3) # 네이버가 봇으로 인식하지 않게 페이지 간 살짝 숨고르기
-        return "500위 밖"
-        
-    except Exception as e1:
+            if malls:
+                for idx, m in enumerate(malls, 1):
+                    if target_store in m.replace(" ", "").lower():
+                        return str((page - 1) * 80 + idx)
+                time.sleep(random.uniform(0.6, 1.2)) # 다음 페이지 넘기기 전 무작위 사람 흉내 딜레이
+                continue
+            else:
+                break # 더 이상 상품이 없으면 종료
+                
+        return "300위 밖"
+    except Exception as e:
         pass # PC에서 막히면 당황하지 않고 모바일로 넘어감
 
-    # 2차 시도: 모바일 버전 심층 탐색 (방어막이 상대적으로 느슨함, 40개씩 13페이지 = 520위 검사)
     try:
-        for page in range(1, 14):
+        # 3차 스텔스: 스마트폰으로 위장하여 모바일 쇼핑 탐색 (최대 4페이지 = 160위)
+        headers["User-Agent"] = "Mozilla/5.0 (Linux; Android 10; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.162 Mobile Safari/537.36"
+        headers["Referer"] = "https://m.naver.com/"
+        
+        for page in range(1, 5):
             m_url = f"https://msearch.shopping.naver.com/search/all?query={urllib.parse.quote(keyword)}&pagingIndex={page}&pagingSize=40"
-            req = urllib.request.Request(m_url, headers={
-                "User-Agent": "Mozilla/5.0 (Linux; Android 10; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.162 Mobile Safari/537.36",
-                "Referer": "https://m.naver.com/"
-            })
-            html_data = urllib.request.urlopen(req, timeout=7).read().decode('utf-8')
+            res = session.get(m_url, headers=headers, timeout=5)
             
-            if "captcha" in html_data or "자동입력 방지" in html_data:
+            if res.status_code != 200 or "captcha" in res.url or "자동입력 방지" in res.text:
                 raise Exception("Mobile Blocked")
                 
-            soup = BeautifulSoup(html_data, 'html.parser')
-            script_tag = soup.find('script', id='__NEXT_DATA__')
-            
-            found_items = False
-            if script_tag:
-                try:
-                    data = json.loads(script_tag.string)
-                    items = []
-                    def extract(obj):
-                        if isinstance(obj, dict):
-                            if 'mallName' in obj: items.append(obj)
-                            for v in obj.values(): extract(v)
-                        elif isinstance(obj, list):
-                            for i in obj: extract(i)
-                    extract(data)
-                    
-                    if items: found_items = True
-                    for i in items:
-                        r = i.get('rank') or i.get('productRank') or i.get('itemRank')
-                        m = str(i.get('mallName', '')).replace(" ", "").lower()
-                        if str(r).isdigit() and target_store in m:
-                            return str(r)
-                except: pass
-            
-            if not script_tag or not found_items:
-                malls = re.findall(r'"mallName"\s*:\s*"([^"]+)"', html_data)
-                if malls:
-                    found_items = True
-                    for idx, m in enumerate(malls, 1):
-                        if target_store in m.replace(" ", "").lower():
-                            return str((page - 1) * 40 + idx)
-                            
-            if not found_items:
+            malls = re.findall(r'"mallName"\s*:\s*"([^"]+)"', res.text)
+            if malls:
+                for idx, m in enumerate(malls, 1):
+                    if target_store in m.replace(" ", "").lower():
+                        return str((page - 1) * 40 + idx)
+                time.sleep(random.uniform(0.6, 1.2))
+                continue
+            else:
                 break
                 
-            time.sleep(0.3)
-        return "500위 밖"
-        
-    except Exception as e2:
-        print(f"All rank scrapers failed for {keyword}: {e2}")
+        return "150위 밖"
+    except Exception as e:
+        print(f"All rank scrapers failed for {keyword}")
         return "실패"
+
 
 @monitoring_bp.route('/')
 @login_required
@@ -628,10 +601,8 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                     keyword_name = kw.keyword or f"ID:{k_id}"
                     
                     db.session.rollback()
-                    
                     updates = {}
                     
-                    # 1. API 기반 업데이트 (상품 정보, 재고)
                     if update_mode in ['all', 'info', 'stock']:
                         if not target_isbn or not commerce_token:
                             if update_mode != 'all':
@@ -649,19 +620,19 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                             if update_mode in ['all', 'stock']:
                                 if exact_info.get('my_stock'): updates['stock_quantity'] = exact_info['my_stock']
 
-                    # 2. 크롤링 기반 순위 업데이트 (무적 3중 엔진 적용)
+                    # ✨ 순위 업데이트 진행 (실패 시에도 무조건 "실패"라는 로그가 뜨게끔 처리)
                     if update_mode in ['all', 'rank']:
                         rank_result = get_naver_shopping_rank(keyword_name, target_store_name)
                         if rank_result and rank_result not in ['에러', '실패']:
                             updates['store_rank'] = rank_result
-                            if rank_result == "500위 밖" or rank_result == "40위 밖":
-                                monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] 📉 500위 밖")
+                            if "밖" in rank_result:
+                                monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] 📉 {rank_result}")
                             else:
                                 monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] 🏆 {rank_result}위 확인!")
                         else:
-                            monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ⚠️ 순위 검색 실패")
+                            # ⚠️ 차단되었거나 실패했을 때 뜨는 로그!
+                            monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ⚠️ 순위 검색 실패 (차단됨)")
 
-                    # 업데이트 사항 DB에 최종 저장
                     kw_update = db.session.get(ModelClass, k_id)
                     if kw_update and updates:
                         def should_update(current_val):
@@ -681,7 +652,7 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                                 
                         if update_mode in ['all', 'rank'] and 'store_rank' in updates:
                             if should_update(kw_update.store_rank):
-                                if kw_update.store_rank != updates['store_rank'] and kw_update.store_rank not in ['-', '에러', '실패', '매칭중', '40위 밖', '500위 밖']:
+                                if kw_update.store_rank != updates['store_rank'] and kw_update.store_rank not in ['-', '에러', '실패', '매칭중'] and "밖" not in kw_update.store_rank:
                                     kw_update.prev_store_rank = kw_update.store_rank
                                 kw_update.store_rank = updates['store_rank']
 
@@ -698,10 +669,10 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                 except Exception as inner_e:
                     db.session.rollback()
                     monitoring_tasks[task_key]["current"] += 1
-                    monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ❌ 오류 발생")
+                    monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ❌ 내부 오류")
                 
-                # 네이버가 봇으로 인지하지 못하도록 무작위로 숨 고르기 (1.5 ~ 2.5초)
-                time.sleep(random.uniform(1.5, 2.5)) 
+                # ✨ 네이버가 로봇으로 눈치채지 못하게 1.5초 ~ 3.0초 사이로 무작위 딜레이 추가
+                time.sleep(random.uniform(1.5, 3.0)) 
                 
     except Exception as outer_e:
         monitoring_tasks[task_key]["logs"].append(f"⚠️ 시스템 오류가 발생했습니다.")
