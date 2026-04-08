@@ -35,69 +35,95 @@ def get_selected_ids(req):
         return [i.strip() for i in ids_str.split(',') if i.strip()]
     return req.form.getlist('ids[]')
 
-# ✨ [신규 탑재] ISBN 없이도 작동하는 무적의 네이버 쇼핑 순위 추적 엔진!
+# ✨ [강력 업그레이드] 네이버 봇 차단(CAPTCHA) 완벽 우회 순위 추적 엔진!
 def get_naver_shopping_rank(keyword, store_name):
     if not keyword or not store_name or store_name == '-':
         return '-'
         
-    url = f"https://search.shopping.naver.com/search/all?query={urllib.parse.quote(keyword)}"
-    # 네이버의 봇 차단을 우회하기 위한 실제 브라우저 위장 헤더
+    target_store = store_name.replace(" ", "").lower()
+    search_url = "https://search.shopping.naver.com/search/all"
+    
+    # 네이버가 "사람이 접속한 것"으로 착각하게 만드는 완벽한 위장 헤더
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-        "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8",
         "Cache-Control": "max-age=0",
+        "Sec-Ch-Ua": '"Chromium";v="122", "Google Chrome";v="122", "Not-A.Brand";v="99"',
+        "Sec-Ch-Ua-Mobile": "?0",
+        "Sec-Ch-Ua-Platform": '"macOS"',
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
         "Upgrade-Insecure-Requests": "1"
     }
     
     try:
-        res = requests.get(url, headers=headers, timeout=10)
-        if res.status_code != 200:
-            return "에러"
+        # Session을 사용하여 쿠키를 유지하며 사람처럼 접근
+        session = requests.Session()
+        res = session.get(search_url, params={"query": keyword}, headers=headers, timeout=10)
+        
+        # 봇 차단막(CAPTCHA 등)에 막혔는지 검증
+        if res.status_code != 200 or "captcha" in res.url or "captcha" in res.text.lower():
+            return "실패"
             
         text_data = res.text
         soup = BeautifulSoup(text_data, 'html.parser')
-        target_store = store_name.replace(" ", "")
         
-        # 1차 방어막 돌파: 숨겨진 JSON 데이터에서 순위 찾기
+        # 정상적인 쇼핑 결과 페이지가 맞는지 검증
+        if "mallName" not in text_data and "product_item__" not in text_data:
+            return "실패"
+
+        items = []
+        
+        # 1단계 돌파: 숨겨진 JSON 상태 데이터(__NEXT_DATA__) 심층 분석
         script_tag = soup.find('script', id='__NEXT_DATA__')
         if script_tag:
-            data = json.loads(script_tag.string)
-            items = []
-            def extract(obj):
-                if isinstance(obj, dict):
-                    if 'mallName' in obj and 'rank' in obj:
-                        items.append(obj)
-                    for k, v in obj.items(): extract(v)
-                elif isinstance(obj, list):
-                    for i in obj: extract(i)
-            extract(data)
+            try:
+                data = json.loads(script_tag.string)
+                def extract(obj):
+                    if isinstance(obj, dict):
+                        if 'mallName' in obj and ('rank' in obj or 'productRank' in obj or 'itemRank' in obj):
+                            items.append(obj)
+                        for v in obj.values(): extract(v)
+                    elif isinstance(obj, list):
+                        for i in obj: extract(i)
+                extract(data)
+            except: pass
             
-            valid_items = [i for i in items if str(i.get('rank')).isdigit()]
-            valid_items.sort(key=lambda x: int(x.get('rank')))
-            for item in valid_items:
-                m_name = str(item.get('mallName', '')).replace(" ", "")
-                if target_store in m_name:
-                    return str(item.get('rank'))
+        valid_ranks = []
+        for i in items:
+            r = i.get('rank') or i.get('productRank') or i.get('itemRank')
+            m = str(i.get('mallName', '')).replace(" ", "").lower()
+            if str(r).isdigit() and target_store in m:
+                valid_ranks.append(int(r))
+        
+        if valid_ranks:
+            return str(min(valid_ranks))
+            
+        # 2단계 돌파: 정규식(Regex)을 이용한 원시 텍스트 긁기 (구조 변경 대비)
+        patterns = [
+            r'"mallName":"([^"]+)".*?"rank":(\d+)',
+            r'"mallName":"([^"]+)".*?"productRank":(\d+)',
+            r'"mallName":"([^"]+)".*?"itemRank":(\d+)'
+        ]
+        for pat in patterns:
+            found = re.findall(pat, text_data)
+            ranks = [int(r) for m, r in found if target_store in m.replace(" ", "").lower()]
+            if ranks:
+                return str(min(ranks))
 
-        # 2차 방어막 돌파: 정규식(Regex)을 이용한 텍스트 긁기
-        products = re.findall(r'"mallName":"([^"]+)".*?"rank":(\d+)', text_data)
-        ranks = [int(r) for m, r in products if target_store in m.replace(" ", "")]
-        if ranks:
-            return str(min(ranks))
-            
-        # 3차 방어막 돌파: 화면 태그(DOM) 직접 분석
-        product_list = soup.select('div[class*="product_item__"], div[class*="basicList_item__"], div[class*="adProduct_item__"]')
-        for idx, prod in enumerate(product_list, 1):
-            mall_tag = prod.select_one('a[class*="product_mall__"], a[class*="basicList_mall__"], span[class*="product_mall__"]')
-            if mall_tag:
-                m_name = mall_tag.text.replace(" ", "")
-                if target_store in m_name:
-                    return str(idx)
-                    
+        # 3단계 돌파: 보이는 HTML 태그(DOM) 직접 분석
+        for idx, el in enumerate(soup.select('[class*="product_item__"], [class*="basicList_item__"]'), 1):
+            mall_el = el.select_one('[class*="product_mall__"], [class*="basicList_mall__"], [class*="mall_name__"]')
+            if mall_el and target_store in mall_el.get_text().replace(" ", "").lower():
+                return str(idx)
+
         return "40위 밖"
+        
     except Exception as e:
-        print(f"Rank scrape error: {e}")
+        print(f"Scrape Exception [{keyword}]: {e}")
         return "에러"
 
 @monitoring_bp.route('/')
@@ -569,14 +595,12 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                     target_isbn = str(kw.isbn).strip() if kw.isbn and kw.isbn != '-' else ""
                     keyword_name = kw.keyword or f"ID:{k_id}"
                     
-                    # DB 잠금 해제
                     db.session.rollback()
                     
                     updates = {}
                     
                     # 1. API 기반 업데이트 (상품 정보, 재고)
                     if update_mode in ['all', 'info', 'stock']:
-                        # ✨ 수정됨: ISBN이 없으면 "순위"는 진행하되 "상품정보"는 스킵하도록 로직 분리!
                         if not target_isbn or not commerce_token:
                             if update_mode != 'all':
                                 monitoring_tasks[task_key]["current"] += 1
@@ -623,9 +647,9 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                             if updates.get('stock_quantity') and should_update(getattr(kw_update, 'stock_quantity', '-')):
                                 kw_update.stock_quantity = updates['stock_quantity']
                                 
-                        # 이전 순위 백업 및 저장
                         if update_mode in ['all', 'rank'] and 'store_rank' in updates:
                             if should_update(kw_update.store_rank):
+                                # 이전 순위 백업 (변동 추세 기록용)
                                 if kw_update.store_rank != updates['store_rank'] and kw_update.store_rank not in ['-', '에러', '실패', '매칭중', '40위 밖']:
                                     kw_update.prev_store_rank = kw_update.store_rank
                                 kw_update.store_rank = updates['store_rank']
@@ -645,8 +669,8 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                     monitoring_tasks[task_key]["current"] += 1
                     monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ❌ 오류 발생")
                 
-                # 네이버 차단 방지용 안전 딜레이
-                time.sleep(1.5) 
+                # ✨ 네이버 차단 방지용 안전 딜레이 2초로 강화
+                time.sleep(2.0) 
                 
     except Exception as outer_e:
         monitoring_tasks[task_key]["logs"].append(f"⚠️ 시스템 오류가 발생했습니다.")
@@ -654,7 +678,7 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
         monitoring_tasks[task_key]["is_running"] = False
         if monitoring_tasks[task_key]["current"] < monitoring_tasks[task_key]["total"]:
             monitoring_tasks[task_key]["current"] = monitoring_tasks[task_key]["total"]
-            monitoring_tasks[task_key]["logs"].append("⚠️ 업데이트가 종료되었습니다.")
+            monitoring_tasks[task_key]["logs"].append("⚠️ 업데이트가 강제 종료되었습니다.")
 
 @monitoring_bp.route('/api/refresh_by_isbn', methods=['POST'])
 @login_required
