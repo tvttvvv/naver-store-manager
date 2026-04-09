@@ -505,11 +505,10 @@
         } catch (err) { console.error("차트 에러:", err); }
     }
 
-    // ✨ 묶음 배송 방식을 사용하는 무적의 복사 API 연동
     async function copyToTarget(targetCode) {
         if (checkedIds.size === 0) { alert('복사할 항목을 왼쪽 체크박스로 선택해주세요!'); return; }
         let tName = targetCode === 'studybox' ? '스터디박스' : '데일리러닝';
-        if(!confirm(`선택한 ${checkedIds.size}개 항목을 [${tName}] 모니터링으로 복사하시겠습니까?`)) return;
+        if(!confirm(`선택한 ${checkedIds.size}개 항목을 [${tName}] 모니터링으로 복사하시겠습니까?\n(키워드, 네이버카운트, 판매수만 복사됩니다)`)) return;
 
         const fd = new FormData();
         fd.append('ids', Array.from(checkedIds).join(','));
@@ -522,7 +521,6 @@
         } catch(e) { alert('오류가 발생했습니다.'); }
     }
 
-    // ✨ 묶음 배송 방식을 사용하는 무적의 ISBN 비우기 API 연동
     async function clearSelectedIsbn() {
         if (checkedIds.size === 0) { alert("ISBN을 비울 항목을 왼쪽 체크박스로 먼저 선택해주세요!"); return; }
         if(!confirm(`선택한 ${checkedIds.size}개 항목의 ISBN을 모두 비우시겠습니까?\n(새로 입력할 수 있도록 빈칸으로 만듭니다)`)) return;
@@ -533,7 +531,6 @@
         try { const res = await fetch("{{ url_for('monitoring.clear_isbn') }}", { method: 'POST', body: fd }); const result = await res.json(); if(result.success) { alert(result.message); document.getElementById('selectAll').checked = false; checkedIds.clear(); loadSavedKeywords(); } else { alert(result.message); } } catch(e) { alert('오류가 발생했습니다.'); }
     }
 
-    // ✨ 묶음 배송 방식을 사용하는 무적의 삭제 API 연동
     async function deleteSelectedKeywords() {
         if (checkedIds.size === 0) { alert("삭제할 항목을 왼쪽 체크박스로 먼저 선택해주세요!"); return; }
         if(!confirm(`선택한 ${checkedIds.size}개 항목을 완전히 일괄 삭제하시겠습니까?\n(이 작업은 되돌릴 수 없습니다)`)) return;
@@ -572,7 +569,6 @@
         await fetch("{{ url_for('monitoring.delete_keyword') }}", { method: 'POST', body: fd }); loadSavedKeywords();
     }
 
-    // ✨ 묶음 배송 방식을 사용하는 무적의 등급 이동 API 연동
     async function moveSelectedGrade() {
         if (checkedIds.size === 0) return alert('이동할 항목을 왼쪽 체크박스로 먼저 선택해주세요!');
         const grade = document.getElementById('moveGradeSelect').value; 
@@ -582,7 +578,6 @@
         try { const res = await fetch("{{ url_for('monitoring.change_grade') }}", { method: 'POST', body: fd }); const result = await res.json(); if(result.success) { alert(result.message); checkedIds.clear(); document.getElementById('selectAll').checked = false; loadSavedKeywords(); } else { alert(result.message); } } catch(e) { alert('이동 중 오류가 발생했습니다.'); }
     }
 
-    // ✨ 묶음 배송 방식을 사용하는 무적의 전체 업데이트 API 연동
     async function refreshByIsbn(mode, event) {
         if(event) event.preventDefault();
         if (checkedIds.size === 0) { alert("업데이트할 항목을 왼쪽 체크박스로 먼저 선택해주세요!"); return; }
@@ -620,9 +615,9 @@
 
     function downloadExcel() {
         if (allKeywordsData.length === 0) { alert('다운로드할 데이터가 없습니다.'); return; }
-        let csvContent = "\uFEFF순번,등록일자,키워드,등급,검색량,판매수,순위,상점,재고수,판매상태,출판사,공급률,ISBN,가격,택배비,상품명,상품링크\n";
+        let csvContent = "\uFEFF순번,등록일자,키워드,등급,검색량,판매수,순위,재고수,판매상태,출판사,공급률,ISBN,가격,택배비,상품명,상품링크\n";
         allKeywordsData.forEach((k, idx) => {
-            let row = [ idx + 1, k.registered_at, k.keyword, k.grade, k.search_volume, k.sales_quantity, k.store_rank, k.store_name, k.stock_quantity, k.sales_status, k.publisher, k.supply_rate, k.isbn, k.price, k.shipping_fee, k.book_title, k.product_link ].map(v => `"${(v || '').toString().replace(/"/g, '""')}"`).join(","); csvContent += row + "\n";
+            let row = [ idx + 1, k.registered_at, k.keyword, k.grade, k.search_volume, k.sales_quantity, k.store_rank, k.stock_quantity, k.sales_status, k.publisher, k.supply_rate, k.isbn, k.price, k.shipping_fee, k.book_title, k.product_link ].map(v => `"${(v || '').toString().replace(/"/g, '""')}"`).join(","); csvContent += row + "\n";
         });
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' }), url = URL.createObjectURL(blob), link = document.createElement("a"); link.setAttribute("href", url); link.setAttribute("download", "러닝메이트_데이터.csv"); document.body.appendChild(link); link.click(); document.body.removeChild(link);
     }
