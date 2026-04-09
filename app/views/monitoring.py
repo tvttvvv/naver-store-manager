@@ -35,89 +35,126 @@ def get_selected_ids(req):
         return [i.strip() for i in ids_str.split(',') if i.strip()]
     return req.form.getlist('ids[]')
 
-# ✨ [빠르고 가벼운 스텔스 엔진] 서버 과부하 없이 상품 정보(제목,가격,링크)까지 추출!
+# ✨ [도서 탭 전용 스텔스 엔진] 네이버 도서 가격비교 카탈로그 내부를 샅샅이 스캔합니다!
 def get_naver_shopping_rank(keyword, store_name):
     default_res = {'rank': '-', 'title': '', 'link': '', 'price': ''}
     if not keyword or not store_name or store_name == '-': 
         return default_res
-        
+
     target_store = store_name.replace(" ", "").lower()
+    session = requests.Session()
+
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        "Accept-Language": "ko-KR,ko;q=0.9"
+        "Accept-Language": "ko-KR,ko;q=0.9",
+        "Referer": "https://search.shopping.naver.com/book/home"
     }
-    
+
     try:
-        # 서버 과부하를 막기 위해 딱 2페이지(80개)까지만 빠르게 검사합니다.
-        for page in range(1, 3): 
-            url = f"https://search.shopping.naver.com/search/all?query={urllib.parse.quote(keyword)}&pagingIndex={page}&pagingSize=40"
-            res = requests.get(url, headers=headers, timeout=5)
-            
-            if res.status_code != 200:
+        # 1. 네이버 도서 탭 검색 (Book Search)
+        search_url = f"https://search.shopping.naver.com/book/search?query={urllib.parse.quote(keyword)}"
+        res = session.get(search_url, headers=headers, timeout=8)
+
+        if res.status_code != 200:
+            return {'rank': '접속 실패', 'title': '', 'link': '', 'price': ''}
+
+        soup = BeautifulSoup(res.text, 'html.parser')
+        script = soup.find('script', id='__NEXT_DATA__')
+
+        if not script:
+            return {'rank': '도서 데이터 없음', 'title': '', 'link': '', 'price': ''}
+
+        data = json.loads(script.string)
+
+        # 첫 번째 도서의 nvMid(카탈로그 ID) 가져오기
+        try:
+            book_list = data['props']['pageProps']['initialState']['bookSearch']['bookList']
+        except:
+            book_list = []
+
+        if not book_list:
+            # 정규식으로 안전하게 백업 추출
+            nv_mids = re.findall(r'"nvMid":"(\d+)"', res.text)
+            nv_mids = list(dict.fromkeys(nv_mids)) # 중복 제거
+        else:
+            nv_mids = []
+            for b in book_list:
+                item = b.get('item', {})
+                mid = item.get('id') or item.get('nvMid')
+                if mid: nv_mids.append(mid)
+
+        if not nv_mids:
+            return {'rank': '검색결과 없음', 'title': '', 'link': '', 'price': ''}
+
+        # 2. 상위 3개 도서 카탈로그(가격비교) 내부로 진입하여 판매처 순위 스캔!
+        for cat_idx, nv_mid in enumerate(nv_mids[:3]):
+            cat_url = f"https://search.shopping.naver.com/book/catalog/{nv_mid}"
+            cat_res = session.get(cat_url, headers=headers, timeout=8)
+
+            if cat_res.status_code != 200:
                 continue
-                
-            soup = BeautifulSoup(res.text, 'html.parser')
-            script = soup.find('script', id='__NEXT_DATA__')
-            
-            found_in_page = False
-            
-            # 1. JSON 딥 스캔 (가장 정확한 제목, 가격, 링크 추출)
-            if script:
+
+            cat_soup = BeautifulSoup(cat_res.text, 'html.parser')
+            cat_script = cat_soup.find('script', id='__NEXT_DATA__')
+
+            title = ""
+            try:
+                title_tag = cat_soup.select_one('h2')
+                if title_tag: title = title_tag.get_text(strip=True)
+            except: pass
+
+            found_rank = None
+            price_val = ""
+            link_val = cat_url
+
+            # JSON 구조를 완벽 분석하여 판매처 목록(offers)의 정확한 순위를 카운트합니다.
+            if cat_script:
                 try:
-                    data = json.loads(script.string)
-                    def find_product_list(obj):
-                        if isinstance(obj, dict):
-                            if 'list' in obj and isinstance(obj['list'], list) and len(obj['list']) > 0:
-                                test = obj['list'][0].get('item', obj['list'][0])
-                                if isinstance(test, dict) and ('rank' in test or 'productRank' in test): return obj['list']
-                            for v in obj.values():
-                                r = find_product_list(v)
-                                if r: return r
-                        elif isinstance(obj, list):
-                            for i in obj:
-                                r = find_product_list(i)
-                                if r: return r
-                        return None
-                        
-                    products_list = find_product_list(data)
-                    if products_list:
-                        found_in_page = True
-                        for item in products_list:
-                            prod_item = item.get('item', item)
-                            rank_val = prod_item.get('rank') or prod_item.get('itemRank') or prod_item.get('productRank')
-                            m_name = prod_item.get('mallName', '')
-                            
-                            if rank_val and m_name:
-                                if target_store in str(m_name).replace(" ", "").lower():
-                                    title = prod_item.get('productName', '') or prod_item.get('productTitle', '') or prod_item.get('title', '')
-                                    price = str(prod_item.get('price', ''))
-                                    if price.isdigit(): price = f"{int(price):,}원"
-                                    link = prod_item.get('adcrUrl', '') or prod_item.get('mallProductUrl', '') or prod_item.get('crUrl', '')
-                                    title = re.sub(r'<[^>]*>', '', title)
-                                    return {'rank': str(rank_val), 'title': title, 'price': price, 'link': link}
+                    c_data = json.loads(cat_script.string)
+                    offers = c_data.get('props', {}).get('pageProps', {}).get('initialState', {}).get('catalog', {}).get('offers', [])
+                    if offers:
+                        for sell_idx, offer in enumerate(offers, 1):
+                            mall_name = offer.get('mallName', '')
+                            if target_store in mall_name.replace(" ", "").lower():
+                                found_rank = sell_idx
+                                p = str(offer.get('price', ''))
+                                if p.isdigit(): price_val = f"{int(p):,}원"
+                                link_val = offer.get('mallProductUrl', cat_url)
+                                break
                 except: pass
 
-            # 2. HTML DOM 태그 직접 추출 (JSON 파싱 실패시 백업)
-            if not found_in_page:
-                items = soup.select('[class*="product_item__"], [class*="basicList_item__"]')
-                for idx, item in enumerate(items, 1):
-                    mall_tag = item.select_one('[class*="product_mall__"], [class*="mall_name__"]')
-                    if mall_tag:
-                        m_name = mall_tag.get_text(strip=True).replace(" ", "").lower()
-                        if target_store in m_name:
-                            title_tag = item.select_one('[class*="product_title__"], [class*="title__"]')
-                            title = title_tag.get_text(strip=True) if title_tag else ""
-                            price_tag = item.select_one('[class*="price_num__"]')
-                            price = price_tag.get_text(strip=True) if price_tag else ""
-                            link_tag = item.select_one('a')
-                            link = link_tag['href'] if link_tag and 'href' in link_tag.attrs else ""
-                            return {'rank': str((page - 1) * 40 + idx), 'title': title, 'price': price, 'link': link}
-                        
-            time.sleep(0.5) # 안전장치 (0.5초 대기)
-            
-        return {'rank': "80위 밖", 'title': '', 'link': '', 'price': ''}
+            # JSON 파싱 실패 혹은 못 찾았을 경우 HTML/정규식 분석 (백업 타격)
+            if not found_rank:
+                malls = re.findall(r'"mallName"\s*:\s*"([^"]+)"', cat_res.text)
+                if malls:
+                    seen = set()
+                    unique_malls = []
+                    for m in malls:
+                        m_clean = m.replace(" ", "").lower()
+                        if m_clean not in seen:
+                            seen.add(m_clean)
+                            unique_malls.append(m_clean)
+
+                    for idx, m_clean in enumerate(unique_malls, 1):
+                        if target_store in m_clean:
+                            found_rank = idx
+                            break
+
+            if found_rank:
+                rank_str = str(found_rank)
+                # 만약 1번째 책이 아니라 2, 3번째 책에서 찾았다면 "2번째 도서의 4" 처럼 상세히 알려줌
+                if cat_idx > 0:
+                    rank_str = f"{cat_idx+1}번째 책 {found_rank}"
+                return {'rank': rank_str, 'title': title, 'price': price_val, 'link': link_val}
+
+            time.sleep(random.uniform(0.5, 1.0)) # 봇 차단 방지용 사람 흉내 딜레이
+
+        return {'rank': '가격비교 밖', 'title': '', 'link': '', 'price': ''}
+
     except Exception as e:
-        return {'rank': "검색 실패", 'title': '', 'link': '', 'price': ''}
+        print(f"Book Rank Scrape Failed: {e}")
+        return {'rank': '검색 실패', 'title': '', 'link': '', 'price': ''}
+
 
 @monitoring_bp.route('/')
 @login_required
@@ -591,7 +628,6 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                     db.session.rollback()
                     updates = {}
                     
-                    # 1. API 업데이트
                     if update_mode in ['all', 'info', 'stock']:
                         if not target_isbn or not commerce_token:
                             if update_mode != 'all':
@@ -609,7 +645,7 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                             if update_mode in ['all', 'stock']:
                                 if exact_info.get('my_stock'): updates['stock_quantity'] = exact_info['my_stock']
 
-                    # 2. 서버에 무리를 주지 않는 가벼운 순위 업데이트 & 상품 정보 자동 훔쳐오기 결합!
+                    # ✨ 핵심 로직: 도서 탭 전용 탐색 & 정보 훔쳐오기 마법
                     if update_mode in ['all', 'rank', 'info']:
                         need_crawler = ('rank' in update_mode or 'all' in update_mode) or (('info' in update_mode or 'all' in update_mode) and not updates.get('book_title'))
                         
@@ -617,14 +653,14 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                             crawl_data = get_naver_shopping_rank(keyword_name, target_store_name)
                             rank_result = crawl_data['rank']
                             
-                            # API에서 못 가져온 정보가 있다면 크롤러가 훔쳐온 정보로 마법처럼 채워줌!
+                            # API로 못 가져온 정보가 있으면 크롤러가 가져온 제목, 가격, 링크로 쏙쏙 채워줍니다.
                             if update_mode in ['all', 'info']:
                                 if not updates.get('book_title') and crawl_data['title']: updates['book_title'] = crawl_data['title']
                                 if not updates.get('product_link') and crawl_data['link']: updates['product_link'] = crawl_data['link']
                                 if not updates.get('price') and crawl_data['price']: updates['price'] = crawl_data['price']
 
                             if update_mode in ['all', 'rank']:
-                                updates['store_rank'] = rank_result # 실패하더라도 무조건 표에 덮어씁니다.
+                                updates['store_rank'] = rank_result # 실패하든 성공하든 무조건 강제로 덮어씌움!
                                 
                                 if "밖" in rank_result:
                                     monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] 📉 {rank_result}")
@@ -650,8 +686,9 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                             if updates.get('stock_quantity') and should_update(getattr(kw_update, 'stock_quantity', '-')):
                                 kw_update.stock_quantity = updates['stock_quantity']
                                 
+                        # ✨ 순위(Rank)는 '빈칸 채우기' 설정과 무관하게 무조건 강제로 업데이트 시킵니다!
                         if update_mode in ['all', 'rank'] and 'store_rank' in updates:
-                            if kw_update.store_rank != updates['store_rank'] and kw_update.store_rank not in ['-', '에러', '검색 실패', '매칭중'] and "밖" not in kw_update.store_rank:
+                            if kw_update.store_rank != updates['store_rank'] and kw_update.store_rank not in ['-', '에러', '실패', '검색 실패', '매칭중'] and "밖" not in kw_update.store_rank:
                                 kw_update.prev_store_rank = kw_update.store_rank
                             kw_update.store_rank = updates['store_rank']
 
@@ -663,12 +700,16 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                     elif 'store_rank' not in updates and update_mode == 'rank':
                         pass 
                     elif updates and update_mode != 'rank':
-                        monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ✅ 업데이트 완료")
+                        if "완료" not in monitoring_tasks[task_key]["logs"][-1]:
+                            monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ✅ 업데이트 완료")
                     
                 except Exception as inner_e:
                     db.session.rollback()
                     monitoring_tasks[task_key]["current"] += 1
                     monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ❌ 내부 오류")
+                
+                # 네이버가 봇으로 인지하지 못하게 무작위 휴식 (서버 안정성 극대화)
+                time.sleep(random.uniform(1.0, 2.0)) 
                 
     except Exception as outer_e:
         monitoring_tasks[task_key]["logs"].append(f"⚠️ 시스템 오류가 발생했습니다.")
@@ -676,7 +717,7 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
         monitoring_tasks[task_key]["is_running"] = False
         if monitoring_tasks[task_key]["current"] < monitoring_tasks[task_key]["total"]:
             monitoring_tasks[task_key]["current"] = monitoring_tasks[task_key]["total"]
-            monitoring_tasks[task_key]["logs"].append("⚠️ 업데이트가 종료되었습니다.")
+            monitoring_tasks[task_key]["logs"].append("⚠️ 업데이트가 강제 종료되었습니다.")
 
 @monitoring_bp.route('/api/refresh_by_isbn', methods=['POST'])
 @login_required
