@@ -33,7 +33,7 @@
                         <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center mb-3 gap-3">
                             <div>
                                 <h6 class="fw-bold mb-1 text-primary fs-6 fs-md-5">체크박스 다중 선택 및 기능 관리</h6>
-                                <span class="text-muted small d-none d-md-block"><i class="bi bi-info-circle text-primary"></i> 표의 텍스트를 더블클릭하면 수정 가능합니다. 상점은 탭에 따라 자동 선택됩니다.</span>
+                                <span class="text-muted small d-none d-md-block"><i class="bi bi-info-circle text-primary"></i> 표의 텍스트를 더블클릭하면 수정 가능합니다.</span>
                             </div>
                             
                             <div class="d-flex flex-column flex-md-row gap-2 control-btns align-items-md-center">
@@ -56,8 +56,7 @@
                                     <button class="btn btn-outline-secondary fw-bold text-nowrap" onclick="moveSelectedGrade()"><i class="bi bi-folder-symlink"></i> 적용</button>
                                 </div>
                                 
-                                <button class="btn btn-outline-danger fw-bold shadow-sm w-100 w-md-auto text-nowrap" onclick="deleteSelectedKeywords()"><i class="bi bi-trash"></i> 선택 일괄삭제</button>
-                                
+                                <button class="btn btn-outline-danger fw-bold shadow-sm w-100 w-md-auto text-nowrap" onclick="deleteSelectedKeywords()"><i class="bi bi-trash"></i> 일괄삭제</button>
                                 <button class="btn btn-outline-secondary fw-bold shadow-sm w-100 w-md-auto text-nowrap" onclick="clearSelectedIsbn()"><i class="bi bi-eraser"></i> ISBN 비우기</button>
 
                                 <button class="btn btn-outline-info fw-bold shadow-sm w-100 w-md-auto text-nowrap" onclick="copyToTarget('rm')"><i class="bi bi-send"></i> RM 복사</button>
@@ -97,8 +96,7 @@
                                 <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-success" role="progressbar" style="width: 0%;">0%</div>
                             </div>
                             <div class="bg-white border rounded p-2 overflow-auto" style="height: 100px;">
-                                <ul id="logList" class="list-unstyled mb-0 small text-muted font-monospace">
-                                </ul>
+                                <ul id="logList" class="list-unstyled mb-0 small text-muted font-monospace"></ul>
                             </div>
                         </div>
 
@@ -172,7 +170,6 @@
                                         <th class="text-primary fw-bold" title="더블클릭 시 그래프 화면으로 이동합니다."><i class="bi bi-graph-up-arrow"></i> 네이버카운트</th>
                                         <th class="text-danger fw-bold" title="더블클릭 시 그래프 화면으로 이동합니다."><i class="bi bi-graph-up-arrow"></i> 판매수</th> 
                                         <th>순위</th>
-                                        <th class="text-primary fw-bold">상점 선택</th>
                                         <th>재고수</th>
                                         <th>판매상태</th>
                                         <th>키워드검색</th>
@@ -187,7 +184,7 @@
                                     </tr>
                                 </thead>
                                 <tbody id="savedKeywordsBody">
-                                    <tr><td colspan="19" class="text-center py-5 text-muted"><div class="spinner-border text-primary" role="status"></div><br>안전하게 데이터를 불러오는 중입니다...</td></tr>
+                                    <tr><td colspan="18" class="text-center py-5 text-muted"><div class="spinner-border text-primary" role="status"></div><br>안전하게 데이터를 불러오는 중입니다...</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -340,11 +337,11 @@
         if (isEditing) return; 
         try {
             const res = await fetch("{{ url_for('monitoring.get_saved_keywords') }}");
-            if(!res.ok) throw new Error("서버 통신 오류 (HTTP " + res.status + ")");
+            if(!res.ok) throw new Error("서버 통신 오류");
             const result = await res.json();
             if (result.success) { allKeywordsData = result.data; populateGraphSelect(); renderTable(); } 
-            else document.getElementById('savedKeywordsBody').innerHTML = `<tr><td colspan="19" class="text-danger fw-bold py-5"><i class="bi bi-exclamation-triangle"></i> 데이터 로딩 실패: ${result.message}</td></tr>`;
-        } catch (e) { document.getElementById('savedKeywordsBody').innerHTML = `<tr><td colspan="19" class="text-danger fw-bold py-5"><i class="bi bi-x-octagon fs-2 d-block mb-2"></i>데이터를 가져오는 중 문제가 발생했습니다.<br>새로고침(F5)을 시도해 주세요. (${e.message})</td></tr>`; }
+            else document.getElementById('savedKeywordsBody').innerHTML = `<tr><td colspan="18" class="text-danger fw-bold py-5"><i class="bi bi-exclamation-triangle"></i> 데이터 로딩 실패: ${result.message}</td></tr>`;
+        } catch (e) { document.getElementById('savedKeywordsBody').innerHTML = `<tr><td colspan="18" class="text-danger fw-bold py-5"><i class="bi bi-x-octagon fs-2 d-block mb-2"></i>데이터를 가져오는 중 문제가 발생했습니다.<br>새로고침(F5)을 시도해 주세요. (${e.message})</td></tr>`; }
     }
 
     function populateGraphSelect() {
@@ -364,8 +361,7 @@
     }
 
     function goToGraph(bookId, dataType) {
-        document.getElementById('btnGraphView').checked = true;
-        switchView('graph'); document.getElementById('graphKeywordSearch').value = ''; populateGraphSelect(); document.getElementById('graphBookSelect').value = bookId; document.getElementById('graphTypeSelect').value = dataType;
+        document.getElementById('btnGraphView').checked = true; switchView('graph'); document.getElementById('graphKeywordSearch').value = ''; populateGraphSelect(); document.getElementById('graphBookSelect').value = bookId; document.getElementById('graphTypeSelect').value = dataType;
         if(renderTimeout) clearTimeout(renderTimeout); renderTimeout = setTimeout(() => { renderChart(); window.scrollTo({ top: 0, behavior: 'smooth' }); }, 150);
     }
 
@@ -451,12 +447,7 @@
                 let gradeBadge = (isGlobalSearch || currentGradeTab === 'ALL') ? `<br><span class="badge bg-secondary mt-1">${k.grade}</span>` : '';
                 let salesStatusColor = (k.sales_status === '품절' || k.sales_status === '판매중지') ? 'text-danger fw-bold' : (k.sales_status === '판매중' ? 'text-success fw-bold' : 'text-muted');
 
-                let storeOptions = ['-', '데일리러닝', '스터디박스', '러닝메이트'];
-                let currentStore = String(k.store_name || '-');
-                let storeSelectHtml = `<select class="form-select form-select-sm border-secondary fw-bold text-dark store-select shadow-sm" data-id="${k.id}" style="width: 105px; cursor:pointer;">`;
-                storeOptions.forEach(opt => { storeSelectHtml += `<option value="${opt}" ${currentStore === opt ? 'selected' : ''}>${opt === '-' ? '선택 안됨' : opt}</option>`; });
-                storeSelectHtml += `</select>`;
-
+                // ✨ 상점 선택이 완전히 제거된 깔끔한 18열입니다!
                 return `
                 <tr class="${isChecked ? 'row-selected' : ''}">
                     <td class="align-middle bg-light"><input type="checkbox" class="form-check-input row-checkbox" value="${k.id}" onclick="handleRowCheck(event, this)" style="cursor: pointer;" ${isChecked}></td>
@@ -466,7 +457,6 @@
                     <td class="align-middle ${kwBgColor} fs-6 graph-link-cell" data-id="${k.id}" data-type="naver" title="더블클릭하여 그래프 보기">${(k.search_volume || 0).toLocaleString()} <br> ${fb(k._tempDiffNaver)}</td>
                     <td class="align-middle text-danger fw-bold fs-6 graph-link-cell" data-id="${k.id}" data-type="sales" title="더블클릭하여 그래프 보기">${k.sales_quantity || '-'} <br> ${fb(k._tempDiffSales)}</td>
                     <td class="align-middle ${kwBgColor} text-dark editable-cell" data-id="${k.id}" data-field="store_rank" data-val="${safeRank}" title="더블클릭하여 수정">${rankDisplay}</td>
-                    <td class="align-middle bg-light">${storeSelectHtml}</td>
                     <td class="align-middle text-primary fw-bold editable-cell" data-id="${k.id}" data-field="stock_quantity" title="더블클릭하여 수정">${k.stock_quantity || '-'}</td>
                     <td class="align-middle ${salesStatusColor} editable-cell" data-id="${k.id}" data-field="sales_status" title="더블클릭하여 수정">${k.sales_status || '-'}</td>
                     <td class="align-middle"><a href="${searchLink}" target="_blank" class="btn btn-sm btn-outline-secondary py-0 px-2 text-decoration-none"><i class="bi bi-search"></i> 검색</a></td>
@@ -482,7 +472,7 @@
             }).join('');
             renderPagination(totalItems);
         } else {
-            tbody.innerHTML = `<tr><td colspan="19" class="text-center py-5 text-muted">해당하는 데이터가 없습니다.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="18" class="text-center py-5 text-muted">해당하는 데이터가 없습니다.</td></tr>`;
             document.getElementById('paginationContainer').innerHTML = ''; 
         }
         renderTableColors();
@@ -515,17 +505,14 @@
         } catch (err) { console.error("차트 에러:", err); }
     }
 
-    // ✨ 묶음 배송 방식을 사용하는 무적의 복사 API 연동
     async function copyToTarget(targetCode) {
         if (checkedIds.size === 0) { alert('복사할 항목을 왼쪽 체크박스로 선택해주세요!'); return; }
         let tName = targetCode === 'rm' ? '러닝메이트' : '데일리러닝';
         if(!confirm(`선택한 ${checkedIds.size}개 항목을 [${tName}] 모니터링으로 복사하시겠습니까?\n(키워드, 네이버카운트, 판매수만 복사됩니다)`)) return;
 
         const fd = new FormData();
-        // 배열 대신 쉼표로 연결된 문자열 하나만 보냅니다!
         fd.append('ids', Array.from(checkedIds).join(','));
-        fd.append('target', targetCode);
-        fd.append('source_target', 'studybox');
+        fd.append('target', targetCode); fd.append('source_target', 'studybox');
 
         try {
             const res = await fetch("{{ url_for('monitoring.copy_to_target') }}", { method: 'POST', body: fd });
@@ -534,7 +521,6 @@
         } catch(e) { alert('오류가 발생했습니다.'); }
     }
 
-    // ✨ 묶음 배송 방식을 사용하는 무적의 ISBN 비우기 API 연동
     async function clearSelectedIsbn() {
         if (checkedIds.size === 0) { alert("ISBN을 비울 항목을 왼쪽 체크박스로 먼저 선택해주세요!"); return; }
         if(!confirm(`선택한 ${checkedIds.size}개 항목의 ISBN을 모두 비우시겠습니까?\n(새로 입력할 수 있도록 빈칸으로 만듭니다)`)) return;
@@ -545,7 +531,6 @@
         try { const res = await fetch("{{ url_for('monitoring.clear_isbn') }}", { method: 'POST', body: fd }); const result = await res.json(); if(result.success) { alert(result.message); document.getElementById('selectAll').checked = false; checkedIds.clear(); loadSavedKeywords(); } else { alert(result.message); } } catch(e) { alert('오류가 발생했습니다.'); }
     }
 
-    // ✨ 묶음 배송 방식을 사용하는 무적의 삭제 API 연동
     async function deleteSelectedKeywords() {
         if (checkedIds.size === 0) { alert("삭제할 항목을 왼쪽 체크박스로 먼저 선택해주세요!"); return; }
         if(!confirm(`선택한 ${checkedIds.size}개 항목을 완전히 일괄 삭제하시겠습니까?\n(이 작업은 되돌릴 수 없습니다)`)) return;
@@ -555,14 +540,6 @@
         fd.append('target_page', 'studybox');
         try { const res = await fetch("{{ url_for('monitoring.delete_keywords_bulk') }}", { method: 'POST', body: fd }); const result = await res.json(); if(result.success) { alert(result.message); document.getElementById('selectAll').checked = false; checkedIds.clear(); loadSavedKeywords(); } else { alert(result.message); } } catch(e) { alert('삭제 중 오류가 발생했습니다.'); }
     }
-
-    document.addEventListener('change', async function(e) {
-        if (e.target && e.target.classList.contains('store-select')) {
-            let id = e.target.getAttribute('data-id'); let newStore = e.target.value; let item = allKeywordsData.find(i => i.id == id);
-            const fd = new FormData(); fd.append('id', id); fd.append('store_name', newStore);
-            try { const res = await fetch("{{ url_for('monitoring.update_keyword') }}", { method: 'POST', body: fd }); const result = await res.json(); if (result.success) { item.store_name = newStore; } else { alert(result.message); } } catch(error) { alert('상점 정보 저장 중 오류가 발생했습니다.'); }
-        }
-    });
 
     document.getElementById('savedKeywordsBody').addEventListener('dblclick', function(e) {
         let graphCell = e.target.closest('.graph-link-cell'); if (graphCell) { goToGraph(graphCell.getAttribute('data-id'), graphCell.getAttribute('data-type')); return; }
@@ -592,7 +569,6 @@
         await fetch("{{ url_for('monitoring.delete_keyword') }}", { method: 'POST', body: fd }); loadSavedKeywords();
     }
 
-    // ✨ 묶음 배송 방식을 사용하는 무적의 등급 이동 API 연동
     async function moveSelectedGrade() {
         if (checkedIds.size === 0) return alert('이동할 항목을 왼쪽 체크박스로 먼저 선택해주세요!');
         const grade = document.getElementById('moveGradeSelect').value; 
@@ -602,7 +578,6 @@
         try { const res = await fetch("{{ url_for('monitoring.change_grade') }}", { method: 'POST', body: fd }); const result = await res.json(); if(result.success) { alert(result.message); checkedIds.clear(); document.getElementById('selectAll').checked = false; loadSavedKeywords(); } else { alert(result.message); } } catch(e) { alert('이동 중 오류가 발생했습니다.'); }
     }
 
-    // ✨ 묶음 배송 방식을 사용하는 무적의 전체 업데이트 API 연동
     async function refreshByIsbn(mode, event) {
         if(event) event.preventDefault();
         if (checkedIds.size === 0) { alert("업데이트할 항목을 왼쪽 체크박스로 먼저 선택해주세요!"); return; }
@@ -640,9 +615,9 @@
 
     function downloadExcel() {
         if (allKeywordsData.length === 0) { alert('다운로드할 데이터가 없습니다.'); return; }
-        let csvContent = "\uFEFF순번,등록일자,키워드,등급,검색량,판매수,순위,상점,재고수,판매상태,출판사,공급률,ISBN,가격,택배비,상품명,상품링크\n";
+        let csvContent = "\uFEFF순번,등록일자,키워드,등급,검색량,판매수,순위,재고수,판매상태,출판사,공급률,ISBN,가격,택배비,상품명,상품링크\n";
         allKeywordsData.forEach((k, idx) => {
-            let row = [ idx + 1, k.registered_at, k.keyword, k.grade, k.search_volume, k.sales_quantity, k.store_rank, k.store_name, k.stock_quantity, k.sales_status, k.publisher, k.supply_rate, k.isbn, k.price, k.shipping_fee, k.book_title, k.product_link ].map(v => `"${(v || '').toString().replace(/"/g, '""')}"`).join(","); csvContent += row + "\n";
+            let row = [ idx + 1, k.registered_at, k.keyword, k.grade, k.search_volume, k.sales_quantity, k.store_rank, k.stock_quantity, k.sales_status, k.publisher, k.supply_rate, k.isbn, k.price, k.shipping_fee, k.book_title, k.product_link ].map(v => `"${(v || '').toString().replace(/"/g, '""')}"`).join(","); csvContent += row + "\n";
         });
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' }), url = URL.createObjectURL(blob), link = document.createElement("a"); link.setAttribute("href", url); link.setAttribute("download", "스터디박스_데이터.csv"); document.body.appendChild(link); link.click(); document.body.removeChild(link);
     }
