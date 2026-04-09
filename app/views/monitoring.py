@@ -39,7 +39,7 @@ def get_selected_ids(req):
         return [i.strip() for i in ids_str.split(',') if i.strip()]
     return req.form.getlist('ids[]')
 
-# ✨ [궁극의 스텔스 엔진] GZIP 디코딩 + NNB 가짜 쿠키 + 도서 가격비교 타격!
+# ✨ [궁극의 스텔스 엔진] GZIP 디코딩 + NNB 가짜 쿠키 + 도서 가격비교 카탈로그 딥 스캔!
 def get_naver_shopping_rank(keyword, store_name):
     default_res = {'rank': '-', 'title': '', 'link': '', 'price': ''}
     if not keyword or not store_name or store_name == '-': 
@@ -47,17 +47,15 @@ def get_naver_shopping_rank(keyword, store_name):
 
     target_store = store_name.replace(" ", "").lower()
 
-    # 로봇을 걸러내는 방어막을 뚫기 위한 '진짜 크롬 브라우저' 통신 함수
+    # 봇 차단을 무력화하는 마법의 '진짜 크롬 브라우저' 통신 함수
     def fetch_html_stealth(url, is_mobile=False):
-        # 1. 봇 검사를 피하기 위한 무작위 NNB(네이버 브라우저 식별자) 쿠키 생성
         fake_nnb = "".join([str(random.randint(0, 9)) for _ in range(13)])
         
-        # 2. 진짜 브라우저와 100% 동일한 헤더 구성
         headers = {
-            "User-Agent": "Mozilla/5.0 (Linux; Android 13; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36" if is_mobile else "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
             "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8",
-            "Accept-Encoding": "gzip, deflate", # ✨ 핵심: GZIP 압축을 요구하여 봇이 아님을 증명!
+            "Accept-Encoding": "gzip, deflate", # GZIP 압축 요구로 봇 필터링 우회
             "Connection": "keep-alive",
             "Cookie": f"NNB={fake_nnb}; ASID={fake_nnb};",
             "Upgrade-Insecure-Requests": "1",
@@ -68,6 +66,11 @@ def get_naver_shopping_rank(keyword, store_name):
             "Cache-Control": "max-age=0"
         }
         
+        if is_mobile:
+            headers["User-Agent"] = "Mozilla/5.0 (Linux; Android 13; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36"
+            headers["Sec-Ch-Ua-Mobile"] = "?1"
+            headers["Sec-Ch-Ua-Platform"] = '"Android"'
+
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
@@ -75,8 +78,9 @@ def get_naver_shopping_rank(keyword, store_name):
         try:
             req = urllib.request.Request(url, headers=headers)
             res = urllib.request.urlopen(req, context=ctx, timeout=10)
+            final_url = res.url
             
-            # ✨ GZIP으로 압축되어 온 데이터를 사람이 읽을 수 있게 해제
+            # GZIP 압축 해제
             if res.info().get('Content-Encoding') == 'gzip':
                 buf = BytesIO(res.read())
                 f = gzip.GzipFile(fileobj=buf)
@@ -84,59 +88,77 @@ def get_naver_shopping_rank(keyword, store_name):
             else:
                 html_data = res.read().decode('utf-8', 'ignore')
                 
-            if "captcha" in res.url or "자동입력 방지" in html_data:
-                return None # 캡챠에 걸리면 None 반환
+            if "captcha" in final_url or "자동입력 방지" in html_data:
+                return None, None
                 
-            return html_data
+            return html_data, final_url
         except Exception as e:
-            print(f"Stealth Fetch Error: {e}")
-            return None
+            return None, None
 
     try:
-        # 1. 네이버 모바일 '도서' 통합검색 탭 접속 (가장 차단이 안 됨)
-        search_url = f"https://m.search.naver.com/search.naver?where=m_book&query={urllib.parse.quote(keyword)}"
-        html_data = fetch_html_stealth(search_url, is_mobile=True)
+        # 1. 네이버 도서 공식 검색 접속
+        search_url = f"https://search.shopping.naver.com/book/search?query={urllib.parse.quote(keyword)}"
+        html_data, final_url = fetch_html_stealth(search_url, is_mobile=False)
+
+        # PC 차단시 모바일 우회
+        if not html_data:
+            search_url = f"https://msearch.shopping.naver.com/book/search?query={urllib.parse.quote(keyword)}"
+            html_data, final_url = fetch_html_stealth(search_url, is_mobile=True)
 
         if not html_data:
-            # 막혔다면 PC 도서 홈으로 2차 우회 시도
-            search_url = f"https://search.shopping.naver.com/book/search?query={urllib.parse.quote(keyword)}"
-            html_data = fetch_html_stealth(search_url, is_mobile=False)
-            if not html_data:
-                return {'rank': '접속 완벽 차단됨', 'title': '', 'link': '', 'price': ''}
+            return {'rank': '접속 완벽 차단됨', 'title': '', 'link': '', 'price': ''}
 
-        soup = BeautifulSoup(html_data, 'html.parser')
-        
-        # 2. 도서 카탈로그 ID(nvMid) 추출
-        nv_mids = []
-        script = soup.find('script', id='__NEXT_DATA__')
-        if script:
-            try:
-                data = json.loads(script.string)
-                book_list = data.get('props', {}).get('pageProps', {}).get('initialState', {}).get('bookSearch', {}).get('bookList', [])
-                for b in book_list:
-                    item = b.get('item', {})
-                    mid = item.get('id') or item.get('nvMid')
-                    if mid: nv_mids.append(str(mid))
-            except: pass
+        unique_nvmids = []
 
-        if not nv_mids:
-            nv_mids = re.findall(r'"nvMid":"(\d+)"', html_data)
-            nv_mids = list(dict.fromkeys(nv_mids)) 
+        # ✨ 예외 처리: 키워드가 정확해서 "가격비교 화면(카탈로그)"으로 다이렉트 이동해버린 경우 감지
+        if final_url and "catalog/" in final_url:
+            match = re.search(r'catalog/(\d+)', final_url)
+            if match:
+                unique_nvmids.append(match.group(1))
 
-        if not nv_mids:
+        # 리다이렉트가 아니라면, 검색 결과 목록에서 상위 5개 도서의 고유번호(nvMid)를 쓸어옵니다.
+        if not unique_nvmids:
+            nv_mids = []
+            soup = BeautifulSoup(html_data, 'html.parser')
+            script = soup.find('script', id='__NEXT_DATA__')
+            
+            if script:
+                try:
+                    data = json.loads(script.string)
+                    def find_nvmids(obj):
+                        if isinstance(obj, dict):
+                            if 'nvMid' in obj and str(obj['nvMid']).isdigit():
+                                nv_mids.append(str(obj['nvMid']))
+                            for v in obj.values(): find_nvmids(v)
+                        elif isinstance(obj, list):
+                            for i in obj: find_nvmids(i)
+                    find_nvmids(data)
+                except: pass
+
+            # JSON에서 못 찾으면 정규식으로 싹 다 긁어오기 (안전망)
+            if not nv_mids:
+                mids = re.findall(r'"nvMid"\s*:\s*"?(\d+)"?', html_data)
+                nv_mids.extend(mids)
+
+            # 중복 제거하며 순서 유지
+            seen = set()
+            for m in nv_mids:
+                if m not in seen:
+                    seen.add(m)
+                    unique_nvmids.append(m)
+
+        if not unique_nvmids:
             return {'rank': '검색결과 없음', 'title': '', 'link': '', 'price': ''}
 
-        # 3. 검색된 상위 3개 도서의 카탈로그(가격비교) 내부로 침투!
-        for cat_idx, nv_mid in enumerate(nv_mids[:3]):
+        # 2. 찾은 상위 5개 도서의 카탈로그(가격비교) 내부로 침투하여 스터디박스 찾기!
+        for cat_idx, nv_mid in enumerate(unique_nvmids[:5]):
             cat_url = f"https://search.shopping.naver.com/book/catalog/{nv_mid}"
-            cat_html = fetch_html_stealth(cat_url, is_mobile=False)
+            cat_html, _ = fetch_html_stealth(cat_url, is_mobile=False)
 
             if not cat_html:
                 continue
 
             cat_soup = BeautifulSoup(cat_html, 'html.parser')
-            cat_script = cat_soup.find('script', id='__NEXT_DATA__')
-
             title = ""
             try:
                 title_tag = cat_soup.select_one('h2')
@@ -147,10 +169,12 @@ def get_naver_shopping_rank(keyword, store_name):
             price_val = ""
             link_val = cat_url
 
-            # 카탈로그 데이터 내부를 X-Ray 스캔하여 스터디박스 찾기
+            # 카탈로그 데이터 내부 엑스레이 스캔
+            cat_script = cat_soup.find('script', id='__NEXT_DATA__')
             if cat_script:
                 try:
                     c_data = json.loads(cat_script.string)
+                    # 판매처 목록(offers) 정밀 추출
                     offers = c_data.get('props', {}).get('pageProps', {}).get('initialState', {}).get('catalog', {}).get('offers', [])
                     if offers:
                         for sell_idx, offer in enumerate(offers, 1):
@@ -163,16 +187,16 @@ def get_naver_shopping_rank(keyword, store_name):
                                 break
                 except: pass
 
-            # JSON 실패 시 텍스트 파싱 백업
+            # JSON 파싱 실패시 텍스트 정규식 분석으로 백업
             if not found_rank:
                 malls = re.findall(r'"mallName"\s*:\s*"([^"]+)"', cat_html)
                 if malls:
-                    seen = set()
+                    seen_malls = set()
                     unique_malls = []
                     for m in malls:
                         m_clean = m.replace(" ", "").lower()
-                        if m_clean not in seen:
-                            seen.add(m_clean)
+                        if m_clean not in seen_malls:
+                            seen_malls.add(m_clean)
                             unique_malls.append(m_clean)
 
                     for idx, m_clean in enumerate(unique_malls, 1):
@@ -180,20 +204,20 @@ def get_naver_shopping_rank(keyword, store_name):
                             found_rank = idx
                             break
 
-            # 스터디박스를 찾았다면 결과 반환!
+            # 내 상점을 찾았다면 즉시 결과 반환!
             if found_rank:
                 rank_str = str(found_rank)
                 if cat_idx > 0:
                     rank_str = f"{cat_idx+1}번째 책 {found_rank}"
                 return {'rank': rank_str, 'title': title, 'price': price_val, 'link': link_val}
 
-            time.sleep(random.uniform(0.8, 1.5)) # 사람 흉내 딜레이
+            time.sleep(random.uniform(0.5, 1.0)) # 봇 차단 방지용 딜레이
 
         return {'rank': '가격비교 밖', 'title': '', 'link': '', 'price': ''}
 
     except Exception as e:
         print(f"Book Rank Scrape Failed: {e}")
-        return {'rank': '검색 실패', 'title': '', 'link': '', 'price': ''}
+        return {'rank': '시스템 에러', 'title': '', 'link': '', 'price': ''}
 
 
 @monitoring_bp.route('/')
@@ -668,7 +692,6 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                     db.session.rollback()
                     updates = {}
                     
-                    # 1. API 업데이트 (재고, 판매상태 등)
                     if update_mode in ['all', 'info', 'stock']:
                         if not target_isbn or not commerce_token:
                             if update_mode != 'all':
@@ -686,7 +709,6 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                             if update_mode in ['all', 'stock']:
                                 if exact_info.get('my_stock'): updates['stock_quantity'] = exact_info['my_stock']
 
-                    # 2. 도서 카탈로그 탐색 & 상품 정보 자동 채우기
                     if update_mode in ['all', 'rank', 'info']:
                         need_crawler = ('rank' in update_mode or 'all' in update_mode) or (('info' in update_mode or 'all' in update_mode) and not updates.get('book_title'))
                         
@@ -704,7 +726,7 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                                 
                                 if "밖" in rank_result:
                                     monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] 📉 {rank_result}")
-                                elif "차단" in rank_result or "실패" in rank_result or "에러" in rank_result or "없음" in rank_result:
+                                elif "실패" in rank_result or "에러" in rank_result or "차단" in rank_result or "없음" in rank_result:
                                     monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ⚠️ {rank_result}")
                                 else:
                                     monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] 🏆 {rank_result}위 확인!")
@@ -727,20 +749,27 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                                 kw_update.stock_quantity = updates['stock_quantity']
                                 
                         if update_mode in ['all', 'rank'] and 'store_rank' in updates:
-                            if kw_update.store_rank != updates['store_rank'] and kw_update.store_rank not in ['-', '에러', '실패', '차단', '접속 차단됨', '검색결과 없음'] and "밖" not in kw_update.store_rank:
+                            if kw_update.store_rank != updates['store_rank'] and kw_update.store_rank not in ['-', '에러', '실패', '검색 실패', '접속 차단됨', '매칭중'] and "밖" not in kw_update.store_rank:
                                 kw_update.prev_store_rank = kw_update.store_rank
                             kw_update.store_rank = updates['store_rank']
 
                         db.session.commit()
                         
                     monitoring_tasks[task_key]["current"] += 1
+                    if update_mode == 'info' and not updates:
+                        pass 
+                    elif 'store_rank' not in updates and update_mode == 'rank':
+                        pass 
+                    elif updates and update_mode != 'rank':
+                        if "완료" not in monitoring_tasks[task_key]["logs"][-1]:
+                            monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ✅ 업데이트 완료")
                     
                 except Exception as inner_e:
                     db.session.rollback()
                     monitoring_tasks[task_key]["current"] += 1
                     monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ❌ 내부 오류")
                 
-                time.sleep(random.uniform(0.7, 1.5)) 
+                time.sleep(random.uniform(0.5, 1.2)) 
                 
     except Exception as outer_e:
         monitoring_tasks[task_key]["logs"].append(f"⚠️ 시스템 오류가 발생했습니다.")
@@ -748,7 +777,7 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
         monitoring_tasks[task_key]["is_running"] = False
         if monitoring_tasks[task_key]["current"] < monitoring_tasks[task_key]["total"]:
             monitoring_tasks[task_key]["current"] = monitoring_tasks[task_key]["total"]
-            monitoring_tasks[task_key]["logs"].append("⚠️ 업데이트가 종료되었습니다.")
+            monitoring_tasks[task_key]["logs"].append("⚠️ 업데이트가 강제 종료되었습니다.")
 
 @monitoring_bp.route('/api/refresh_by_isbn', methods=['POST'])
 @login_required
