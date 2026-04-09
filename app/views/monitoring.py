@@ -10,9 +10,10 @@ from flask import Blueprint, render_template, request, jsonify, current_app
 from flask_login import login_required, current_user
 from app import db
 from app.models import User, MonitoredKeyword, RunningmateKeyword, DailylearningKeyword, ApiKey
-import requests
+import urllib.request
 import urllib.parse
 import json
+import requests
 from sqlalchemy import text
 from app.naver_api import get_naver_token
 from bs4 import BeautifulSoup
@@ -35,156 +36,98 @@ def get_selected_ids(req):
         return [i.strip() for i in ids_str.split(',') if i.strip()]
     return req.form.getlist('ids[]')
 
-# ✨ [초강력 업그레이드] 묶음상품(카탈로그) 속까지 스캔하는 X-Ray 500위 탐색 엔진!
+# ✨ [초강력 업그레이드] ISBN 없이도 상품 정보(제목,링크,가격)와 순위를 긁어오는 엔진!
 def get_naver_shopping_rank(keyword, store_name):
-    if not keyword or not store_name or store_name == '-': return '-'
+    default_res = {'rank': '-', 'title': '', 'link': '', 'price': ''}
+    if not keyword or not store_name or store_name == '-': return default_res
     
     target_store = store_name.replace(" ", "").lower()
-    session = requests.Session()
     
-    user_agents = [
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
-    ]
-    
+    # 1차 시도: 차단율이 거의 0%인 모바일 통합검색 (쇼핑 영역)
     try:
-        # 1차 시도: PC 네이버 쇼핑 딥 서치 (80개씩 7페이지 = 최대 560위)
-        pc_headers = {
-            "User-Agent": random.choice(user_agents),
-            "Accept-Language": "ko-KR,ko;q=0.9",
-            "Referer": "https://shopping.naver.com/"
-        }
-        
-        for page in range(1, 8):
-            url = f"https://search.shopping.naver.com/search/all?query={urllib.parse.quote(keyword)}&pagingIndex={page}&pagingSize=80"
-            res = session.get(url, headers=pc_headers, timeout=8)
-            
-            if res.status_code != 200 or "captcha" in res.url or "자동입력 방지" in res.text:
-                raise Exception("PC Blocked")
-                
-            soup = BeautifulSoup(res.text, 'html.parser')
-            script = soup.find('script', id='__NEXT_DATA__')
-            found_in_page = False
-            
-            if script:
-                try:
-                    data = json.loads(script.string)
-                    # 구조 깊숙이 있는 상품 리스트(배열)를 자동으로 찾아내는 로직
-                    def find_product_list(obj):
-                        if isinstance(obj, dict):
-                            if 'list' in obj and isinstance(obj['list'], list) and len(obj['list']) > 0:
-                                test = obj['list'][0].get('item', obj['list'][0])
-                                if isinstance(test, dict) and ('rank' in test or 'productRank' in test):
-                                    return obj['list']
-                            for v in obj.values():
-                                res = find_product_list(v)
-                                if res: return res
-                        elif isinstance(obj, list):
-                            for i in obj:
-                                res = find_product_list(i)
-                                if res: return res
-                        return None
-                        
-                    products_list = find_product_list(data)
-                    
-                    if products_list:
-                        found_in_page = True
-                        for item in products_list:
-                            prod_item = item.get('item', item)
-                            rank = prod_item.get('rank') or prod_item.get('itemRank') or prod_item.get('productRank')
-                            if rank:
-                                # ✨ 핵심: 상품 데이터를 통째로 문자로 변환해 묶음상품 내부 상점들까지 싹 다 스캔!
-                                prod_str = json.dumps(prod_item, ensure_ascii=False).replace(" ", "").lower()
-                                if target_store in prod_str:
-                                    return str(rank)
-                except: pass
-                
-            if not found_in_page:
-                # JSON 파싱 실패 시 HTML 텍스트 정규식 분석으로 백업 타격
-                malls = re.findall(r'"mallName"\s*:\s*"([^"]+)"', res.text)
-                if not malls: malls = re.findall(r"'mallName'\s*:\s*'([^']+)'", res.text)
-                if malls:
-                    found_in_page = True
-                    for idx, m in enumerate(malls, 1):
-                        if target_store in m.replace(" ", "").lower():
-                            return str((page - 1) * 80 + idx)
-                            
-            if not found_in_page and ("검색결과가 없습니다" in res.text or "등록된 상품이 없습니다" in res.text):
-                break # 상품이 더 없으면 종료
-                
-            time.sleep(random.uniform(0.5, 1.2)) # 사람처럼 페이지 넘기는 시간
-            
-        return "500위 밖"
-        
-    except Exception as e1:
-        pass # PC에서 차단당하면 즉시 모바일 우회 타격 개시!
-
-    try:
-        # 2차 시도: 모바일 스마트폰 위장 탐색 (40개씩 13페이지 = 520위)
-        m_headers = {
-            "User-Agent": "Mozilla/5.0 (Linux; Android 13; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36",
-            "Accept-Language": "ko-KR,ko;q=0.9",
-            "Referer": "https://m.naver.com/"
-        }
+        headers = {"User-Agent": "Mozilla/5.0 (Linux; Android 13; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36"}
         for page in range(1, 14):
-            url = f"https://msearch.shopping.naver.com/search/all?query={urllib.parse.quote(keyword)}&pagingIndex={page}&pagingSize=40"
-            res = session.get(url, headers=m_headers, timeout=8)
+            start = (page - 1) * 40 + 1
+            url = f"https://m.search.naver.com/search.naver?where=m_shop&query={urllib.parse.quote(keyword)}&start={start}"
+            req = urllib.request.Request(url, headers=headers)
+            res = urllib.request.urlopen(req, timeout=10)
+            html_data = res.read().decode('utf-8')
             
-            if res.status_code != 200 or "captcha" in res.url:
-                return "실패"
-                
-            soup = BeautifulSoup(res.text, 'html.parser')
+            soup = BeautifulSoup(html_data, 'html.parser')
             script = soup.find('script', id='__NEXT_DATA__')
-            found_in_page = False
+            found = False
             
+            # 카탈로그(묶음상품) 속에 숨겨진 정보 X-Ray 추출
             if script:
                 try:
                     data = json.loads(script.string)
-                    def find_product_list(obj):
+                    def find_products(obj):
                         if isinstance(obj, dict):
-                            if 'list' in obj and isinstance(obj['list'], list) and len(obj['list']) > 0:
-                                test = obj['list'][0].get('item', obj['list'][0])
-                                if isinstance(test, dict) and ('rank' in test or 'productRank' in test): return obj['list']
+                            if 'list' in obj and isinstance(obj['list'], list) and len(obj['list'])>0:
+                                t = obj['list'][0].get('item', obj['list'][0])
+                                if isinstance(t, dict) and ('rank' in t or 'productRank' in t): return obj['list']
                             for v in obj.values():
-                                res = find_product_list(v)
-                                if res: return res
+                                r = find_products(v)
+                                if r: return r
                         elif isinstance(obj, list):
                             for i in obj:
-                                res = find_product_list(i)
-                                if res: return res
+                                r = find_products(i)
+                                if r: return r
                         return None
                         
-                    products_list = find_product_list(data)
-                    
-                    if products_list:
-                        found_in_page = True
-                        for item in products_list:
-                            prod_item = item.get('item', item)
-                            rank = prod_item.get('rank') or prod_item.get('itemRank') or prod_item.get('productRank')
+                    prod_list = find_products(data)
+                    if prod_list:
+                        found = True
+                        for item in prod_list:
+                            p = item.get('item', item)
+                            rank = p.get('rank') or p.get('itemRank') or p.get('productRank')
                             if rank:
-                                # 모바일도 카탈로그 X-Ray 스캔 적용
-                                prod_str = json.dumps(prod_item, ensure_ascii=False).replace(" ", "").lower()
-                                if target_store in prod_str:
-                                    return str(rank)
+                                p_str = json.dumps(p, ensure_ascii=False).replace(" ", "").lower()
+                                if target_store in p_str:
+                                    title = p.get('productName', '') or p.get('productTitle', '') or p.get('title', '')
+                                    price = str(p.get('price', ''))
+                                    if price.isdigit(): price = f"{int(price):,}원"
+                                    link = p.get('adcrUrl', '') or p.get('mallProductUrl', '') or p.get('crUrl', '')
+                                    title = re.sub(r'<[^>]*>', '', title)
+                                    return {'rank': str(rank), 'title': title, 'price': price, 'link': link}
                 except: pass
                 
-            if not found_in_page:
-                malls = re.findall(r'"mallName"\s*:\s*"([^"]+)"', res.text)
+            # JSON 분석 실패 시 백업 텍스트 탐색
+            if not found:
+                malls = re.findall(r'class="mall_name[^>]*>([^<]+)<', html_data)
                 if malls:
-                    found_in_page = True
-                    for idx, m in enumerate(malls, 1):
+                    found = True
+                    for idx, m in enumerate(malls):
                         if target_store in m.replace(" ", "").lower():
-                            return str((page - 1) * 40 + idx)
-            
-            if not found_in_page and "검색결과가 없습니다" in res.text:
+                            return {'rank': str(start + idx), 'title': '', 'link': '', 'price': ''}
+                            
+            if not found and "검색결과가 없습니다" in html_data:
                 break
                 
-            time.sleep(random.uniform(0.5, 1.2))
+            time.sleep(random.uniform(0.5, 1.0))
+        return {'rank': "500위 밖", 'title': '', 'link': '', 'price': ''}
+    except Exception as e1:
+        pass
+        
+    # 2차 시도: PC 쇼핑 우회 탐색
+    try:
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"}
+        for page in range(1, 8):
+            url = f"https://search.shopping.naver.com/search/all?query={urllib.parse.quote(keyword)}&pagingIndex={page}&pagingSize=80"
+            req = urllib.request.Request(url, headers=headers)
+            res = urllib.request.urlopen(req, timeout=10)
+            html_data = res.read().decode('utf-8')
             
-        return "500위 밖"
+            malls = re.findall(r'"mallName"\s*:\s*"([^"]+)"', html_data)
+            if not malls: malls = re.findall(r"'mallName'\s*:\s*'([^']+)'", html_data)
+            if malls:
+                for idx, m in enumerate(malls, 1):
+                    if target_store in m.replace(" ", "").lower():
+                        return {'rank': str((page - 1) * 80 + idx), 'title': '', 'link': '', 'price': ''}
+            time.sleep(random.uniform(0.5, 1.0))
+        return {'rank': "500위 밖", 'title': '', 'link': '', 'price': ''}
     except Exception as e2:
-        return "실패"
-
+        return {'rank': f"실패({str(e2)[:15]})", 'title': '', 'link': '', 'price': ''}
 
 @monitoring_bp.route('/')
 @login_required
@@ -633,12 +576,9 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
 
     try:
         with app.app_context():
-            store_mapping = {
-                'studybox': '스터디박스',
-                'rm': '러닝메이트',
-                'dl': '데일리러닝'
-            }
-            target_store_name = store_mapping.get(target, '스터디박스')
+            # ✨ 핵심 수정: 어떤 탭(러닝메이트, 데일리러닝 등)에서 실행하더라도
+            # 무조건 내 본진인 '스터디박스' 상점의 순위와 정보를 추적하도록 강제 고정!
+            target_store_name = '스터디박스'
 
             api_key = ApiKey.query.filter_by(user_id=user_id, store_name=target_store_name).first()
             commerce_token = None
@@ -658,6 +598,7 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                     db.session.rollback()
                     updates = {}
                     
+                    # 1. API 기반 업데이트
                     if update_mode in ['all', 'info', 'stock']:
                         if not target_isbn or not commerce_token:
                             if update_mode != 'all':
@@ -675,17 +616,29 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                             if update_mode in ['all', 'stock']:
                                 if exact_info.get('my_stock'): updates['stock_quantity'] = exact_info['my_stock']
 
-                    # 2. X-Ray 순위 탐색 진행
-                    if update_mode in ['all', 'rank']:
-                        rank_result = get_naver_shopping_rank(keyword_name, target_store_name)
-                        if rank_result and rank_result not in ['에러', '실패', '실패(차단됨)', '검색 실패']:
-                            updates['store_rank'] = rank_result
-                            if "밖" in rank_result:
-                                monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] 📉 {rank_result}")
-                            else:
-                                monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] 🏆 {rank_result}위 확인!")
-                        else:
-                            monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ⚠️ 순위 검색 실패")
+                    # 2. 크롤링 기반 순위 탐색 (ISBN 없어도 무조건 추출)
+                    if update_mode in ['all', 'rank', 'info']:
+                        need_crawler = ('rank' in update_mode or 'all' in update_mode) or (('info' in update_mode or 'all' in update_mode) and not updates.get('book_title'))
+                        
+                        if need_crawler:
+                            crawl_data = get_naver_shopping_rank(keyword_name, target_store_name)
+                            rank_result = crawl_data['rank']
+                            
+                            if update_mode in ['all', 'info']:
+                                if not updates.get('book_title') and crawl_data['title']: updates['book_title'] = crawl_data['title']
+                                if not updates.get('product_link') and crawl_data['link']: updates['product_link'] = crawl_data['link']
+                                if not updates.get('price') and crawl_data['price']: updates['price'] = crawl_data['price']
+                            
+                            if update_mode in ['all', 'rank']:
+                                if rank_result and '실패' not in rank_result and '에러' not in rank_result:
+                                    updates['store_rank'] = rank_result
+                                    if "밖" in rank_result:
+                                        monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] 📉 {rank_result}")
+                                    else:
+                                        monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] 🏆 {rank_result}위 확인!")
+                                else:
+                                    # 에러 원인을 명확하게 보여줍니다.
+                                    monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ⚠️ 순위 검색 실패 ({rank_result})")
 
                     kw_update = db.session.get(ModelClass, k_id)
                     if kw_update and updates:
@@ -725,7 +678,6 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                     monitoring_tasks[task_key]["current"] += 1
                     monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ❌ 내부 오류")
                 
-                # 네이버의 IP 차단을 피하기 위해 1.5초~2.5초 휴식
                 time.sleep(random.uniform(1.5, 2.5)) 
                 
     except Exception as outer_e:
