@@ -35,7 +35,6 @@ def get_selected_ids(req):
         return [i.strip() for i in ids_str.split(',') if i.strip()]
     return req.form.getlist('ids[]')
 
-# ✨ [초강력 업그레이드] 500위 딥 서치 & 봇 차단 우회 정밀 엔진! (제목, 가격, 링크까지 추출)
 def get_naver_shopping_rank(keyword, store_name):
     default_res = {'rank': '-', 'title': '', 'link': '', 'price': ''}
     if not keyword or not store_name or store_name == '-': return default_res
@@ -43,7 +42,6 @@ def get_naver_shopping_rank(keyword, store_name):
     target_store = store_name.replace(" ", "").lower()
     session = requests.Session()
     
-    # 1단계: 모바일 통합검색 쇼핑탭 우회 (방어막이 가장 약함, 40개씩 13페이지 = 520위 탐색)
     try:
         m_headers = {
             "User-Agent": "Mozilla/5.0 (Linux; Android 13; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36",
@@ -61,8 +59,6 @@ def get_naver_shopping_rank(keyword, store_name):
                 raise Exception("Mobile Blocked")
                 
             soup = BeautifulSoup(res.text, 'html.parser')
-            
-            # (1) 모바일 통합검색 HTML 태그 직접 분석
             items = soup.select('.list_item, [class*="product_item__"]')
             found_in_page = False
             
@@ -71,17 +67,14 @@ def get_naver_shopping_rank(keyword, store_name):
                 for idx, item in enumerate(items, 0):
                     mall_tag = item.select_one('.mall_name, [class*="mall_name__"]')
                     if mall_tag and target_store in mall_tag.get_text(strip=True).replace(" ", "").lower():
-                        # 제목, 가격, 링크 추출
                         title_tag = item.select_one('.tit, [class*="title__"]')
                         title = title_tag.get_text(strip=True) if title_tag else ""
                         price_tag = item.select_one('.price, [class*="price__"]')
                         price = price_tag.get_text(strip=True) if price_tag else ""
                         link_tag = item.select_one('a')
                         link = link_tag['href'] if link_tag and 'href' in link_tag.attrs else ""
-                        
                         return {'rank': str(start_num + idx), 'title': title, 'price': price, 'link': link}
 
-            # (2) 백업: 정규식 텍스트 분석
             if not found_in_page:
                 malls = re.findall(r'class="mall_name[^>]*>([^<]+)<', res.text)
                 if malls:
@@ -98,9 +91,8 @@ def get_naver_shopping_rank(keyword, store_name):
         return {'rank': "500위 밖", 'title': '', 'link': '', 'price': ''}
         
     except Exception as e1:
-        pass # 모바일 막히면 PC로 전환
+        pass 
 
-    # 2단계: PC 네이버 쇼핑 탐색 (80개씩 7페이지 = 560위 탐색)
     try:
         pc_headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
@@ -112,13 +104,12 @@ def get_naver_shopping_rank(keyword, store_name):
             res = session.get(url, headers=pc_headers, timeout=8)
             
             if res.status_code != 200 or "captcha" in res.url or "자동입력 방지" in res.text:
-                return {'rank': "실패", 'title': '', 'link': '', 'price': ''}
+                return {'rank': "검색 실패", 'title': '', 'link': '', 'price': ''}
                 
             soup = BeautifulSoup(res.text, 'html.parser')
             script = soup.find('script', id='__NEXT_DATA__')
             found_in_page = False
             
-            # 카탈로그 X-Ray 투시 분석
             if script:
                 try:
                     data = json.loads(script.string)
@@ -175,7 +166,7 @@ def get_naver_shopping_rank(keyword, store_name):
             
         return {'rank': "500위 밖", 'title': '', 'link': '', 'price': ''}
     except:
-        return {'rank': "실패", 'title': '', 'link': '', 'price': ''}
+        return {'rank': "검색 실패", 'title': '', 'link': '', 'price': ''}
 
 @monitoring_bp.route('/')
 @login_required
@@ -318,7 +309,7 @@ def copy_to_target():
     t_name = "스터디박스"
     if target == 'rm': t_name = "러닝메이트"
     elif target == 'dl': t_name = "데일리러닝"
-    return jsonify({'success': True, 'message': f'✅ 선택한 {count}개 항목이 [{t_name}] 모니터링으로 복사되었습니다!\n(키워드, 네이버카운트, 판매수만 복사되었습니다)'})
+    return jsonify({'success': True, 'message': f'✅ 선택한 {count}개 항목이 [{t_name}] 모니터링으로 복사되었습니다!'})
 
 @monitoring_bp.route('/api/saved_keywords', methods=['GET'])
 @login_required
@@ -624,7 +615,6 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
 
     try:
         with app.app_context():
-            # ✨ 핵심 복구: 탭 이름에 따라 정확하게 해당 상점의 API키와 상점명을 불러옵니다!
             store_mapping = {
                 'studybox': '스터디박스',
                 'rm': '러닝메이트',
@@ -650,7 +640,6 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                     db.session.rollback()
                     updates = {}
                     
-                    # 1. API 기반 업데이트 (상품 정보, 재고)
                     if update_mode in ['all', 'info', 'stock']:
                         if not target_isbn or not commerce_token:
                             if update_mode != 'all':
@@ -668,30 +657,27 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                             if update_mode in ['all', 'stock']:
                                 if exact_info.get('my_stock'): updates['stock_quantity'] = exact_info['my_stock']
 
-                    # 2. X-Ray 순위 탐색 & 백업 상품 정보 추출
+                    # ✨ 핵심 반영 로직: 실패하더라도 화면에 '검색 실패'라고 무조건 강제로 업데이트 시킵니다!
                     if update_mode in ['all', 'rank', 'info']:
                         need_crawler = ('rank' in update_mode or 'all' in update_mode) or (('info' in update_mode or 'all' in update_mode) and not updates.get('book_title'))
                         
                         if need_crawler:
-                            # ✨ 각 탭의 실제 상점 이름(target_store_name)으로 네이버 쇼핑을 탐색합니다!
                             crawl_data = get_naver_shopping_rank(keyword_name, target_store_name)
                             rank_result = crawl_data['rank']
                             
-                            # API에서 못 가져온 정보가 있다면 크롤러가 훔쳐온 정보로 마법처럼 채워줌!
                             if update_mode in ['all', 'info']:
                                 if not updates.get('book_title') and crawl_data['title']: updates['book_title'] = crawl_data['title']
                                 if not updates.get('product_link') and crawl_data['link']: updates['product_link'] = crawl_data['link']
                                 if not updates.get('price') and crawl_data['price']: updates['price'] = crawl_data['price']
                             
                             if update_mode in ['all', 'rank']:
-                                if rank_result and '실패' not in rank_result and '에러' not in rank_result:
-                                    updates['store_rank'] = rank_result
-                                    if "밖" in rank_result:
-                                        monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] 📉 {rank_result}")
-                                    else:
-                                        monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] 🏆 {rank_result}위 확인!")
+                                updates['store_rank'] = rank_result # 실패하더라도 무조건 덮어씌움!
+                                if "밖" in rank_result:
+                                    monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] 📉 {rank_result}")
+                                elif "실패" in rank_result or "에러" in rank_result:
+                                    monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ⚠️ {rank_result}")
                                 else:
-                                    monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ⚠️ 순위 검색 실패")
+                                    monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] 🏆 {rank_result}위 확인!")
 
                     kw_update = db.session.get(ModelClass, k_id)
                     if kw_update and updates:
@@ -710,9 +696,10 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                             if updates.get('stock_quantity') and should_update(getattr(kw_update, 'stock_quantity', '-')):
                                 kw_update.stock_quantity = updates['stock_quantity']
                                 
+                        # 실패하더라도 DB에 저장되도록 강제 허용
                         if update_mode in ['all', 'rank'] and 'store_rank' in updates:
                             if should_update(kw_update.store_rank):
-                                if kw_update.store_rank != updates['store_rank'] and kw_update.store_rank not in ['-', '에러', '실패', '매칭중'] and "밖" not in kw_update.store_rank:
+                                if kw_update.store_rank != updates['store_rank'] and kw_update.store_rank not in ['-', '에러', '실패', '검색 실패', '매칭중'] and "밖" not in kw_update.store_rank:
                                     kw_update.prev_store_rank = kw_update.store_rank
                                 kw_update.store_rank = updates['store_rank']
 
