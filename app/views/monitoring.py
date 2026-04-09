@@ -5,23 +5,19 @@ import traceback
 import random
 import html
 import datetime
+import ssl
+import urllib.request
+import urllib.parse
+import json
 from threading import Thread
 from flask import Blueprint, render_template, request, jsonify, current_app
 from flask_login import login_required, current_user
 from app import db
 from app.models import User, MonitoredKeyword, RunningmateKeyword, DailylearningKeyword, ApiKey
 import requests
-import urllib.request
-import urllib.parse
-import json
-import ssl
-import urllib3
 from sqlalchemy import text
 from app.naver_api import get_naver_token
 from bs4 import BeautifulSoup
-
-# requests 모듈의 SSL 경고 숨기기
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 monitoring_bp = Blueprint('monitoring', __name__)
 
@@ -41,54 +37,59 @@ def get_selected_ids(req):
         return [i.strip() for i in ids_str.split(',') if i.strip()]
     return req.form.getlist('ids[]')
 
-# ✨ [도서 탭 + 차단 파괴 스텔스 엔진] 네이버 IP 차단을 완벽 우회합니다!
+# ✨ [도서 탭 전용 + 스텔스 엔진] 네이버 차단을 뚫고 도서 가격비교 카탈로그를 스캔합니다!
 def get_naver_shopping_rank(keyword, store_name):
     default_res = {'rank': '-', 'title': '', 'link': '', 'price': ''}
     if not keyword or not store_name or store_name == '-': 
         return default_res
 
     target_store = store_name.replace(" ", "").lower()
-    
-    # SSL 인증서 검증을 무시하여 봇 차단을 우회하는 특수 Context
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
 
-    # 통신망 이중화: urllib가 막히면 requests로 뚫는 마법의 함수
+    # 통신망 이중화: requests가 막히면 urllib로 우회 접속하는 마법의 함수
     def fetch_html(url):
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-            "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8",
+            "Accept-Language": "ko-KR,ko;q=0.9",
             "Referer": "https://search.shopping.naver.com/book/home"
         }
+        
+        # 1차 시도: WAF(방어막) 우회에 강력한 urllib + SSL 무시
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
         try:
             req = urllib.request.Request(url, headers=headers)
             res = urllib.request.urlopen(req, context=ctx, timeout=8)
             html_data = res.read().decode('utf-8', 'ignore')
-            if "captcha" in res.url or "자동입력 방지" in html_data:
-                return None
-            return html_data
-        except Exception as e:
-            try:
-                # 1차 urllib 실패 시 requests SSL 무시 모드로 2차 강제 돌파
-                res = requests.get(url, headers=headers, timeout=8, verify=False)
-                if res.status_code == 200 and "captcha" not in res.url and "자동입력 방지" not in res.text:
-                    return res.text
-            except: pass
+            if "captcha" not in html_data and "자동입력 방지" not in html_data:
+                return html_data
+        except: pass
+        
+        # 2차 시도: requests 통신망 백업
+        try:
+            r = requests.get(url, headers=headers, timeout=8)
+            if r.status_code == 200 and "captcha" not in r.url and "자동입력 방지" not in r.text:
+                return r.text
+        except: pass
+        
         return None
 
     try:
-        # 1. 네이버 도서 탭 검색 (Book Search)
+        # 1. 네이버 도서 탭 검색 (Book Search)에서 도서 고유번호(nvMid) 찾기
         search_url = f"https://search.shopping.naver.com/book/search?query={urllib.parse.quote(keyword)}"
         html_data = fetch_html(search_url)
 
+        # PC에서 차단당했다면 모바일 도서 검색으로 즉시 우회
         if not html_data:
-            return {'rank': '접속 차단됨', 'title': '', 'link': '', 'price': ''}
+            m_search_url = f"https://msearch.shopping.naver.com/book/search?query={urllib.parse.quote(keyword)}"
+            html_data = fetch_html(m_search_url)
+            if not html_data:
+                return {'rank': '접속 차단됨', 'title': '', 'link': '', 'price': ''}
 
         soup = BeautifulSoup(html_data, 'html.parser')
         script = soup.find('script', id='__NEXT_DATA__')
-
+        
         nv_mids = []
         if script:
             try:
@@ -97,18 +98,18 @@ def get_naver_shopping_rank(keyword, store_name):
                 for b in book_list:
                     item = b.get('item', {})
                     mid = item.get('id') or item.get('nvMid')
-                    if mid: nv_mids.append(mid)
+                    if mid: nv_mids.append(str(mid))
             except: pass
 
+        # JSON 파싱 실패시 정규식으로 안전하게 추출
         if not nv_mids:
-            # 정규식으로 안전하게 카탈로그 ID 백업 추출
             nv_mids = re.findall(r'"nvMid":"(\d+)"', html_data)
-            nv_mids = list(dict.fromkeys(nv_mids))
+            nv_mids = list(dict.fromkeys(nv_mids)) # 중복 제거
 
         if not nv_mids:
             return {'rank': '검색결과 없음', 'title': '', 'link': '', 'price': ''}
 
-        # 2. 상위 3개 도서 카탈로그(가격비교) 내부로 진입하여 판매처 순위 X-Ray 스캔!
+        # 2. 검색된 상위 3개 도서의 카탈로그(가격비교) 내부로 진입하여 판매처 순위 정밀 스캔!
         for cat_idx, nv_mid in enumerate(nv_mids[:3]):
             cat_url = f"https://search.shopping.naver.com/book/catalog/{nv_mid}"
             cat_html = fetch_html(cat_url)
@@ -129,7 +130,7 @@ def get_naver_shopping_rank(keyword, store_name):
             price_val = ""
             link_val = cat_url
 
-            # JSON 구조를 분석하여 판매처 목록의 정확한 순위 카운트
+            # 가격비교 리스트 엑스레이 스캔
             if cat_script:
                 try:
                     c_data = json.loads(cat_script.string)
@@ -145,7 +146,7 @@ def get_naver_shopping_rank(keyword, store_name):
                                 break
                 except: pass
 
-            # JSON 분석 실패 시 정규식 백업 타격
+            # JSON 파싱 실패시 HTML/정규식 백업 타격
             if not found_rank:
                 malls = re.findall(r'"mallName"\s*:\s*"([^"]+)"', cat_html)
                 if malls:
@@ -162,8 +163,10 @@ def get_naver_shopping_rank(keyword, store_name):
                             found_rank = idx
                             break
 
+            # 스터디박스를 찾았다면 결과 반환!
             if found_rank:
                 rank_str = str(found_rank)
+                # 1번째 책이 아니라 2, 3번째 책에서 찾았다면 "2번째 책 4" 처럼 상세 표시
                 if cat_idx > 0:
                     rank_str = f"{cat_idx+1}번째 책 {found_rank}"
                 return {'rank': rank_str, 'title': title, 'price': price_val, 'link': link_val}
@@ -174,7 +177,7 @@ def get_naver_shopping_rank(keyword, store_name):
 
     except Exception as e:
         print(f"Book Rank Scrape Failed: {e}")
-        return {'rank': '시스템 에러', 'title': '', 'link': '', 'price': ''}
+        return {'rank': '검색 실패', 'title': '', 'link': '', 'price': ''}
 
 
 @monitoring_bp.route('/')
@@ -318,7 +321,7 @@ def copy_to_target():
     t_name = "스터디박스"
     if target == 'rm': t_name = "러닝메이트"
     elif target == 'dl': t_name = "데일리러닝"
-    return jsonify({'success': True, 'message': f'✅ 선택한 {count}개 항목이 [{t_name}] 모니터링으로 복사되었습니다!'})
+    return jsonify({'success': True, 'message': f'✅ 선택한 {count}개 항목이 [{t_name}] 모니터링으로 복사되었습니다!\n(키워드, 네이버카운트, 판매수만 복사되었습니다)'})
 
 @monitoring_bp.route('/api/saved_keywords', methods=['GET'])
 @login_required
@@ -649,6 +652,7 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                     db.session.rollback()
                     updates = {}
                     
+                    # 1. API 업데이트 (재고, 판매상태 등)
                     if update_mode in ['all', 'info', 'stock']:
                         if not target_isbn or not commerce_token:
                             if update_mode != 'all':
@@ -666,7 +670,7 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                             if update_mode in ['all', 'stock']:
                                 if exact_info.get('my_stock'): updates['stock_quantity'] = exact_info['my_stock']
 
-                    # ✨ 핵심 로직: 도서 탭 전용 탐색 & 정보 훔쳐오기 마법
+                    # 2. 도서 가격비교 탐색 & 상품 정보 자동 채우기
                     if update_mode in ['all', 'rank', 'info']:
                         need_crawler = ('rank' in update_mode or 'all' in update_mode) or (('info' in update_mode or 'all' in update_mode) and not updates.get('book_title'))
                         
@@ -674,18 +678,19 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                             crawl_data = get_naver_shopping_rank(keyword_name, target_store_name)
                             rank_result = crawl_data['rank']
                             
-                            # API로 못 가져온 정보가 있으면 크롤러가 가져온 제목, 가격, 링크로 쏙쏙 채워줍니다.
+                            # API로 못 가져온 정보가 있다면, 도서 가격비교에서 찾은 제목/가격/링크로 빈칸을 채워줍니다!
                             if update_mode in ['all', 'info']:
                                 if not updates.get('book_title') and crawl_data['title']: updates['book_title'] = crawl_data['title']
                                 if not updates.get('product_link') and crawl_data['link']: updates['product_link'] = crawl_data['link']
                                 if not updates.get('price') and crawl_data['price']: updates['price'] = crawl_data['price']
 
+                            # 순위 업데이트
                             if update_mode in ['all', 'rank']:
-                                updates['store_rank'] = rank_result # 실패하든 성공하든 무조건 강제로 덮어씌움!
+                                updates['store_rank'] = rank_result # 실패/오류 상관없이 화면에 띄움
                                 
                                 if "밖" in rank_result:
                                     monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] 📉 {rank_result}")
-                                elif "실패" in rank_result or "에러" in rank_result:
+                                elif "실패" in rank_result or "에러" in rank_result or "없음" in rank_result:
                                     monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ⚠️ {rank_result}")
                                 else:
                                     monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] 🏆 {rank_result}위 확인!")
@@ -707,30 +712,21 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                             if updates.get('stock_quantity') and should_update(getattr(kw_update, 'stock_quantity', '-')):
                                 kw_update.stock_quantity = updates['stock_quantity']
                                 
-                        # ✨ 순위(Rank)는 '빈칸 채우기' 설정과 무관하게 무조건 강제로 업데이트 시킵니다!
                         if update_mode in ['all', 'rank'] and 'store_rank' in updates:
-                            if kw_update.store_rank != updates['store_rank'] and kw_update.store_rank not in ['-', '에러', '실패', '검색 실패', '접속 차단됨', '매칭중'] and "밖" not in kw_update.store_rank:
+                            if kw_update.store_rank != updates['store_rank'] and kw_update.store_rank not in ['-', '에러', '실패', '접속 차단됨', '검색결과 없음'] and "밖" not in kw_update.store_rank:
                                 kw_update.prev_store_rank = kw_update.store_rank
                             kw_update.store_rank = updates['store_rank']
 
                         db.session.commit()
                         
                     monitoring_tasks[task_key]["current"] += 1
-                    if update_mode == 'info' and not updates:
-                        pass 
-                    elif 'store_rank' not in updates and update_mode == 'rank':
-                        pass 
-                    elif updates and update_mode != 'rank':
-                        if "완료" not in monitoring_tasks[task_key]["logs"][-1]:
-                            monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ✅ 업데이트 완료")
                     
                 except Exception as inner_e:
                     db.session.rollback()
                     monitoring_tasks[task_key]["current"] += 1
                     monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ❌ 내부 오류")
                 
-                # 네이버가 봇으로 인지하지 못하게 무작위 휴식 (서버 안정성 극대화)
-                time.sleep(random.uniform(1.0, 2.0)) 
+                time.sleep(random.uniform(0.5, 1.0)) 
                 
     except Exception as outer_e:
         monitoring_tasks[task_key]["logs"].append(f"⚠️ 시스템 오류가 발생했습니다.")
@@ -738,7 +734,7 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
         monitoring_tasks[task_key]["is_running"] = False
         if monitoring_tasks[task_key]["current"] < monitoring_tasks[task_key]["total"]:
             monitoring_tasks[task_key]["current"] = monitoring_tasks[task_key]["total"]
-            monitoring_tasks[task_key]["logs"].append("⚠️ 업데이트가 강제 종료되었습니다.")
+            monitoring_tasks[task_key]["logs"].append("⚠️ 업데이트가 종료되었습니다.")
 
 @monitoring_bp.route('/api/refresh_by_isbn', methods=['POST'])
 @login_required
