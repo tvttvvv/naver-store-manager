@@ -5,18 +5,14 @@ import traceback
 import random
 import html
 import datetime
-import ssl
-import gzip
-import urllib.request
-import urllib.parse
-import json
-from io import BytesIO
 from threading import Thread
 from flask import Blueprint, render_template, request, jsonify, current_app
 from flask_login import login_required, current_user
 from app import db
 from app.models import User, MonitoredKeyword, RunningmateKeyword, DailylearningKeyword, ApiKey
 import requests
+import urllib.parse
+import json
 from sqlalchemy import text
 from app.naver_api import get_naver_token
 from bs4 import BeautifulSoup
@@ -39,150 +35,93 @@ def get_selected_ids(req):
         return [i.strip() for i in ids_str.split(',') if i.strip()]
     return req.form.getlist('ids[]')
 
-# ✨ [해외 IP 차단 우회 엔진] 프록시(Proxy)를 이용하여 네이버의 지역 차단을 뚫습니다!
+# ✨ [정밀 엔진] 정상적인 통신 상태에서 도서 가격비교 카탈로그 내부만 샅샅이 스캔!
 def get_naver_shopping_rank(keyword, store_name):
     default_res = {'rank': '-', 'title': '', 'link': '', 'price': ''}
     if not keyword or not store_name or store_name == '-': 
         return default_res
 
     target_store = store_name.replace(" ", "").lower()
-
-    # 프록시 우회 및 다중 접속을 담당하는 핵심 함수
-    def fetch_html_stealth(url, is_mobile=False):
-        fake_nnb = "".join([str(random.randint(0, 9)) for _ in range(13)])
-        
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-            "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8",
-            "Accept-Encoding": "gzip, deflate", 
-            "Connection": "keep-alive",
-            "Cookie": f"NNB={fake_nnb}; ASID={fake_nnb};",
-            "Upgrade-Insecure-Requests": "1"
-        }
-        
-        if is_mobile:
-            headers["User-Agent"] = "Mozilla/5.0 (Linux; Android 13; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36"
-
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        
-        # [1차 시도] 다이렉트 접속 (해외 IP 차단시 즉시 실패)
-        try:
-            req = urllib.request.Request(url, headers=headers)
-            res = urllib.request.urlopen(req, context=ctx, timeout=5)
-            final_url = res.url
-            if res.info().get('Content-Encoding') == 'gzip':
-                buf = BytesIO(res.read())
-                f = gzip.GzipFile(fileobj=buf)
-                html_data = f.read().decode('utf-8', 'ignore')
-            else:
-                html_data = res.read().decode('utf-8', 'ignore')
-            if "captcha" not in final_url and "자동입력 방지" not in html_data:
-                return html_data, final_url
-        except: pass
-
-        # ✨ [2차 시도] AllOrigins 무료 프록시 터널링 (해외 차단 우회)
-        try:
-            proxy_url = f"https://api.allorigins.win/raw?url={urllib.parse.quote(url)}"
-            req = urllib.request.Request(proxy_url, headers={"User-Agent": headers["User-Agent"]})
-            res = urllib.request.urlopen(req, context=ctx, timeout=10)
-            html_data = res.read().decode('utf-8', 'ignore')
-            if "captcha" not in html_data and "자동입력 방지" not in html_data and len(html_data) > 500:
-                return html_data, url
-        except: pass
-
-        # ✨ [3차 시도] CodeTabs 무료 프록시 터널링 (백업 우회)
-        try:
-            proxy_url2 = f"https://api.codetabs.com/v1/proxy/?quest={urllib.parse.quote(url)}"
-            req2 = urllib.request.Request(proxy_url2, headers={"User-Agent": headers["User-Agent"]})
-            res2 = urllib.request.urlopen(req2, context=ctx, timeout=10)
-            html_data = res2.read().decode('utf-8', 'ignore')
-            if "captcha" not in html_data and "자동입력 방지" not in html_data and len(html_data) > 500:
-                return html_data, url
-        except: pass
-
-        return None, None
+    session = requests.Session()
+    
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept-Language": "ko-KR,ko;q=0.9",
+        "Referer": "https://shopping.naver.com/"
+    }
 
     try:
-        # 1. 네이버 도서 공식 검색 접속
-        search_url = f"https://search.shopping.naver.com/book/search?query={urllib.parse.quote(keyword)}"
-        html_data, final_url = fetch_html_stealth(search_url, is_mobile=False)
-
-        # PC 차단시 모바일 우회
-        if not html_data:
-            search_url = f"https://msearch.shopping.naver.com/book/search?query={urllib.parse.quote(keyword)}"
-            html_data, final_url = fetch_html_stealth(search_url, is_mobile=True)
-
-        if not html_data:
-            return {'rank': '해외IP 완벽 차단됨', 'title': '', 'link': '', 'price': ''}
-
-        unique_nvmids = []
-
-        # 예외 처리: 가격비교 화면(카탈로그)으로 바로 다이렉트 이동된 경우
-        if final_url and "catalog/" in final_url:
-            match = re.search(r'catalog/(\d+)', final_url)
-            if match:
-                unique_nvmids.append(match.group(1))
-
-        # 검색 목록에서 상위 5개 도서의 고유번호(nvMid)를 추출합니다.
-        if not unique_nvmids:
-            nv_mids = []
-            soup = BeautifulSoup(html_data, 'html.parser')
-            script = soup.find('script', id='__NEXT_DATA__')
+        # 1. 차단되지 않는 일반 쇼핑 검색에서 책들의 고유번호(nvMid)를 추출합니다.
+        search_url = f"https://search.shopping.naver.com/search/all?query={urllib.parse.quote(keyword)}"
+        res = session.get(search_url, headers=headers, timeout=8)
+        
+        if res.status_code != 200:
+            return {'rank': '접속실패', 'title': '', 'link': '', 'price': ''}
             
-            if script:
-                try:
-                    data = json.loads(script.string)
-                    def find_nvmids(obj):
-                        if isinstance(obj, dict):
-                            if 'nvMid' in obj and str(obj['nvMid']).isdigit():
-                                nv_mids.append(str(obj['nvMid']))
-                            for v in obj.values(): find_nvmids(v)
-                        elif isinstance(obj, list):
-                            for i in obj: find_nvmids(i)
-                    find_nvmids(data)
-                except: pass
-
-            # 정규식 백업 스캔
-            if not nv_mids:
-                mids = re.findall(r'"nvMid"\s*:\s*"?(\d+)"?', html_data)
-                nv_mids.extend(mids)
-
-            seen = set()
-            for m in nv_mids:
-                if m not in seen:
-                    seen.add(m)
-                    unique_nvmids.append(m)
+        soup = BeautifulSoup(res.text, 'html.parser')
+        script = soup.find('script', id='__NEXT_DATA__')
+        
+        nv_mids = []
+        
+        # JSON 데이터 속에서 nvMid 뽑아내기
+        if script:
+            try:
+                data = json.loads(script.string)
+                def find_nvmids(obj):
+                    if isinstance(obj, dict):
+                        if 'nvMid' in obj and str(obj['nvMid']).isdigit():
+                            nv_mids.append(str(obj['nvMid']))
+                        for v in obj.values(): find_nvmids(v)
+                    elif isinstance(obj, list):
+                        for i in obj: find_nvmids(i)
+                find_nvmids(data)
+            except: pass
+        
+        # 정규식으로 한번 더 쓸어담기
+        if not nv_mids:
+            nv_mids = re.findall(r'"nvMid"\s*:\s*"?(\d+)"?', res.text)
+            
+        unique_nvmids = list(dict.fromkeys(nv_mids))
+        
+        # 쇼핑 탭에 없다면 도서 전용 탭으로 한번 더 검색
+        if not unique_nvmids:
+            b_url = f"https://search.shopping.naver.com/book/search?query={urllib.parse.quote(keyword)}"
+            b_res = session.get(b_url, headers=headers, timeout=8)
+            mids = re.findall(r'"nvMid"\s*:\s*"?(\d+)"?', b_res.text)
+            unique_nvmids = list(dict.fromkeys(mids))
 
         if not unique_nvmids:
+            # 묶음상품(카탈로그)이 아니라 단순 낱개 상품으로 노출된 경우 (예외처리)
+            malls = re.findall(r'"mallName"\s*:\s*"([^"]+)"', res.text)
+            for idx, m in enumerate(malls, 1):
+                if target_store in m.replace(" ", "").lower():
+                    return {'rank': f"일반 {idx}", 'title': '', 'link': '', 'price': ''}
             return {'rank': '검색결과 없음', 'title': '', 'link': '', 'price': ''}
-
-        # 2. 찾은 도서의 카탈로그 내부로 침투하여 스터디박스 찾기 (최대 5개 검사)
-        for cat_idx, nv_mid in enumerate(unique_nvmids[:5]):
+        
+        # 2. 찾은 책들의 가격비교 카탈로그 화면으로 뚫고 들어갑니다 (상위 4개 검사)
+        for cat_idx, nv_mid in enumerate(unique_nvmids[:4]): 
             cat_url = f"https://search.shopping.naver.com/book/catalog/{nv_mid}"
-            cat_html, _ = fetch_html_stealth(cat_url, is_mobile=False)
-
-            if not cat_html:
-                continue
-
-            cat_soup = BeautifulSoup(cat_html, 'html.parser')
+            cat_res = session.get(cat_url, headers=headers, timeout=8)
+            
+            if cat_res.status_code != 200: continue
+            
+            cat_soup = BeautifulSoup(cat_res.text, 'html.parser')
+            
             title = ""
             try:
-                title_tag = cat_soup.select_one('h2')
-                if title_tag: title = title_tag.get_text(strip=True)
+                t_tag = cat_soup.select_one('h2')
+                if t_tag: title = t_tag.get_text(strip=True)
             except: pass
-
+            
             found_rank = None
             price_val = ""
             link_val = cat_url
-
-            # 카탈로그 내부 판매처 목록 엑스레이 스캔
-            cat_script = cat_soup.find('script', id='__NEXT_DATA__')
-            if cat_script:
+            
+            # 카탈로그 내부의 "판매처 목록(offers)" 정밀 분석
+            c_script = cat_soup.find('script', id='__NEXT_DATA__')
+            if c_script:
                 try:
-                    c_data = json.loads(cat_script.string)
+                    c_data = json.loads(c_script.string)
                     offers = c_data.get('props', {}).get('pageProps', {}).get('initialState', {}).get('catalog', {}).get('offers', [])
                     if offers:
                         for sell_idx, offer in enumerate(offers, 1):
@@ -194,37 +133,35 @@ def get_naver_shopping_rank(keyword, store_name):
                                 link_val = offer.get('mallProductUrl', cat_url)
                                 break
                 except: pass
-
+                
+            # 백업: 정규식을 이용해 판매처 텍스트 스캔
             if not found_rank:
-                malls = re.findall(r'"mallName"\s*:\s*"([^"]+)"', cat_html)
+                malls = re.findall(r'"mallName"\s*:\s*"([^"]+)"', cat_res.text)
                 if malls:
-                    seen_malls = set()
-                    unique_malls = []
+                    seen = set()
+                    u_malls = []
                     for m in malls:
-                        m_clean = m.replace(" ", "").lower()
-                        if m_clean not in seen_malls:
-                            seen_malls.add(m_clean)
-                            unique_malls.append(m_clean)
-
-                    for idx, m_clean in enumerate(unique_malls, 1):
-                        if target_store in m_clean:
+                        m_c = m.replace(" ", "").lower()
+                        if m_c not in seen:
+                            seen.add(m_c)
+                            u_malls.append(m_c)
+                    for idx, m_c in enumerate(u_malls, 1):
+                        if target_store in m_c:
                             found_rank = idx
                             break
-
-            # 결과를 찾았다면 반환!
+                            
             if found_rank:
-                rank_str = str(found_rank)
-                if cat_idx > 0:
-                    rank_str = f"{cat_idx+1}번째 책 {found_rank}"
-                return {'rank': rank_str, 'title': title, 'price': price_val, 'link': link_val}
-
-            time.sleep(random.uniform(0.5, 1.0)) 
-
+                r_str = str(found_rank)
+                if cat_idx > 0: r_str = f"{cat_idx+1}번째 책 {found_rank}"
+                return {'rank': r_str, 'title': title, 'price': price_val, 'link': link_val}
+                
+            time.sleep(0.5) # 사람 흉내 딜레이
+            
         return {'rank': '가격비교 밖', 'title': '', 'link': '', 'price': ''}
 
     except Exception as e:
-        print(f"Book Rank Scrape Failed: {e}")
-        return {'rank': '시스템 에러', 'title': '', 'link': '', 'price': ''}
+        print(f"Error: {e}")
+        return {'rank': '시스템 오류', 'title': '', 'link': '', 'price': ''}
 
 
 @monitoring_bp.route('/')
@@ -699,11 +636,12 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                     db.session.rollback()
                     updates = {}
                     
+                    # 1. API 업데이트 (재고, 상태 등)
                     if update_mode in ['all', 'info', 'stock']:
                         if not target_isbn or not commerce_token:
                             if update_mode != 'all':
                                 monitoring_tasks[task_key]["current"] += 1
-                                monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ❌ ISBN/API키 필요 (스킵)")
+                                monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ❌ ISBN/API키 필요")
                                 continue
                         else:
                             exact_info = get_exact_product_info_commerce_api(commerce_token, target_isbn)
@@ -716,6 +654,7 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                             if update_mode in ['all', 'stock']:
                                 if exact_info.get('my_stock'): updates['stock_quantity'] = exact_info['my_stock']
 
+                    # 2. 도서 카탈로그 X-Ray 크롤링 진행
                     if update_mode in ['all', 'rank', 'info']:
                         need_crawler = ('rank' in update_mode or 'all' in update_mode) or (('info' in update_mode or 'all' in update_mode) and not updates.get('book_title'))
                         
@@ -723,17 +662,18 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                             crawl_data = get_naver_shopping_rank(keyword_name, target_store_name)
                             rank_result = crawl_data['rank']
                             
+                            # API로 못 가져온 정보 덤으로 채우기
                             if update_mode in ['all', 'info']:
                                 if not updates.get('book_title') and crawl_data['title']: updates['book_title'] = crawl_data['title']
                                 if not updates.get('product_link') and crawl_data['link']: updates['product_link'] = crawl_data['link']
                                 if not updates.get('price') and crawl_data['price']: updates['price'] = crawl_data['price']
 
                             if update_mode in ['all', 'rank']:
-                                updates['store_rank'] = rank_result
+                                updates['store_rank'] = rank_result # 실패하더라도 무조건 덮어씀
                                 
                                 if "밖" in rank_result:
                                     monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] 📉 {rank_result}")
-                                elif "실패" in rank_result or "에러" in rank_result or "차단" in rank_result or "없음" in rank_result:
+                                elif "실패" in rank_result or "에러" in rank_result or "없음" in rank_result or "차단" in rank_result:
                                     monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ⚠️ {rank_result}")
                                 else:
                                     monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] 🏆 {rank_result}위 확인!")
@@ -755,21 +695,29 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                             if updates.get('stock_quantity') and should_update(getattr(kw_update, 'stock_quantity', '-')):
                                 kw_update.stock_quantity = updates['stock_quantity']
                                 
+                        # 순위는 무조건 최신으로 덮어씀
                         if update_mode in ['all', 'rank'] and 'store_rank' in updates:
-                            if kw_update.store_rank != updates['store_rank'] and kw_update.store_rank not in ['-', '에러', '실패', '검색 실패', '차단됨', '매칭중'] and "밖" not in kw_update.store_rank:
+                            if kw_update.store_rank != updates['store_rank'] and kw_update.store_rank not in ['-', '에러', '실패', '검색 실패', '차단', '매칭중'] and "밖" not in kw_update.store_rank:
                                 kw_update.prev_store_rank = kw_update.store_rank
                             kw_update.store_rank = updates['store_rank']
 
                         db.session.commit()
                         
                     monitoring_tasks[task_key]["current"] += 1
+                    if update_mode == 'info' and not updates:
+                        pass 
+                    elif 'store_rank' not in updates and update_mode == 'rank':
+                        pass 
+                    elif updates and update_mode != 'rank':
+                        if "완료" not in monitoring_tasks[task_key]["logs"][-1]:
+                            monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ✅ 업데이트 완료")
                     
                 except Exception as inner_e:
                     db.session.rollback()
                     monitoring_tasks[task_key]["current"] += 1
                     monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ❌ 내부 오류")
                 
-                time.sleep(random.uniform(0.8, 1.5)) 
+            time.sleep(random.uniform(0.5, 1.0)) 
                 
     except Exception as outer_e:
         monitoring_tasks[task_key]["logs"].append(f"⚠️ 시스템 오류가 발생했습니다.")
