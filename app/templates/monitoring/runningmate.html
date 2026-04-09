@@ -334,10 +334,11 @@
     attachEvent('trendFilter', 'change', function(e) { currentPage = 1; renderTable(); });
     attachEvent('itemsPerPageSelect', 'change', function(e) { let val = e.target.value; itemsPerPage = (val === 'all') ? 999999 : parseInt(val); currentPage = 1; renderTable(); });
 
+    // ✨ URL에 target_page=rm 꼬리표 부착 완비!
     async function loadSavedKeywords() {
         if (isEditing) return; 
         try {
-            const res = await fetch("{{ url_for('monitoring.get_saved_keywords', target_page='rm') }}");
+            const res = await fetch("{{ url_for('monitoring.get_saved_keywords') }}?target_page=rm");
             if(!res.ok) throw new Error("서버 통신 오류");
             const result = await res.json();
             if (result.success) { allKeywordsData = result.data; populateGraphSelect(); renderTable(); } 
@@ -521,6 +522,7 @@
         } catch(e) { alert('오류가 발생했습니다.'); }
     }
 
+    // ✨ URL에 target_page=rm 꼬리표 부착 완비!
     async function clearSelectedIsbn() {
         if (checkedIds.size === 0) { alert("ISBN을 비울 항목을 왼쪽 체크박스로 먼저 선택해주세요!"); return; }
         if(!confirm(`선택한 ${checkedIds.size}개 항목의 ISBN을 모두 비우시겠습니까?\n(새로 입력할 수 있도록 빈칸으로 만듭니다)`)) return;
@@ -599,8 +601,9 @@
         } catch(e) { alert('서버 에러가 발생했습니다.'); resetUpdateUI(); } 
     }
 
+    // ✨ URL에 target_page=rm 꼬리표 부착 완비!
     function checkTaskStatus() {
-        fetch("{{ url_for('monitoring.get_task_status', target_page='rm') }}")
+        fetch("{{ url_for('monitoring.get_task_status') }}?target_page=rm")
             .then(res => res.json())
             .then(data => {
                 const progressBar = document.getElementById('progressBar'), progressStatusText = document.getElementById('progressStatusText'), progressCount = document.getElementById('progressCount'), logList = document.getElementById('logList');
