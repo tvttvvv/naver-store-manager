@@ -10,7 +10,7 @@ from flask import Blueprint, render_template, request, jsonify, current_app
 from flask_login import login_required, current_user
 from app import db
 from app.models import User, MonitoredKeyword, RunningmateKeyword, DailylearningKeyword, ApiKey
-import requests
+import urllib.request
 import urllib.parse
 import json
 from sqlalchemy import text
@@ -35,30 +35,36 @@ def get_selected_ids(req):
         return [i.strip() for i in ids_str.split(',') if i.strip()]
     return req.form.getlist('ids[]')
 
+# ✨ [스텔스 엔진] 네이버 IP 차단을 피하는 최정예 모바일 우회 크롤러
 def get_naver_shopping_rank(keyword, store_name):
     default_res = {'rank': '-', 'title': '', 'link': '', 'price': ''}
     if not keyword or not store_name or store_name == '-': return default_res
     
     target_store = store_name.replace(" ", "").lower()
-    session = requests.Session()
     
+    import ssl
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+
     try:
-        m_headers = {
-            "User-Agent": "Mozilla/5.0 (Linux; Android 13; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-            "Referer": "https://m.naver.com/"
-        }
-        
-        for page in range(1, 14): 
+        # 차단율이 가장 낮은 "모바일 통합검색 쇼핑탭"을 직접 타격합니다 (최대 200위 탐색)
+        for page in range(1, 6):
             start_num = (page - 1) * 40 + 1
             url = f"https://m.search.naver.com/search.naver?where=m_shop&query={urllib.parse.quote(keyword)}&start={start_num}"
             
-            res = session.get(url, headers=m_headers, timeout=8)
+            req = urllib.request.Request(url, headers={
+                "User-Agent": "Mozilla/5.0 (Linux; Android 13; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                "Referer": "https://m.naver.com/"
+            })
+            res = urllib.request.urlopen(req, context=ctx, timeout=8)
+            html_data = res.read().decode('utf-8')
             
-            if res.status_code != 200 or "captcha" in res.url:
-                raise Exception("Mobile Blocked")
+            if "captcha" in html_data or "자동입력 방지" in html_data:
+                raise Exception("Blocked")
                 
-            soup = BeautifulSoup(res.text, 'html.parser')
+            soup = BeautifulSoup(html_data, 'html.parser')
             items = soup.select('.list_item, [class*="product_item__"]')
             found_in_page = False
             
@@ -75,98 +81,27 @@ def get_naver_shopping_rank(keyword, store_name):
                         link = link_tag['href'] if link_tag and 'href' in link_tag.attrs else ""
                         return {'rank': str(start_num + idx), 'title': title, 'price': price, 'link': link}
 
+            # 태그가 숨겨져 있을 때를 대비한 정규식 스캐너 백업
             if not found_in_page:
-                malls = re.findall(r'class="mall_name[^>]*>([^<]+)<', res.text)
+                malls = re.findall(r'class="mall_name[^>]*>([^<]+)<', html_data)
                 if malls:
                     found_in_page = True
                     for idx, m in enumerate(malls, 0):
                         if target_store in m.replace(" ", "").lower():
                             return {'rank': str(start_num + idx), 'title': '', 'link': '', 'price': ''}
             
-            if not found_in_page and "검색결과가 없습니다" in res.text:
+            if not found_in_page and "검색결과가 없습니다" in html_data:
                 break
                 
-            time.sleep(random.uniform(0.5, 1.2))
+            # 네이버가 눈치채지 못하도록 0.5초 ~ 1.0초 무작위 딜레이
+            time.sleep(random.uniform(0.5, 1.0))
             
-        return {'rank': "500위 밖", 'title': '', 'link': '', 'price': ''}
+        return {'rank': "200위 밖", 'title': '', 'link': '', 'price': ''}
         
-    except Exception as e1:
-        pass 
-
-    try:
-        pc_headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            "Accept-Language": "ko-KR,ko;q=0.9",
-            "Referer": "https://shopping.naver.com/"
-        }
-        for page in range(1, 8):
-            url = f"https://search.shopping.naver.com/search/all?query={urllib.parse.quote(keyword)}&pagingIndex={page}&pagingSize=80"
-            res = session.get(url, headers=pc_headers, timeout=8)
-            
-            if res.status_code != 200 or "captcha" in res.url or "자동입력 방지" in res.text:
-                return {'rank': "검색 실패", 'title': '', 'link': '', 'price': ''}
-                
-            soup = BeautifulSoup(res.text, 'html.parser')
-            script = soup.find('script', id='__NEXT_DATA__')
-            found_in_page = False
-            
-            if script:
-                try:
-                    data = json.loads(script.string)
-                    def find_product_list(obj):
-                        if isinstance(obj, dict):
-                            if 'list' in obj and isinstance(obj['list'], list) and len(obj['list']) > 0:
-                                test = obj['list'][0].get('item', obj['list'][0])
-                                if isinstance(test, dict) and ('rank' in test or 'productRank' in test): return obj['list']
-                            for v in obj.values():
-                                r = find_product_list(v)
-                                if r: return r
-                        elif isinstance(obj, list):
-                            for i in obj:
-                                r = find_product_list(i)
-                                if r: return r
-                        return None
-                        
-                    products_list = find_product_list(data)
-                    if products_list:
-                        found_in_page = True
-                        for item in products_list:
-                            prod_item = item.get('item', item)
-                            rank_val = prod_item.get('rank') or prod_item.get('itemRank') or prod_item.get('productRank')
-                            if rank_val:
-                                prod_str = json.dumps(prod_item, ensure_ascii=False).replace(" ", "").lower()
-                                if target_store in prod_str:
-                                    title = prod_item.get('productName', '') or prod_item.get('productTitle', '') or prod_item.get('title', '')
-                                    price = str(prod_item.get('price', ''))
-                                    if price.isdigit(): price = f"{int(price):,}원"
-                                    link = prod_item.get('adcrUrl', '') or prod_item.get('mallProductUrl', '') or prod_item.get('crUrl', '')
-                                    title = re.sub(r'<[^>]*>', '', title)
-                                    return {'rank': str(rank_val), 'title': title, 'price': price, 'link': link}
-                except: pass
-                
-            if not found_in_page:
-                ranks_data = re.findall(r'"mallName"\s*:\s*"([^"]+)".*?"rank"\s*:\s*(\d+)', res.text)
-                if ranks_data:
-                    found_in_page = True
-                    for mall, rnk in ranks_data:
-                        if target_store in mall.replace(" ", "").lower():
-                            return {'rank': str(rnk), 'title': '', 'link': '', 'price': ''}
-                else:
-                    malls = re.findall(r'"mallName"\s*:\s*"([^"]+)"', res.text)
-                    if malls:
-                        found_in_page = True
-                        for idx, m in enumerate(malls, 1):
-                            if target_store in m.replace(" ", "").lower():
-                                return {'rank': str((page - 1) * 80 + idx), 'title': '', 'link': '', 'price': ''}
-            
-            if not found_in_page and ("검색결과가 없습니다" in res.text or "등록된 상품이 없습니다" in res.text):
-                break 
-                
-            time.sleep(random.uniform(0.5, 1.2))
-            
-        return {'rank': "500위 밖", 'title': '', 'link': '', 'price': ''}
-    except:
+    except Exception as e:
+        print(f"Rank Search Error [{keyword}]: {e}")
         return {'rank': "검색 실패", 'title': '', 'link': '', 'price': ''}
+
 
 @monitoring_bp.route('/')
 @login_required
@@ -657,7 +592,6 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                             if update_mode in ['all', 'stock']:
                                 if exact_info.get('my_stock'): updates['stock_quantity'] = exact_info['my_stock']
 
-                    # ✨ 핵심 반영 로직: 실패하더라도 화면에 '검색 실패'라고 무조건 강제로 업데이트 시킵니다!
                     if update_mode in ['all', 'rank', 'info']:
                         need_crawler = ('rank' in update_mode or 'all' in update_mode) or (('info' in update_mode or 'all' in update_mode) and not updates.get('book_title'))
                         
@@ -672,12 +606,6 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                             
                             if update_mode in ['all', 'rank']:
                                 updates['store_rank'] = rank_result # 실패하더라도 무조건 덮어씌움!
-                                if "밖" in rank_result:
-                                    monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] 📉 {rank_result}")
-                                elif "실패" in rank_result or "에러" in rank_result:
-                                    monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ⚠️ {rank_result}")
-                                else:
-                                    monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] 🏆 {rank_result}위 확인!")
 
                     kw_update = db.session.get(ModelClass, k_id)
                     if kw_update and updates:
@@ -696,29 +624,36 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                             if updates.get('stock_quantity') and should_update(getattr(kw_update, 'stock_quantity', '-')):
                                 kw_update.stock_quantity = updates['stock_quantity']
                                 
-                        # 실패하더라도 DB에 저장되도록 강제 허용
+                        # ✨ 핵심 수정: 순위(Rank)는 '빈칸 채우기(fill_empty_only)' 설정과 무관하게 무조건 덮어씁니다!!
                         if update_mode in ['all', 'rank'] and 'store_rank' in updates:
-                            if should_update(kw_update.store_rank):
-                                if kw_update.store_rank != updates['store_rank'] and kw_update.store_rank not in ['-', '에러', '실패', '검색 실패', '매칭중'] and "밖" not in kw_update.store_rank:
-                                    kw_update.prev_store_rank = kw_update.store_rank
-                                kw_update.store_rank = updates['store_rank']
+                            if kw_update.store_rank != updates['store_rank'] and kw_update.store_rank not in ['-', '에러', '실패', '검색 실패', '매칭중'] and "밖" not in kw_update.store_rank:
+                                kw_update.prev_store_rank = kw_update.store_rank
+                            kw_update.store_rank = updates['store_rank']
 
                         db.session.commit()
                         
                     monitoring_tasks[task_key]["current"] += 1
-                    if update_mode == 'info' and not updates:
-                        pass 
-                    elif 'store_rank' not in updates and update_mode == 'rank':
-                        pass 
-                    elif updates and update_mode != 'rank':
-                        monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ✅ 업데이트 완료")
+                    
+                    # ✨ 로그 출력 로직 완벽 단순화 (한 항목당 무조건 한 줄만 출력!)
+                    log_msg = f"[{keyword_name}]"
+                    if update_mode in ['all', 'rank']:
+                        r_val = updates.get('store_rank', '검색 실패')
+                        if "밖" in r_val or "실패" in r_val or "에러" in r_val:
+                            log_msg += f" ⚠️ {r_val}"
+                        else:
+                            log_msg += f" 🏆 {r_val}위 확인"
+                    else:
+                        log_msg += " ✅ 업데이트 완료"
+                    
+                    monitoring_tasks[task_key]["logs"].append(log_msg)
                     
                 except Exception as inner_e:
                     db.session.rollback()
                     monitoring_tasks[task_key]["current"] += 1
                     monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ❌ 내부 오류")
                 
-                time.sleep(random.uniform(1.5, 2.5)) 
+                # 차단을 피하기 위해 1.0 ~ 2.0초 휴식
+                time.sleep(random.uniform(1.0, 2.0)) 
                 
     except Exception as outer_e:
         monitoring_tasks[task_key]["logs"].append(f"⚠️ 시스템 오류가 발생했습니다.")
