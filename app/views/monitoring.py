@@ -37,23 +37,23 @@ def get_selected_ids(req):
         return [i.strip() for i in ids_str.split(',') if i.strip()]
     return req.form.getlist('ids[]')
 
-# ✨ [궁극의 생존 엔진] 3개의 엔드포인트 × 4개의 우회망 = 12중 방어막 파괴!
+# ✨ [궁극의 생존 엔진] 업그레이드된 네이버 쇼핑 순위 추적 함수
 def get_naver_shopping_rank(keyword, store_name):
     default_res = {'rank': '-', 'title': '', 'link': '', 'price': ''}
     if not keyword or not store_name or store_name == '-': 
         return default_res
 
+    # 스토어명 띄어쓰기 제거 및 소문자화 (정확한 비교를 위함)
     target_store = store_name.replace(" ", "").lower()
 
-    # 차단을 피하고 데이터를 뜯어오는 마법의 통신 함수
     def fetch_html_stealth(url):
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "ko-KR,ko;q=0.9"
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Cache-Control": "no-cache"
         }
         
-        # 유효한 검색 결과인지 판별하는 함수
         def is_valid(html_text):
             if not html_text or len(html_text) < 500: return False
             if "captcha" in html_text or "자동입력 방지" in html_text or "비정상적인 접근" in html_text: return False
@@ -62,6 +62,7 @@ def get_naver_shopping_rank(keyword, store_name):
         # 1. Requests 일반 통신
         try:
             r = requests.get(url, headers=headers, timeout=5)
+            r.encoding = 'utf-8' # 인코딩 명시
             if is_valid(r.text): return r.text
         except: pass
         
@@ -76,28 +77,22 @@ def get_naver_shopping_rank(keyword, store_name):
             if is_valid(html_text): return html_text
         except: pass
 
-        # 3. 프록시 1 (AllOrigins RAW 모드 - 생 텍스트 추출)
+        # 3. 프록시 1 (AllOrigins)
         try:
             proxy_url = f"https://api.allorigins.win/raw?url={urllib.parse.quote(url, safe='')}"
             r = requests.get(proxy_url, timeout=8)
-            if is_valid(r.text): return r.text
-        except: pass
-        
-        # 4. 프록시 2 (CodeTabs - 백업 터널)
-        try:
-            proxy_url = f"https://api.codetabs.com/v1/proxy/?quest={urllib.parse.quote(url, safe='')}"
-            r = requests.get(proxy_url, timeout=8)
+            r.encoding = 'utf-8'
             if is_valid(r.text): return r.text
         except: pass
         
         return None
 
     try:
-        # [STEP 1] 도서 번호(nvMid)를 찾기 위해 3개의 문을 모두 두드립니다!
+        # [STEP 1] 도서 번호(nvMid) 탐색 로직 강화
         endpoints = [
-            f"https://search.shopping.naver.com/book/search?query={urllib.parse.quote(keyword)}",        # PC 도서
-            f"https://m.search.naver.com/search.naver?where=m_book&query={urllib.parse.quote(keyword)}", # 모바일 통합검색 도서
-            f"https://msearch.shopping.naver.com/book/search?query={urllib.parse.quote(keyword)}"        # 모바일 도서
+            f"https://search.shopping.naver.com/book/search?query={urllib.parse.quote(keyword)}",
+            f"https://m.search.naver.com/search.naver?where=m_book&query={urllib.parse.quote(keyword)}",
+            f"https://msearch.shopping.naver.com/book/search?query={urllib.parse.quote(keyword)}"
         ]
         
         unique_mids = []
@@ -106,40 +101,38 @@ def get_naver_shopping_rank(keyword, store_name):
         for ep in endpoints:
             html_data = fetch_html_stealth(ep)
             if html_data:
-                # 정규식으로 링크 속에 숨겨진 10자리 이상 카탈로그 번호를 강제로 뜯어냅니다!
-                mids = re.findall(r'catalog/(\d{10,})', html_data)
-                mids += re.findall(r'"nvMid"\s*:\s*"?(\d{10,})"?', html_data)
-                mids += re.findall(r'"bookId"\s*:\s*"?(\d{10,})"?', html_data)
+                # 네이버의 다양한 식별자 패턴을 모두 긁어모읍니다.
+                raw_mids = re.findall(r'catalog/(\d{10,})', html_data)
+                raw_mids += re.findall(r'"nvMid"\s*:\s*"?(\d{10,})"?', html_data)
+                raw_mids += re.findall(r'"bookId"\s*:\s*"?(\d{10,})"?', html_data)
+                raw_mids += re.findall(r'"productNo"\s*:\s*"?(\d{10,})"?', html_data) # 새로운 패턴 추가
                 
-                if mids:
-                    for m in mids:
-                        if m not in unique_mids:
-                            unique_mids.append(m)
-                    break # 하나라도 찾았으면 다음 엔드포인트는 건너뜀
+                for m in raw_mids:
+                    if m not in unique_mids:
+                        unique_mids.append(m)
+                
+                if unique_mids: break
 
-        # 3곳을 다 뒤졌는데도 고유번호가 없다면?
         if not unique_mids:
             if html_data:
-                # 묶음 도서가 아니라 일반 단행본(낱권)일 경우 백업 스캔
+                # 카탈로그(가격비교)가 아닌 일반 단행본 탐색 (정규식 강화)
                 malls = re.findall(r'"mallName"\s*:\s*"([^"]+)"', html_data)
                 if not malls: malls = re.findall(r'class="[^"]*mall_name[^"]*"[^>]*>([^<]+)<', html_data)
                 
                 for idx, m in enumerate(malls, 1):
                     if target_store in m.replace(" ", "").lower():
-                        return {'rank': f"일반단행본 {idx}", 'title': '', 'link': '', 'price': ''}
+                        return {'rank': f"단일등록 {idx}위", 'title': '', 'link': '', 'price': ''}
                 return {'rank': '검색결과 없음', 'title': '', 'link': '', 'price': ''}
-            else:
-                return {'rank': '모든 통신망 차단됨', 'title': '', 'link': '', 'price': ''}
+            return {'rank': '통신망 차단됨', 'title': '', 'link': '', 'price': ''}
 
-        # [STEP 2] 찾은 도서들의 가격비교(카탈로그) 내부로 침투! (최대 상위 4권)
-        for cat_idx, mid in enumerate(unique_mids[:4]):
+        # [STEP 2] 가격비교(카탈로그) 내부 파싱 로직 강화
+        for cat_idx, mid in enumerate(unique_mids[:5]): # 상위 5개 상품까지 탐색 확대
             cat_url = f"https://search.shopping.naver.com/book/catalog/{mid}"
             cat_html = fetch_html_stealth(cat_url)
 
-            if not cat_html:
-                continue
+            if not cat_html: continue
 
-            # 책 제목 강제 추출
+            # 책 제목 추출
             title = ""
             m_title = re.search(r'<title>([^<]+)</title>', cat_html)
             if m_title: 
@@ -149,61 +142,62 @@ def get_naver_shopping_rank(keyword, store_name):
             price_val = ""
             link_val = cat_url
 
-            # 카탈로그 데이터 내부 JSON 엑스레이 스캔
+            # 1. JSON 데이터 딥 스캔 (네이버의 새로운 구조 대응)
             soup = BeautifulSoup(cat_html, 'html.parser')
             script = soup.find('script', id='__NEXT_DATA__')
+            
             if script:
                 try:
                     c_data = json.loads(script.string)
-                    offers = c_data.get('props', {}).get('pageProps', {}).get('initialState', {}).get('catalog', {}).get('offers', [])
+                    # 구조가 변경되었을 경우를 대비해 JSON 트리를 재귀적으로 탐색하는 함수 구현
+                    def find_offers(obj):
+                        if isinstance(obj, dict):
+                            if 'offers' in obj and isinstance(obj['offers'], list):
+                                return obj['offers']
+                            for v in obj.values():
+                                res = find_offers(v)
+                                if res: return res
+                        elif isinstance(obj, list):
+                            for item in obj:
+                                res = find_offers(item)
+                                if res: return res
+                        return None
+                    
+                    offers = find_offers(c_data) or []
                     for idx, offer in enumerate(offers, 1):
-                        m_name = offer.get('mallName', '').replace(" ", "").lower()
+                        m_name = str(offer.get('mallName', '')).replace(" ", "").lower()
                         if target_store in m_name:
                             found_rank = idx
-                            p = str(offer.get('price', ''))
+                            p = str(offer.get('price', offer.get('mobilePrice', '')))
                             if p.isdigit(): price_val = f"{int(p):,}원"
                             link_val = offer.get('mallProductUrl', cat_url)
                             break
                 except: pass
 
-            # JSON 덩어리가 없으면 정규식 텍스트 싹쓸이 백업 스캔
+            # 2. JSON 파싱 실패 시, 강력한 정규식으로 직접 추출 (Fallback)
             if not found_rank:
-                offers_match = re.search(r'"offers":\[(.*?)\]', cat_html)
-                if offers_match:
-                    blocks = re.split(r'},{', offers_match.group(1))
-                    for idx, block in enumerate(blocks, 1):
-                        m_mall = re.search(r'"mallName"\s*:\s*"([^"]+)"', block)
-                        if m_mall and target_store in m_mall.group(1).replace(" ", "").lower():
-                            found_rank = idx
-                            m_price = re.search(r'"price"\s*:\s*(\d+)', block)
+                # 모든 판매처 블록을 분리하여 스캔합니다.
+                blocks = re.split(r'("mallName"|"sellerName")', cat_html)
+                current_idx = 1
+                for i in range(1, len(blocks) - 1, 2):
+                    block_content = blocks[i+1][:200] # 판매처 이름 근처의 텍스트
+                    m_mall = re.search(r'^\s*:\s*"([^"]+)"', block_content)
+                    if m_mall:
+                        mall_name_clean = m_mall.group(1).replace(" ", "").lower()
+                        if target_store in mall_name_clean:
+                            found_rank = current_idx
+                            m_price = re.search(r'"price"\s*:\s*(\d+)', block_content)
                             if m_price: price_val = f"{int(m_price.group(1)):,}원"
                             break
+                        current_idx += 1
 
-            # 정규식마저 실패시 HTML 생 텍스트 분석
-            if not found_rank:
-                malls_html = re.findall(r'"mallName"\s*:\s*"([^"]+)"', cat_html)
-                if not malls_html:
-                    malls_html = re.findall(r'class="[^"]*mall_name[^"]*"[^>]*>([^<]+)<', cat_html)
-                
-                if malls_html:
-                    seen_mall = set()
-                    real_idx = 1
-                    for m in malls_html:
-                        mc = m.replace(" ", "").lower()
-                        if mc not in seen_mall:
-                            seen_mall.add(mc)
-                            if target_store in mc:
-                                found_rank = real_idx
-                                break
-                            real_idx += 1
-
-            # 내 상점을 찾았다면 결과 반환!
+            # 스토어를 찾았다면 결과 반환
             if found_rank:
-                r_str = str(found_rank)
-                if cat_idx > 0: r_str = f"{cat_idx+1}번째 책 {found_rank}"
+                r_str = f"{found_rank}위"
+                if cat_idx > 0: r_str = f"{cat_idx+1}번째 책 {found_rank}위"
                 return {'rank': r_str, 'title': title, 'price': price_val, 'link': link_val}
 
-            time.sleep(random.uniform(0.3, 0.7)) # 봇 방지용 사람 흉내 딜레이
+            time.sleep(random.uniform(0.5, 1.0)) # 봇 방지용 딜레이
 
         return {'rank': '가격비교 밖', 'title': '', 'link': '', 'price': ''}
 
