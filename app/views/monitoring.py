@@ -15,18 +15,26 @@ from flask_login import login_required, current_user
 from app import db
 from app.models import User, MonitoredKeyword, RunningmateKeyword, DailylearningKeyword, ApiKey
 import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 from sqlalchemy import text
 from app.naver_api import get_naver_token
 from bs4 import BeautifulSoup
 
-# ✨ [궁극의 방어구] 크롬 브라우저 완벽 위장 라이브러리 동적 로드
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning) # SSL 경고 무시
+
+# ✨ [우회 모듈 동적 로드]
 try:
     from curl_cffi import requests as c_requests
     HAS_CURL_CFFI = True
 except ImportError:
     HAS_CURL_CFFI = False
+
+try:
+    import cloudscraper
+    HAS_CLOUDSCRAPER = True
+except ImportError:
+    HAS_CLOUDSCRAPER = False
+
 
 monitoring_bp = Blueprint('monitoring', __name__)
 
@@ -46,7 +54,8 @@ def get_selected_ids(req):
         return [i.strip() for i in ids_str.split(',') if i.strip()]
     return req.form.getlist('ids[]')
 
-# ✨ [다중 프록시 우회 엔진] 차단된 IP를 대신해 데이터를 가져옵니다.
+
+# ✨ [최종 병기] 모든 우회 수단을 동원하는 크롤링 엔진
 def get_naver_shopping_rank(keyword, store_name):
     default_res = {'rank': '-', 'title': '', 'link': '', 'price': ''}
     if not keyword or not store_name or store_name == '-': 
@@ -57,45 +66,63 @@ def get_naver_shopping_rank(keyword, store_name):
     def fetch_html_stealth(url):
         def is_valid(html_text):
             if not html_text or len(html_text) < 500: return False
-            if "captcha" in html_text or "자동입력 방지" in html_text or "비정상적인 접근" in html_text: return False
+            if "captcha" in html_text.lower() or "자동입력 방지" in html_text or "비정상적인 접근" in html_text: return False
             return True
 
-        # [루트 A] curl_cffi: 설치되어 있다면 구글 크롬 브라우저로 완벽히 위장하여 뚫습니다.
-        if HAS_CURL_CFFI:
-            try:
-                r = c_requests.get(url, impersonate="chrome110", timeout=8)
-                if is_valid(r.text): return r.text
-            except: pass
-
-        # [루트 B] 무료 프록시 API: 내 서버 IP가 차단되었을 때 해외망을 경유합니다.
-        encoded_url = urllib.parse.quote(url, safe='')
-        proxies = [
-            f"https://api.codetabs.com/v1/proxy/?quest={encoded_url}",
-            f"https://api.allorigins.win/raw?url={encoded_url}"
-        ]
-        
-        for proxy_url in proxies:
-            try:
-                r = requests.get(proxy_url, timeout=8)
-                r.encoding = 'utf-8'
-                if is_valid(r.text): return r.text
-            except: pass
-
-        # [루트 C] 일반 Requests (최후의 수단)
+        # [루트 1] 네이버 자체 검색 로봇(Yeti) 위장 - 방화벽 프리패스 유도
         try:
-            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"}
-            r = requests.get(url, headers=headers, timeout=5)
+            r = requests.get(url, headers={"User-Agent": "Mozilla/5.0 (compatible; Yeti/1.1; +http://naver.me/spd)", "Accept": "*/*"}, verify=False, timeout=5)
             r.encoding = 'utf-8'
             if is_valid(r.text): return r.text
         except: pass
 
+        # [루트 2] 구글 봇(Googlebot) 위장
+        try:
+            r = requests.get(url, headers={"User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)", "Accept": "*/*"}, verify=False, timeout=5)
+            r.encoding = 'utf-8'
+            if is_valid(r.text): return r.text
+        except: pass
+
+        # [루트 3] 방화벽 전문 우회 모듈 (Cloudscraper)
+        if HAS_CLOUDSCRAPER:
+            try:
+                scraper = cloudscraper.create_scraper(browser={'browser': 'chrome', 'platform': 'windows', 'mobile': False})
+                r = scraper.get(url, timeout=8)
+                r.encoding = 'utf-8'
+                if is_valid(r.text): return r.text
+            except: pass
+
+        # [루트 4] 크롬 완벽 위장 모듈 (curl_cffi)
+        if HAS_CURL_CFFI:
+            try:
+                r = c_requests.get(url, impersonate="chrome110", timeout=8)
+                r.encoding = 'utf-8'
+                if is_valid(r.text): return r.text
+            except: pass
+
+        # [루트 5] 글로벌 우회 프록시 총동원
+        encoded_url = urllib.parse.quote(url, safe='')
+        proxies = [
+            f"https://corsproxy.io/?{encoded_url}",
+            f"https://api.allorigins.win/raw?url={encoded_url}",
+            f"https://api.codetabs.com/v1/proxy/?quest={encoded_url}"
+        ]
+        
+        for proxy_url in proxies:
+            try:
+                r = requests.get(proxy_url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0 Safari/537.36"}, verify=False, timeout=8)
+                r.encoding = 'utf-8'
+                if is_valid(r.text): return r.text
+            except: pass
+
         return None
 
     try:
+        # 방어가 느슨한 모바일 통합 검색 도메인을 최우선으로 타격합니다.
         endpoints = [
-            f"https://search.shopping.naver.com/book/search?query={urllib.parse.quote(keyword)}",
+            f"https://m.search.naver.com/search.naver?where=m_book&query={urllib.parse.quote(keyword)}",
             f"https://msearch.shopping.naver.com/book/search?query={urllib.parse.quote(keyword)}",
-            f"https://m.search.naver.com/search.naver?where=m_book&query={urllib.parse.quote(keyword)}"
+            f"https://search.shopping.naver.com/book/search?query={urllib.parse.quote(keyword)}"
         ]
         
         unique_mids = []
@@ -105,7 +132,6 @@ def get_naver_shopping_rank(keyword, store_name):
             time.sleep(random.uniform(0.3, 0.7))
             html_data = fetch_html_stealth(ep)
             if html_data:
-                # 네이버의 모든 식별자 패턴 싹쓸이
                 raw_mids = re.findall(r'catalog/(\d{10,})', html_data)
                 raw_mids += re.findall(r'"nvMid"\s*:\s*"?(\d{10,})"?', html_data)
                 raw_mids += re.findall(r'"bookId"\s*:\s*"?(\d{10,})"?', html_data)
@@ -116,17 +142,15 @@ def get_naver_shopping_rank(keyword, store_name):
                     if m not in unique_mids: unique_mids.append(m)
                 if unique_mids: break
 
-        # 프록시마저 다 막혔을 경우의 안내
         if not unique_mids:
             if html_data:
-                # 단일 상품 스캔 (카탈로그 미매칭)
                 malls = re.findall(r'"mallName"\s*:\s*"([^"]+)"', html_data)
                 if not malls: malls = re.findall(r'class="[^"]*mall_name[^"]*"[^>]*>([^<]+)<', html_data)
                 for idx, m in enumerate(malls, 1):
                     if target_store in m.replace(" ", "").lower():
                         return {'rank': f"단일 {idx}위", 'title': '', 'link': '', 'price': ''}
                 return {'rank': '검색결과 없음(구조변경됨)', 'title': '', 'link': '', 'price': ''}
-            return {'rank': '모든 프록시/통신 차단됨', 'title': '', 'link': '', 'price': ''}
+            return {'rank': '초강력 보안망 차단됨', 'title': '', 'link': '', 'price': ''}
 
         # 카탈로그 스캔
         for cat_idx, mid in enumerate(unique_mids[:5]):
@@ -144,7 +168,6 @@ def get_naver_shopping_rank(keyword, store_name):
             price_val = ""
             link_val = cat_url
 
-            # JSON 딥 스캔
             soup = BeautifulSoup(cat_html, 'html.parser')
             script = soup.find('script', id='__NEXT_DATA__')
             if script:
@@ -173,7 +196,6 @@ def get_naver_shopping_rank(keyword, store_name):
                             break
                 except: pass
 
-            # 정규식 백업 스캔
             if not found_rank:
                 blocks = re.split(r'("mallName"|"sellerName")', cat_html)
                 current_idx = 1
@@ -730,7 +752,7 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                                 kw_update.stock_quantity = updates['stock_quantity']
                                 
                         if update_mode in ['all', 'rank'] and 'store_rank' in updates:
-                            if kw_update.store_rank != updates['store_rank'] and kw_update.store_rank not in ['-', '에러', '실패', '검색 차단됨', '모든 통신망 차단됨', '포털 검색 차단됨', '포털 보안망 차단됨', '모든 프록시/통신 차단됨', '카탈로그 차단됨', '검색 오류', '검색결과 없음', '검색결과 없음(구조변경됨)', '매칭중'] and "밖" not in kw_update.store_rank:
+                            if kw_update.store_rank != updates['store_rank'] and kw_update.store_rank not in ['-', '에러', '실패', '검색 차단됨', '모든 통신망 차단됨', '포털 검색 차단됨', '포털 보안망 차단됨', '초강력 보안망 차단됨', '모든 프록시/통신 차단됨', '카탈로그 차단됨', '검색 오류', '검색결과 없음', '검색결과 없음(구조변경됨)', '매칭중'] and "밖" not in kw_update.store_rank:
                                 kw_update.prev_store_rank = kw_update.store_rank
                             kw_update.store_rank = updates['store_rank']
 
