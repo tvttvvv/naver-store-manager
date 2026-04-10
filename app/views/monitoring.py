@@ -21,6 +21,13 @@ from sqlalchemy import text
 from app.naver_api import get_naver_token
 from bs4 import BeautifulSoup
 
+# ✨ [궁극의 방어구] 크롬 브라우저 완벽 위장 라이브러리 동적 로드
+try:
+    from curl_cffi import requests as c_requests
+    HAS_CURL_CFFI = True
+except ImportError:
+    HAS_CURL_CFFI = False
+
 monitoring_bp = Blueprint('monitoring', __name__)
 
 def clean_text(text):
@@ -39,7 +46,7 @@ def get_selected_ids(req):
         return [i.strip() for i in ids_str.split(',') if i.strip()]
     return req.form.getlist('ids[]')
 
-# ✨ [초정밀 스텔스 모드] 인간의 브라우징 패턴을 모방하는 진화된 크롤링 엔진
+# ✨ [다중 프록시 우회 엔진] 차단된 IP를 대신해 데이터를 가져옵니다.
 def get_naver_shopping_rank(keyword, store_name):
     default_res = {'rank': '-', 'title': '', 'link': '', 'price': ''}
     if not keyword or not store_name or store_name == '-': 
@@ -47,74 +54,37 @@ def get_naver_shopping_rank(keyword, store_name):
 
     target_store = store_name.replace(" ", "").lower()
 
-    # 1. 사람처럼 보이게 하는 다양한 브라우저/기기 정보 목록
-    user_agents = [
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edge/122.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_3_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Mobile/15E148 Safari/604.1",
-        "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36"
-    ]
-
-    # 2. 쿠키(세션)를 유지하며 통신하는 견고한 세션 객체 생성
-    session = requests.Session()
-    retry_strategy = Retry(
-        total=3,
-        backoff_factor=0.5,
-        status_forcelist=[429, 500, 502, 503, 504],
-        allowed_methods=["HEAD", "GET", "OPTIONS"]
-    )
-    adapter = HTTPAdapter(max_retries=retry_strategy)
-    session.mount("https://", adapter)
-    session.mount("http://", adapter)
-
     def fetch_html_stealth(url):
-        selected_ua = random.choice(user_agents)
-        is_mobile = "Mobile" in selected_ua
-        
-        # 완벽한 위장을 위한 헤더 구성
-        headers = {
-            "User-Agent": selected_ua,
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-            "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
-            "Referer": "https://m.naver.com/" if is_mobile else "https://www.naver.com/",
-            "Sec-Ch-Ua": '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"' if not is_mobile else '',
-            "Sec-Ch-Ua-Mobile": "?1" if is_mobile else "?0",
-            "Sec-Ch-Ua-Platform": '"Android"' if is_mobile else '"Windows"',
-            "Sec-Fetch-Dest": "document",
-            "Sec-Fetch-Mode": "navigate",
-            "Sec-Fetch-Site": "cross-site",
-            "Upgrade-Insecure-Requests": "1",
-            "Cache-Control": "max-age=0"
-        }
-        
         def is_valid(html_text):
             if not html_text or len(html_text) < 500: return False
             if "captcha" in html_text or "자동입력 방지" in html_text or "비정상적인 접근" in html_text: return False
             return True
 
-        # [루트 A] 강력한 Session 객체 통신
-        try:
-            r = session.get(url, headers=headers, timeout=6)
-            r.encoding = 'utf-8'
-            if is_valid(r.text): return r.text
-        except: pass
-        
-        # [루트 B] Urllib 원시 소켓 우회
-        try:
-            ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
-            req = urllib.request.Request(url, headers=headers)
-            res = urllib.request.urlopen(req, context=ctx, timeout=6)
-            html_text = res.read().decode('utf-8', 'ignore')
-            if is_valid(html_text): return html_text
-        except: pass
+        # [루트 A] curl_cffi: 설치되어 있다면 구글 크롬 브라우저로 완벽히 위장하여 뚫습니다.
+        if HAS_CURL_CFFI:
+            try:
+                r = c_requests.get(url, impersonate="chrome110", timeout=8)
+                if is_valid(r.text): return r.text
+            except: pass
 
-        # [루트 C] AllOrigins 프록시
+        # [루트 B] 무료 프록시 API: 내 서버 IP가 차단되었을 때 해외망을 경유합니다.
+        encoded_url = urllib.parse.quote(url, safe='')
+        proxies = [
+            f"https://api.codetabs.com/v1/proxy/?quest={encoded_url}",
+            f"https://api.allorigins.win/raw?url={encoded_url}"
+        ]
+        
+        for proxy_url in proxies:
+            try:
+                r = requests.get(proxy_url, timeout=8)
+                r.encoding = 'utf-8'
+                if is_valid(r.text): return r.text
+            except: pass
+
+        # [루트 C] 일반 Requests (최후의 수단)
         try:
-            proxy_url = f"https://api.allorigins.win/raw?url={urllib.parse.quote(url, safe='')}"
-            r = requests.get(proxy_url, headers={"User-Agent": headers["User-Agent"]}, timeout=8)
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"}
+            r = requests.get(url, headers=headers, timeout=5)
             r.encoding = 'utf-8'
             if is_valid(r.text): return r.text
         except: pass
@@ -124,42 +94,43 @@ def get_naver_shopping_rank(keyword, store_name):
     try:
         endpoints = [
             f"https://search.shopping.naver.com/book/search?query={urllib.parse.quote(keyword)}",
-            f"https://m.search.naver.com/search.naver?where=m_book&query={urllib.parse.quote(keyword)}",
-            f"https://msearch.shopping.naver.com/book/search?query={urllib.parse.quote(keyword)}"
+            f"https://msearch.shopping.naver.com/book/search?query={urllib.parse.quote(keyword)}",
+            f"https://m.search.naver.com/search.naver?where=m_book&query={urllib.parse.quote(keyword)}"
         ]
         
         unique_mids = []
         html_data = None
         
         for ep in endpoints:
-            time.sleep(random.uniform(0.3, 0.8)) # 엔드포인트 찔러보기 전 숨고르기
+            time.sleep(random.uniform(0.3, 0.7))
             html_data = fetch_html_stealth(ep)
             if html_data:
+                # 네이버의 모든 식별자 패턴 싹쓸이
                 raw_mids = re.findall(r'catalog/(\d{10,})', html_data)
                 raw_mids += re.findall(r'"nvMid"\s*:\s*"?(\d{10,})"?', html_data)
                 raw_mids += re.findall(r'"bookId"\s*:\s*"?(\d{10,})"?', html_data)
                 raw_mids += re.findall(r'"productNo"\s*:\s*"?(\d{10,})"?', html_data)
+                raw_mids += re.findall(r'data-nv-mid="(\d{10,})"', html_data)
                 
                 for m in raw_mids:
-                    if m not in unique_mids:
-                        unique_mids.append(m)
+                    if m not in unique_mids: unique_mids.append(m)
                 if unique_mids: break
 
-        # 여전히 차단되었다면
+        # 프록시마저 다 막혔을 경우의 안내
         if not unique_mids:
             if html_data:
+                # 단일 상품 스캔 (카탈로그 미매칭)
                 malls = re.findall(r'"mallName"\s*:\s*"([^"]+)"', html_data)
                 if not malls: malls = re.findall(r'class="[^"]*mall_name[^"]*"[^>]*>([^<]+)<', html_data)
-                
                 for idx, m in enumerate(malls, 1):
                     if target_store in m.replace(" ", "").lower():
-                        return {'rank': f"단일등록 {idx}위", 'title': '', 'link': '', 'price': ''}
-                return {'rank': '검색결과 없음', 'title': '', 'link': '', 'price': ''}
-            return {'rank': '포털 보안망 차단됨', 'title': '', 'link': '', 'price': ''}
+                        return {'rank': f"단일 {idx}위", 'title': '', 'link': '', 'price': ''}
+                return {'rank': '검색결과 없음(구조변경됨)', 'title': '', 'link': '', 'price': ''}
+            return {'rank': '모든 프록시/통신 차단됨', 'title': '', 'link': '', 'price': ''}
 
-        # 카탈로그 탐색
+        # 카탈로그 스캔
         for cat_idx, mid in enumerate(unique_mids[:5]):
-            time.sleep(random.uniform(0.5, 1.2)) # 책 사이사이 사람처럼 딜레이
+            time.sleep(random.uniform(0.5, 1.0))
             cat_url = f"https://search.shopping.naver.com/book/catalog/{mid}"
             cat_html = fetch_html_stealth(cat_url)
 
@@ -167,23 +138,21 @@ def get_naver_shopping_rank(keyword, store_name):
 
             title = ""
             m_title = re.search(r'<title>([^<]+)</title>', cat_html)
-            if m_title: 
-                title = m_title.group(1).split(':')[0].replace("네이버 도서", "").strip()
+            if m_title: title = m_title.group(1).split(':')[0].replace("네이버 도서", "").strip()
 
             found_rank = None
             price_val = ""
             link_val = cat_url
 
+            # JSON 딥 스캔
             soup = BeautifulSoup(cat_html, 'html.parser')
             script = soup.find('script', id='__NEXT_DATA__')
-            
             if script:
                 try:
                     c_data = json.loads(script.string)
                     def find_offers(obj):
                         if isinstance(obj, dict):
-                            if 'offers' in obj and isinstance(obj['offers'], list):
-                                return obj['offers']
+                            if 'offers' in obj and isinstance(obj['offers'], list): return obj['offers']
                             for v in obj.values():
                                 res = find_offers(v)
                                 if res: return res
@@ -204,6 +173,7 @@ def get_naver_shopping_rank(keyword, store_name):
                             break
                 except: pass
 
+            # 정규식 백업 스캔
             if not found_rank:
                 blocks = re.split(r'("mallName"|"sellerName")', cat_html)
                 current_idx = 1
@@ -760,7 +730,7 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                                 kw_update.stock_quantity = updates['stock_quantity']
                                 
                         if update_mode in ['all', 'rank'] and 'store_rank' in updates:
-                            if kw_update.store_rank != updates['store_rank'] and kw_update.store_rank not in ['-', '에러', '실패', '검색 차단됨', '모든 통신망 차단됨', '포털 검색 차단됨', '포털 보안망 차단됨', '카탈로그 차단됨', '검색 오류', '검색결과 없음', '매칭중'] and "밖" not in kw_update.store_rank:
+                            if kw_update.store_rank != updates['store_rank'] and kw_update.store_rank not in ['-', '에러', '실패', '검색 차단됨', '모든 통신망 차단됨', '포털 검색 차단됨', '포털 보안망 차단됨', '모든 프록시/통신 차단됨', '카탈로그 차단됨', '검색 오류', '검색결과 없음', '검색결과 없음(구조변경됨)', '매칭중'] and "밖" not in kw_update.store_rank:
                                 kw_update.prev_store_rank = kw_update.store_rank
                             kw_update.store_rank = updates['store_rank']
 
@@ -780,8 +750,7 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                     monitoring_tasks[task_key]["current"] += 1
                     monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ❌ 내부 오류")
                 
-                # 차단을 피하기 위한 전체적인 대기 시간 증가
-                time.sleep(random.uniform(1.0, 2.0)) 
+                time.sleep(random.uniform(1.0, 2.0)) # 차단 회피를 위한 대기시간
                 
     except Exception as outer_e:
         monitoring_tasks[task_key]["logs"].append(f"⚠️ 시스템 오류가 발생했습니다.")
