@@ -20,9 +20,8 @@ from app.naver_api import get_naver_token
 from bs4 import BeautifulSoup
 
 import urllib3
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning) # SSL 경고 무시
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# ✨ [우회 모듈 동적 로드]
 try:
     from curl_cffi import requests as c_requests
     HAS_CURL_CFFI = True
@@ -54,8 +53,7 @@ def get_selected_ids(req):
         return [i.strip() for i in ids_str.split(',') if i.strip()]
     return req.form.getlist('ids[]')
 
-
-# ✨ [최종 병기] 모든 우회 수단을 동원하는 크롤링 엔진
+# ✨ [절대 우회 엔진] 구글 서버 경유 + 딜레이 최적화
 def get_naver_shopping_rank(keyword, store_name):
     default_res = {'rank': '-', 'title': '', 'link': '', 'price': ''}
     if not keyword or not store_name or store_name == '-': 
@@ -66,70 +64,76 @@ def get_naver_shopping_rank(keyword, store_name):
     def fetch_html_stealth(url):
         def is_valid(html_text):
             if not html_text or len(html_text) < 500: return False
-            if "captcha" in html_text.lower() or "자동입력 방지" in html_text or "비정상적인 접근" in html_text: return False
+            if "captcha" in html_text.lower() or "자동입력 방지" in html_text or "비정상적인 접근" in html_text or "접근이 제한" in html_text: return False
             return True
 
-        # [루트 1] 네이버 자체 검색 로봇(Yeti) 위장 - 방화벽 프리패스 유도
-        try:
-            r = requests.get(url, headers={"User-Agent": "Mozilla/5.0 (compatible; Yeti/1.1; +http://naver.me/spd)", "Accept": "*/*"}, verify=False, timeout=5)
-            r.encoding = 'utf-8'
-            if is_valid(r.text): return r.text
-        except: pass
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+            "Accept-Language": "ko-KR,ko;q=0.9",
+            "Cache-Control": "no-cache"
+        }
 
-        # [루트 2] 구글 봇(Googlebot) 위장
-        try:
-            r = requests.get(url, headers={"User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)", "Accept": "*/*"}, verify=False, timeout=5)
-            r.encoding = 'utf-8'
-            if is_valid(r.text): return r.text
-        except: pass
-
-        # [루트 3] 방화벽 전문 우회 모듈 (Cloudscraper)
-        if HAS_CLOUDSCRAPER:
-            try:
-                scraper = cloudscraper.create_scraper(browser={'browser': 'chrome', 'platform': 'windows', 'mobile': False})
-                r = scraper.get(url, timeout=8)
-                r.encoding = 'utf-8'
-                if is_valid(r.text): return r.text
-            except: pass
-
-        # [루트 4] 크롬 완벽 위장 모듈 (curl_cffi)
+        # 1. 크롬 완벽 위장 (curl_cffi)
         if HAS_CURL_CFFI:
             try:
-                r = c_requests.get(url, impersonate="chrome110", timeout=8)
+                r = c_requests.get(url, impersonate="chrome116", headers=headers, timeout=8)
                 r.encoding = 'utf-8'
                 if is_valid(r.text): return r.text
             except: pass
 
-        # [루트 5] 글로벌 우회 프록시 총동원
-        encoded_url = urllib.parse.quote(url, safe='')
-        proxies = [
-            f"https://corsproxy.io/?{encoded_url}",
-            f"https://api.allorigins.win/raw?url={encoded_url}",
-            f"https://api.codetabs.com/v1/proxy/?quest={encoded_url}"
-        ]
-        
-        for proxy_url in proxies:
+        # 2. Cloudscraper 우회
+        if HAS_CLOUDSCRAPER:
             try:
-                r = requests.get(proxy_url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0 Safari/537.36"}, verify=False, timeout=8)
+                scraper = cloudscraper.create_scraper()
+                r = scraper.get(url, headers=headers, timeout=8)
                 r.encoding = 'utf-8'
                 if is_valid(r.text): return r.text
             except: pass
+
+        # 3. 네이버 봇(Yeti) 및 구글 봇(Googlebot) 위장
+        try:
+            r = requests.get(url, headers={"User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"}, verify=False, timeout=6)
+            r.encoding = 'utf-8'
+            if is_valid(r.text): return r.text
+        except: pass
+
+        # 4. 공용 우회 프록시 (순차 탐색)
+        encoded_url = urllib.parse.quote(url, safe='')
+        proxies = [
+            f"https://api.allorigins.win/raw?url={encoded_url}",
+            f"https://corsproxy.io/?{encoded_url}",
+            f"https://api.codetabs.com/v1/proxy/?quest={encoded_url}"
+        ]
+        for proxy_url in proxies:
+            try:
+                r = requests.get(proxy_url, headers=headers, timeout=10)
+                r.encoding = 'utf-8'
+                if is_valid(r.text): return r.text
+            except: pass
+
+        # 5. [최종 병기] 구글 번역기 경유 (네이버가 구글 IP를 막을 수 없는 점 이용)
+        try:
+            google_proxy = f"https://translate.google.com/translate?sl=en&tl=ko&u={encoded_url}"
+            r = requests.get(google_proxy, headers=headers, timeout=10)
+            r.encoding = 'utf-8'
+            if is_valid(r.text): return r.text
+        except: pass
 
         return None
 
     try:
-        # 방어가 느슨한 모바일 통합 검색 도메인을 최우선으로 타격합니다.
         endpoints = [
+            f"https://search.shopping.naver.com/book/search?query={urllib.parse.quote(keyword)}",
             f"https://m.search.naver.com/search.naver?where=m_book&query={urllib.parse.quote(keyword)}",
-            f"https://msearch.shopping.naver.com/book/search?query={urllib.parse.quote(keyword)}",
-            f"https://search.shopping.naver.com/book/search?query={urllib.parse.quote(keyword)}"
+            f"https://msearch.shopping.naver.com/book/search?query={urllib.parse.quote(keyword)}"
         ]
         
         unique_mids = []
         html_data = None
         
         for ep in endpoints:
-            time.sleep(random.uniform(0.3, 0.7))
+            # 봇 차단을 피하기 위한 긴 딜레이 (필수)
+            time.sleep(random.uniform(1.0, 2.5))
             html_data = fetch_html_stealth(ep)
             if html_data:
                 raw_mids = re.findall(r'catalog/(\d{10,})', html_data)
@@ -150,11 +154,11 @@ def get_naver_shopping_rank(keyword, store_name):
                     if target_store in m.replace(" ", "").lower():
                         return {'rank': f"단일 {idx}위", 'title': '', 'link': '', 'price': ''}
                 return {'rank': '검색결과 없음(구조변경됨)', 'title': '', 'link': '', 'price': ''}
-            return {'rank': '초강력 보안망 차단됨', 'title': '', 'link': '', 'price': ''}
+            return {'rank': '초강력 보안망 완전 차단됨', 'title': '', 'link': '', 'price': ''}
 
         # 카탈로그 스캔
         for cat_idx, mid in enumerate(unique_mids[:5]):
-            time.sleep(random.uniform(0.5, 1.0))
+            time.sleep(random.uniform(1.5, 3.0))
             cat_url = f"https://search.shopping.naver.com/book/catalog/{mid}"
             cat_html = fetch_html_stealth(cat_url)
 
@@ -752,7 +756,7 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                                 kw_update.stock_quantity = updates['stock_quantity']
                                 
                         if update_mode in ['all', 'rank'] and 'store_rank' in updates:
-                            if kw_update.store_rank != updates['store_rank'] and kw_update.store_rank not in ['-', '에러', '실패', '검색 차단됨', '모든 통신망 차단됨', '포털 검색 차단됨', '포털 보안망 차단됨', '초강력 보안망 차단됨', '모든 프록시/통신 차단됨', '카탈로그 차단됨', '검색 오류', '검색결과 없음', '검색결과 없음(구조변경됨)', '매칭중'] and "밖" not in kw_update.store_rank:
+                            if kw_update.store_rank != updates['store_rank'] and kw_update.store_rank not in ['-', '에러', '실패', '검색 차단됨', '모든 통신망 차단됨', '포털 검색 차단됨', '포털 보안망 차단됨', '초강력 보안망 완전 차단됨', '모든 프록시/통신 차단됨', '카탈로그 차단됨', '검색 오류', '검색결과 없음', '검색결과 없음(구조변경됨)', '매칭중'] and "밖" not in kw_update.store_rank:
                                 kw_update.prev_store_rank = kw_update.store_rank
                             kw_update.store_rank = updates['store_rank']
 
@@ -772,7 +776,8 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                     monitoring_tasks[task_key]["current"] += 1
                     monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ❌ 내부 오류")
                 
-                time.sleep(random.uniform(1.0, 2.0)) # 차단 회피를 위한 대기시간
+                # ✨ 핵심: WAF 차단을 피하기 위한 초강력 지연 시간 적용
+                time.sleep(random.uniform(3.5, 6.5)) 
                 
     except Exception as outer_e:
         monitoring_tasks[task_key]["logs"].append(f"⚠️ 시스템 오류가 발생했습니다.")
