@@ -11,3 +11,4 @@ apscheduler==3.10.4
 bcrypt==4.1.2
 curl_cffi==0.5.10
 cloudscraper==1.2.71
+PyMySQL==1.1.0
