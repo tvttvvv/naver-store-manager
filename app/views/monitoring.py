@@ -54,7 +54,7 @@ def fetch_supply_rate_from_db(isbn):
             host='192.168.0.101',
             user='inonwer',
             password='ju102812',
-            db='book_db', # ⚠️ 만약 접속 에러가 나면 이 부분을 실제 데이터베이스 이름으로 바꿔주세요!
+            db='192.168.0.101', # ⚠️ 만약 접속 에러가 나면 이 부분을 실제 데이터베이스 이름으로 바꿔주세요!
             charset='utf8mb4',
             cursorclass=pymysql.cursors.DictCursor,
             connect_timeout=5
