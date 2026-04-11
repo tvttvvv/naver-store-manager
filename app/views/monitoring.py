@@ -19,11 +19,12 @@ from sqlalchemy import text
 from app.naver_api import get_naver_token
 from bs4 import BeautifulSoup
 import urllib3
+import pymysql # 외부 DB 연결용
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 monitoring_bp = Blueprint('monitoring', __name__)
 
-# 🛑 [수정 완료] 회원님의 실제 ScraperAPI 키가 정상적으로 세팅되었습니다.
+# 🛑 ScraperAPI 키 세팅 완료
 SCRAPER_API_KEY = "e280460353de4dbf8bb7147cccdb79e8"
 
 
@@ -42,22 +43,52 @@ def get_selected_ids(req):
     if ids_str: return [i.strip() for i in ids_str.split(',') if i.strip()]
     return req.form.getlist('ids[]')
 
-# ✨ [최종 마스터키 엔진] ScraperAPI 프리미엄 한국(KR) 우회망 적용
+# ✨ 외부 DB(192.168.0.101)에서 공급률 가져오는 함수
+def fetch_supply_rate_from_db(isbn):
+    if not isbn or isbn == '-': return None
+    pure_isbn = str(isbn).replace('-', '').strip()
+    
+    try:
+        # DB 접속 정보 (가상 DB명 'book_db'는 나중에 실제 이름으로 변경 필요할 수 있음)
+        conn = pymysql.connect(
+            host='192.168.0.101',
+            user='inonwer',
+            password='ju102812',
+            db='book_db', # ⚠️ 만약 접속 에러가 나면 이 부분을 실제 데이터베이스 이름으로 바꿔주세요!
+            charset='utf8mb4',
+            cursorclass=pymysql.cursors.DictCursor,
+            connect_timeout=5
+        )
+        with conn.cursor() as cursor:
+            # isbn으로 공급률 조회
+            sql = "SELECT book_rate_new_1 FROM book WHERE REPLACE(isbn, '-', '') = %s LIMIT 1"
+            cursor.execute(sql, (pure_isbn,))
+            result = cursor.fetchone()
+            if result and result.get('book_rate_new_1'):
+                return str(result['book_rate_new_1'])
+        conn.close()
+    except Exception as e:
+        print(f"[External DB Error] 공급률 DB 접속 실패: {e}")
+    return None
+
+# ✨ [최종 마스터키 엔진] 띄어쓰기 완벽 무시 + ScraperAPI
 def get_naver_shopping_rank(keyword, store_name):
     default_res = {'rank': '-', 'title': '', 'link': '', 'price': ''}
     if not keyword or not store_name or store_name == '-': return default_res
-    target_store = store_name.replace(" ", "").lower()
+    
+    # 띄어쓰기를 완전히 제거하고 소문자로 변환 (예: "내 스토어" -> "내스토어")
+    target_store = re.sub(r'\s+', '', store_name).lower()
 
     def fetch_html_stealth(url):
         try:
             if SCRAPER_API_KEY == "e280460353de4dbf8bb7147cccdb79e8" or not SCRAPER_API_KEY:
-                # ScraperAPI 우회 통신 (100% 작동 - 한국 IP 강제 할당)
+                # ScraperAPI 우회 통신
                 payload = {
                     'api_key': SCRAPER_API_KEY, 
                     'url': url,
-                    'country_code': 'kr',     # 🇰🇷 네이버 차단을 막기 위한 한국 IP 필수
+                    'country_code': 'kr',
                     'device_type': 'desktop', 
-                    'premium': 'true'         # 강력한 차단 우회망
+                    'premium': 'true'
                 }
                 r = requests.get('http://api.scraperapi.com/', params=payload, timeout=45)
                 r.encoding = 'utf-8'
@@ -69,7 +100,6 @@ def get_naver_shopping_rank(keyword, store_name):
                 else:
                     print(f"[ScraperAPI 오류] 상태코드: {r.status_code}, 응답 거부됨.")
             else:
-                print("⚠️ API 키가 입력되지 않았습니다! 로컬 통신을 시도하지만 차단될 확률이 높습니다.")
                 headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/123.0.0.0 Safari/537.36"}
                 r = requests.get(url, headers=headers, timeout=10, verify=False)
                 r.encoding = 'utf-8'
@@ -104,7 +134,9 @@ def get_naver_shopping_rank(keyword, store_name):
                 malls = re.findall(r'"mallName"\s*:\s*"([^"]+)"', html_data)
                 if not malls: malls = re.findall(r'class="[^"]*mall_name[^"]*"[^>]*>([^<]+)<', html_data)
                 for idx, m in enumerate(malls, 1):
-                    if target_store in m.replace(" ", "").lower():
+                    # 띄어쓰기 무시 비교
+                    m_clean = re.sub(r'\s+', '', m).lower()
+                    if target_store in m_clean or m_clean in target_store:
                         return {'rank': f"단일 {idx}위", 'title': '', 'link': '', 'price': ''}
                 return {'rank': '검색결과 없음', 'title': '', 'link': '', 'price': ''}
             return {'rank': 'ScraperAPI 연동 필요 (IP 차단됨)', 'title': '', 'link': '', 'price': ''}
@@ -139,8 +171,9 @@ def get_naver_shopping_rank(keyword, store_name):
                     
                     offers = find_offers(c_data) or []
                     for idx, offer in enumerate(offers, 1):
-                        m_name = str(offer.get('mallName', '')).replace(" ", "").lower()
-                        if target_store in m_name:
+                        # 띄어쓰기 완전히 무시하고 비교
+                        m_name = re.sub(r'\s+', '', str(offer.get('mallName', ''))).lower()
+                        if target_store in m_name or m_name in target_store:
                             found_rank = idx
                             p = str(offer.get('price', offer.get('mobilePrice', '')))
                             if p.isdigit(): price_val = f"{int(p):,}원"
@@ -155,7 +188,9 @@ def get_naver_shopping_rank(keyword, store_name):
                     block_content = blocks[i+1][:200]
                     m_mall = re.search(r'^\s*:\s*"([^"]+)"', block_content)
                     if m_mall:
-                        if target_store in m_mall.group(1).replace(" ", "").lower():
+                        # 띄어쓰기 무시 비교
+                        m_mall_clean = re.sub(r'\s+', '', m_mall.group(1)).lower()
+                        if target_store in m_mall_clean or m_mall_clean in target_store:
                             found_rank = current_idx
                             m_price = re.search(r'"price"\s*:\s*(\d+)', block_content)
                             if m_price: price_val = f"{int(m_price.group(1)):,}원"
@@ -661,6 +696,12 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                                 if exact_info.get('my_status'): updates['sales_status'] = exact_info['my_status'] 
                             if update_mode in ['all', 'stock']:
                                 if exact_info.get('my_stock'): updates['stock_quantity'] = exact_info['my_stock']
+                                
+                    # ✨ 외부 DB 연동: 공급률 가져오기 로직 실행
+                    if update_mode in ['all', 'info'] and target_isbn:
+                        supply_rate_val = fetch_supply_rate_from_db(target_isbn)
+                        if supply_rate_val:
+                            updates['supply_rate'] = supply_rate_val
 
                     if update_mode in ['all', 'rank', 'info']:
                         need_crawler = ('rank' in update_mode or 'all' in update_mode) or (('info' in update_mode or 'all' in update_mode) and not updates.get('book_title'))
@@ -696,6 +737,10 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                             if updates.get('price') and should_update(kw_update.price): kw_update.price = updates['price']
                             if updates.get('publisher') and should_update(kw_update.publisher): kw_update.publisher = updates['publisher']
                             if updates.get('sales_status') and should_update(kw_update.sales_status): kw_update.sales_status = updates['sales_status']
+                            
+                            # ✨ DB에서 가져온 공급률 저장 반영
+                            if updates.get('supply_rate') and should_update(kw_update.supply_rate): 
+                                kw_update.supply_rate = updates['supply_rate']
                         
                         if update_mode in ['all', 'stock']:
                             if updates.get('stock_quantity') and should_update(getattr(kw_update, 'stock_quantity', '-')):
