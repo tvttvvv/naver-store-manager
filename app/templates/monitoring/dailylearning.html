@@ -5,20 +5,20 @@
 <div class="container-fluid py-3 px-sm-2 px-md-4 mb-5">
     
     <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4">
-        <h3 class="mb-0 fw-bold fs-4 fs-md-3 text-warning">데일리러닝 모니터링 <span class="d-none d-md-inline fs-5 text-muted">(일일 성과 관리)</span></h3>
+        <h3 class="mb-0 fw-bold fs-4 fs-md-3 text-info">데일리러닝 모니터링 <span class="d-none d-md-inline fs-5 text-muted">(마케팅 관리)</span></h3>
         
         <div class="btn-group shadow-sm mt-3 mt-md-0">
             <input type="radio" class="btn-check" name="viewMode" id="btnTableView" autocomplete="off" checked onclick="switchView('table')">
-            <label class="btn btn-outline-warning text-dark fw-bold px-3 px-md-4" for="btnTableView"><i class="bi bi-table"></i> 데이터 표</label>
+            <label class="btn btn-outline-info fw-bold px-3 px-md-4" for="btnTableView"><i class="bi bi-table"></i> 데이터 표</label>
             
             <input type="radio" class="btn-check" name="viewMode" id="btnGraphView" autocomplete="off" onclick="switchView('graph')">
-            <label class="btn btn-outline-warning text-dark fw-bold px-3 px-md-4" for="btnGraphView"><i class="bi bi-graph-up"></i> 변화량 그래프</label>
+            <label class="btn btn-outline-info fw-bold px-3 px-md-4" for="btnGraphView"><i class="bi bi-graph-up"></i> 변화량 그래프</label>
         </div>
     </div>
 
     <div id="tableViewWrapper">
         <ul class="nav nav-tabs mb-3 d-flex flex-nowrap overflow-auto hide-scrollbar" id="gradeTabs" style="white-space: nowrap;">
-            <li class="nav-item"><a class="nav-link active fw-bold text-dark px-2 px-md-3" href="#" onclick="changeGradeTab('ALL', event)" id="tab-ALL" style="font-size: 1.05rem;">전체 <span class="badge bg-warning text-dark rounded-pill ms-1">0</span></a></li>
+            <li class="nav-item"><a class="nav-link active fw-bold text-dark px-2 px-md-3" href="#" onclick="changeGradeTab('ALL', event)" id="tab-ALL" style="font-size: 1.05rem;">전체 <span class="badge bg-info rounded-pill ms-1">0</span></a></li>
             <li class="nav-item"><a class="nav-link fw-bold text-secondary px-2 px-md-3" href="#" onclick="changeGradeTab('A', event)" id="tab-A" style="font-size: 1.05rem;">A등급 <span class="badge bg-secondary rounded-pill ms-1">0</span></a></li>
             <li class="nav-item"><a class="nav-link fw-bold text-secondary px-2 px-md-3" href="#" onclick="changeGradeTab('B', event)" id="tab-B" style="font-size: 1.05rem;">B등급 <span class="badge bg-secondary rounded-pill ms-1">0</span></a></li>
             <li class="nav-item"><a class="nav-link fw-bold text-secondary px-2 px-md-3" href="#" onclick="changeGradeTab('C', event)" id="tab-C" style="font-size: 1.05rem;">C등급 <span class="badge bg-secondary rounded-pill ms-1">0</span></a></li>
@@ -27,19 +27,19 @@
 
         <div class="row">
             <div class="col-12">
-                <div class="card shadow-sm border-0 border-top border-warning border-3">
+                <div class="card shadow-sm border-0 border-top border-info border-3">
                     <div class="card-body p-2 p-md-4">
                         
                         <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center mb-3 gap-3">
                             <div>
-                                <h6 class="fw-bold mb-1 text-warning text-dark fs-6 fs-md-5">체크박스 다중 선택 및 기능 관리</h6>
-                                <span class="text-muted small d-none d-md-block"><i class="bi bi-info-circle text-warning"></i> 표의 텍스트를 더블클릭하면 수정 가능합니다.</span>
+                                <h6 class="fw-bold mb-1 text-info fs-6 fs-md-5">체크박스 다중 선택 및 기능 관리</h6>
+                                <span class="text-muted small d-none d-md-block"><i class="bi bi-info-circle text-info"></i> 표의 텍스트를 더블클릭하면 수정 가능합니다.</span>
                             </div>
                             
                             <div class="d-flex flex-column flex-md-row gap-2 control-btns align-items-md-center">
                                 <div class="input-group shadow-sm w-100 w-md-auto">
-                                    <span class="input-group-text bg-white fw-bold text-secondary border-warning"><i class="bi bi-calendar-range"></i> 변동기간</span>
-                                    <select id="tablePeriodSelect" class="form-select fw-bold border-warning text-dark" style="cursor: pointer; max-width:130px;" onchange="renderTable()">
+                                    <span class="input-group-text bg-white fw-bold text-secondary border-info"><i class="bi bi-calendar-range"></i> 변동기간</span>
+                                    <select id="tablePeriodSelect" class="form-select fw-bold border-info text-info" style="cursor: pointer; max-width:130px;" onchange="renderTable()">
                                         <option value="1" selected>하루 전</option>
                                         <option value="7">1주일 전</option>
                                         <option value="30">한달 전</option>
@@ -56,28 +56,28 @@
                                     <button class="btn btn-outline-secondary fw-bold text-nowrap" onclick="moveSelectedGrade()"><i class="bi bi-folder-symlink"></i> 적용</button>
                                 </div>
                                 
-                                <button class="btn btn-outline-danger fw-bold shadow-sm w-100 w-md-auto text-nowrap" onclick="deleteSelectedKeywords()"><i class="bi bi-trash"></i> 선택 일괄삭제</button>
+                                <button class="btn btn-outline-danger fw-bold shadow-sm w-100 w-md-auto text-nowrap" onclick="deleteSelectedKeywords()"><i class="bi bi-trash"></i> 일괄삭제</button>
                                 <button class="btn btn-outline-secondary fw-bold shadow-sm w-100 w-md-auto text-nowrap" onclick="clearSelectedIsbn()"><i class="bi bi-eraser"></i> ISBN 비우기</button>
 
                                 <button class="btn btn-outline-primary fw-bold shadow-sm w-100 w-md-auto text-nowrap" onclick="copyToTarget('studybox')"><i class="bi bi-send"></i> 스터디박스 복사</button>
-                                <button class="btn btn-outline-info fw-bold shadow-sm w-100 w-md-auto text-nowrap" onclick="copyToTarget('rm')"><i class="bi bi-send"></i> RM 복사</button>
+                                <button class="btn btn-outline-warning fw-bold shadow-sm w-100 w-md-auto text-nowrap" onclick="copyToTarget('rm')"><i class="bi bi-send"></i> RM 복사</button>
                                 
                                 <button class="btn btn-outline-success fw-bold shadow-sm w-100 w-md-auto text-nowrap" onclick="downloadExcel()"><i class="bi bi-file-earmark-excel"></i> 엑셀 저장</button>
                                 
                                 <div class="btn-group shadow-sm w-100 w-md-auto">
-                                    <button type="button" id="mainUpdateBtn" class="btn btn-warning text-dark fw-bold text-nowrap" onclick="refreshByIsbn('all', event)">
+                                    <button type="button" id="mainUpdateBtn" class="btn btn-info text-white fw-bold text-nowrap" onclick="refreshByIsbn('all', event)">
                                         <i class="bi bi-upc-scan"></i> 모두 업데이트
                                     </button>
-                                    <button type="button" id="subUpdateBtn" class="btn btn-warning text-dark dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" data-toggle="dropdown" aria-expanded="false">
+                                    <button type="button" id="subUpdateBtn" class="btn btn-info text-white dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" data-toggle="dropdown" aria-expanded="false">
                                     </button>
-                                    <ul class="dropdown-menu dropdown-menu-end border-warning shadow" style="min-width: 220px;">
+                                    <ul class="dropdown-menu dropdown-menu-end border-info shadow" style="min-width: 220px;">
                                         <li class="px-3 py-2 bg-light border-bottom mb-1" onclick="event.stopPropagation();">
                                             <div class="form-check form-switch mb-0">
                                                 <input class="form-check-input" type="checkbox" id="fillEmptyOnly" style="cursor: pointer;">
                                                 <label class="form-check-label fw-bold text-secondary small" for="fillEmptyOnly" style="cursor: pointer;">빈 칸만 채우기 (덮어쓰기 방지)</label>
                                             </div>
                                         </li>
-                                        <li><a class="dropdown-item fw-bold text-warning text-dark" href="#" onclick="refreshByIsbn('all', event)"><i class="bi bi-check-all"></i> 모두 업데이트</a></li>
+                                        <li><a class="dropdown-item fw-bold text-info" href="#" onclick="refreshByIsbn('all', event)"><i class="bi bi-check-all"></i> 모두 업데이트</a></li>
                                         <li><hr class="dropdown-divider"></li>
                                         <li><a class="dropdown-item fw-bold text-dark" href="#" onclick="refreshByIsbn('info', event)"><i class="bi bi-box-seam"></i> 상품 정보만 업데이트</a></li>
                                         <li><a class="dropdown-item fw-bold text-dark" href="#" onclick="refreshByIsbn('rank', event)"><i class="bi bi-sort-numeric-up"></i> 순위만 업데이트</a></li>
@@ -96,15 +96,14 @@
                                 <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-success" role="progressbar" style="width: 0%;">0%</div>
                             </div>
                             <div class="bg-white border rounded p-2 overflow-auto" style="height: 100px;">
-                                <ul id="logList" class="list-unstyled mb-0 small text-muted font-monospace">
-                                </ul>
+                                <ul id="logList" class="list-unstyled mb-0 small text-muted font-monospace"></ul>
                             </div>
                         </div>
 
                         <div class="d-flex flex-column flex-md-row align-items-md-center mb-2 p-2 bg-light rounded border gap-2 search-area">
                             <div class="d-flex align-items-center bg-white rounded border border-secondary px-2 py-1 w-100 w-md-auto mb-2 mb-md-0 shadow-sm" style="min-width: 200px;">
                                 <span class="small text-secondary fw-bold me-2 text-nowrap"><i class="bi bi-funnel"></i> 검색량:</span>
-                                <input type="number" id="minVolume" class="form-control form-control-sm border-0 px-1 text-center fw-bold text-warning" placeholder="최소" min="0" style="width: 65px; box-shadow: none;">
+                                <input type="number" id="minVolume" class="form-control form-control-sm border-0 px-1 text-center fw-bold text-info" placeholder="최소" min="0" style="width: 65px; box-shadow: none;">
                                 <span class="text-muted mx-1">~</span>
                                 <input type="number" id="maxVolume" class="form-control form-control-sm border-0 px-1 text-center fw-bold text-danger" placeholder="최대" min="0" style="width: 65px; box-shadow: none;">
                             </div>
@@ -117,7 +116,7 @@
                                     <option value="publisher">출판사명</option>
                                     <option value="isbn">ISBN</option>
                                 </select>
-                                <input type="text" id="searchInput" class="form-control form-control-sm flex-grow-1 border-warning shadow-sm" placeholder="검색어 입력 시 전체 탭에서 통합 검색됩니다...">
+                                <input type="text" id="searchInput" class="form-control form-control-sm flex-grow-1 border-info shadow-sm" placeholder="검색어 입력 시 전체 탭에서 통합 검색됩니다...">
                             </div>
                             
                             <div class="vr mx-2 d-none d-xl-block"></div>
@@ -145,7 +144,7 @@
                                 </div>
                                 <div class="d-flex align-items-center w-100 w-md-auto mt-2 mt-md-0">
                                     <i class="bi bi-sort-down text-secondary me-2"></i>
-                                    <select id="sortOption" class="form-select form-select-sm fw-bold text-warning text-dark w-100 w-md-auto shadow-sm" style="cursor: pointer; border-color: #ffc107; min-width: 160px;">
+                                    <select id="sortOption" class="form-select form-select-sm fw-bold text-info w-100 w-md-auto shadow-sm" style="cursor: pointer; border-color: #0dcaf0; min-width: 160px;">
                                         <option value="recent">최근 등록순</option>
                                         <option value="vol_desc">검색량 높은순</option>
                                         <option value="vol_asc">검색량 낮은순</option>
@@ -180,12 +179,15 @@
                                         <th>ISBN<br><small class="text-muted">(판매자 상품코드)</small></th>
                                         <th>가격</th>
                                         <th>택배비</th>
+                                        <!-- ✨ 새로운 열: 카페, 블로그 링크 칸 -->
+                                        <th>카페 링크</th>
+                                        <th>블로그 링크</th>
                                         <th class="text-primary fw-bold">상품명</th>
                                         <th>관리</th>
                                     </tr>
                                 </thead>
                                 <tbody id="savedKeywordsBody">
-                                    <tr><td colspan="18" class="text-center py-5 text-muted"><div class="spinner-border text-warning" role="status"></div><br>안전하게 데이터를 불러오는 중입니다...</td></tr>
+                                    <tr><td colspan="20" class="text-center py-5 text-muted"><div class="spinner-border text-info" role="status"></div><br>안전하게 데이터를 불러오는 중입니다...</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -200,16 +202,16 @@
         </div>
     </div>
 
+    <!-- 그래프 화면 탭 -->
     <div id="graphViewWrapper" class="d-none">
-        <div class="card shadow-sm border-0 border-top border-warning border-3">
+        <div class="card shadow-sm border-0 border-top border-info border-3">
             <div class="card-body p-4">
                 <div class="row bg-light p-3 rounded align-items-center mb-4 border border-secondary">
                     <div class="col-md-5 mb-3 mb-md-0">
                         <label class="form-label fw-bold text-muted mb-1" style="font-size: 13px;"><i class="bi bi-search"></i> 대상 키워드 검색 및 선택</label>
                         <div class="d-flex gap-2">
-                            <input type="text" id="graphKeywordSearch" class="form-control form-control-sm border-warning" placeholder="키워드 검색..." oninput="filterGraphBooks()" style="max-width: 140px;">
-                            <select id="graphBookSelect" class="form-select form-select-sm border-warning fw-bold" onchange="renderChart()">
-                            </select>
+                            <input type="text" id="graphKeywordSearch" class="form-control form-control-sm border-info" placeholder="키워드 검색..." oninput="filterGraphBooks()" style="max-width: 140px;">
+                            <select id="graphBookSelect" class="form-select form-select-sm border-info fw-bold" onchange="renderChart()"></select>
                         </div>
                     </div>
                     <div class="col-md-4 mb-3 mb-md-0">
@@ -249,13 +251,14 @@
     .row-selected { background-color: #e8f4f8 !important; }
     
     .editable-cell { cursor: pointer; transition: background-color 0.2s; position: relative; }
-    .editable-cell:hover { background-color: #f8f9fa; outline: 1px dashed #ffc107; z-index: 10; }
+    .editable-cell:hover { background-color: #f8f9fa; outline: 1px dashed #0dcaf0; z-index: 10; }
     
     .graph-link-cell { cursor: pointer; transition: all 0.2s ease-in-out; position: relative; }
-    .graph-link-cell:hover { background-color: #e9ecef !important; outline: 2px solid #ffc107; outline-offset: -2px; z-index: 10; box-shadow: 0 0 8px rgba(255,193,7,0.3); }
+    .graph-link-cell:hover { background-color: #e9ecef !important; outline: 2px solid #0dcaf0; outline-offset: -2px; z-index: 10; box-shadow: 0 0 8px rgba(13,202,240,0.3); }
     
     .hide-scrollbar::-webkit-scrollbar { display: none; }
     .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    
     .mobile-scroll-guide { display: none; }
 
     @media (max-width: 768px) {
@@ -299,10 +302,10 @@
     }
 
     function updateTabCounts() {
-        document.getElementById('tab-ALL').innerHTML = `전체 <span class="badge ${currentGradeTab === 'ALL' ? 'bg-warning text-dark' : 'bg-secondary'} rounded-pill ms-1">${allKeywordsData.length}</span>`;
-        document.getElementById('tab-A').innerHTML = `A등급 <span class="badge ${currentGradeTab === 'A' ? 'bg-warning text-dark' : 'bg-secondary'} rounded-pill ms-1">${allKeywordsData.filter(k => k.grade === 'A').length}</span>`;
-        document.getElementById('tab-B').innerHTML = `B등급 <span class="badge ${currentGradeTab === 'B' ? 'bg-warning text-dark' : 'bg-secondary'} rounded-pill ms-1">${allKeywordsData.filter(k => k.grade === 'B').length}</span>`;
-        document.getElementById('tab-C').innerHTML = `C등급 <span class="badge ${currentGradeTab === 'C' ? 'bg-warning text-dark' : 'bg-secondary'} rounded-pill ms-1">${allKeywordsData.filter(k => k.grade === 'C').length}</span>`;
+        document.getElementById('tab-ALL').innerHTML = `전체 <span class="badge ${currentGradeTab === 'ALL' ? 'bg-info' : 'bg-secondary'} rounded-pill ms-1">${allKeywordsData.length}</span>`;
+        document.getElementById('tab-A').innerHTML = `A등급 <span class="badge ${currentGradeTab === 'A' ? 'bg-info' : 'bg-secondary'} rounded-pill ms-1">${allKeywordsData.filter(k => k.grade === 'A').length}</span>`;
+        document.getElementById('tab-B').innerHTML = `B등급 <span class="badge ${currentGradeTab === 'B' ? 'bg-info' : 'bg-secondary'} rounded-pill ms-1">${allKeywordsData.filter(k => k.grade === 'B').length}</span>`;
+        document.getElementById('tab-C').innerHTML = `C등급 <span class="badge ${currentGradeTab === 'C' ? 'bg-info' : 'bg-secondary'} rounded-pill ms-1">${allKeywordsData.filter(k => k.grade === 'C').length}</span>`;
         document.getElementById('tab-MAIN').innerHTML = `MAIN <span class="badge ${currentGradeTab === 'MAIN' ? 'bg-danger' : 'bg-secondary'} rounded-pill ms-1">${allKeywordsData.filter(k => k.grade === 'MAIN').length}</span>`;
     }
 
@@ -336,12 +339,12 @@
     async function loadSavedKeywords() {
         if (isEditing) return; 
         try {
-            const res = await fetch("{{ url_for('monitoring.get_saved_keywords', target_page='dl') }}");
+            const res = await fetch("{{ url_for('monitoring.get_saved_keywords') }}?target_page=dl");
             if(!res.ok) throw new Error("서버 통신 오류");
             const result = await res.json();
             if (result.success) { allKeywordsData = result.data; populateGraphSelect(); renderTable(); } 
-            else document.getElementById('savedKeywordsBody').innerHTML = `<tr><td colspan="18" class="text-danger fw-bold py-5">데이터 로딩 실패</td></tr>`;
-        } catch (e) { document.getElementById('savedKeywordsBody').innerHTML = `<tr><td colspan="18" class="text-danger fw-bold py-5">새로고침을 시도해 주세요.</td></tr>`; }
+            else document.getElementById('savedKeywordsBody').innerHTML = `<tr><td colspan="20" class="text-danger fw-bold py-5"><i class="bi bi-exclamation-triangle"></i> 데이터 로딩 실패: ${result.message}</td></tr>`;
+        } catch (e) { document.getElementById('savedKeywordsBody').innerHTML = `<tr><td colspan="20" class="text-danger fw-bold py-5"><i class="bi bi-x-octagon fs-2 d-block mb-2"></i>데이터를 가져오는 중 문제가 발생했습니다.<br>새로고침(F5)을 시도해 주세요. (${e.message})</td></tr>`; }
     }
 
     function populateGraphSelect() {
@@ -365,7 +368,7 @@
         if(renderTimeout) clearTimeout(renderTimeout); renderTimeout = setTimeout(() => { renderChart(); window.scrollTo({ top: 0, behavior: 'smooth' }); }, 150);
     }
 
-    function getRankNum(rankStr) { return (!rankStr || rankStr === '-' || rankStr.includes('밖') || rankStr.includes('에러') || rankStr.includes('실패') || rankStr.includes('갱신중') || rankStr.includes('매칭중')) ? 9999 : parseInt(rankStr.replace(/[^0-9]/g, '')) || 9999; }
+    function getRankNum(rankStr) { return (!rankStr || rankStr === '-' || rankStr.includes('밖') || rankStr.includes('에러') || rankStr.includes('실패') || rankStr.includes('갱신중') || rankStr.includes('매칭중') || rankStr.includes('차단') || rankStr.includes('없음')) ? 9999 : parseInt(rankStr.replace(/[^0-9]/g, '')) || 9999; }
 
     function handleRowCheck(event, checkbox) {
         if (checkbox.checked) checkedIds.add(checkbox.value); else checkedIds.delete(checkbox.value);
@@ -428,11 +431,16 @@
                 let actualIndex = startIndex + index + 1; 
                 let kwBgColor = k.grade==='B'?'bg-neon-yellow':(k.grade==='C'?'bg-neon-orange':(k.grade==='MAIN'?'bg-neon-pink':'bg-neon-green'));
                 const fb = (diff) => diff > 0 ? `<span class="badge bg-danger rounded-pill ms-1">+${diff}</span>` : (diff < 0 ? `<span class="badge bg-primary rounded-pill ms-1">${diff}</span>` : `<span class="badge bg-secondary rounded-pill ms-1">-</span>`);
+                
                 let plink_val = k.product_link && k.product_link !== '-' ? k.product_link : '-';
                 let linkBtn = plink_val !== '-' ? `<a href="${plink_val.startsWith('http') ? plink_val : 'http://' + plink_val}" target="_blank" class="btn btn-sm btn-outline-primary py-0 px-2 text-decoration-none"><i class="bi bi-link-45deg"></i> 상품</a>` : '<span class="text-muted">-</span>';
+                
+                let cafeLinkBtn = (k.cafe_link && k.cafe_link !== '-') ? `<a href="${k.cafe_link.startsWith('http') ? k.cafe_link : 'http://' + k.cafe_link}" target="_blank" class="btn btn-sm btn-outline-success py-0 px-2 text-decoration-none"><i class="bi bi-link-45deg"></i> 이동</a>` : '<span class="text-muted">-</span>';
+                let blogLinkBtn = (k.blog_link && k.blog_link !== '-') ? `<a href="${k.blog_link.startsWith('http') ? k.blog_link : 'http://' + k.blog_link}" target="_blank" class="btn btn-sm btn-outline-warning py-0 px-2 text-decoration-none text-dark"><i class="bi bi-link-45deg"></i> 이동</a>` : '<span class="text-muted">-</span>';
+
                 let safeRank = String(k.store_rank || '-'), safePrevRank = String(k.prev_store_rank || '-'), rankDisplay = `<span class="fs-6 fw-bold">${safeRank}</span>`;
                 if (safePrevRank !== '-') {
-                    if (safeRank !== safePrevRank && !safeRank.includes('중')) {
+                    if (safeRank !== safePrevRank && !safeRank.includes('중') && !safeRank.includes('차단') && !safeRank.includes('없음')) {
                         let prevNum = getRankNum(safePrevRank), currNum = getRankNum(safeRank);
                         if (prevNum === 9999 && currNum !== 9999) rankDisplay += `<br><span class="rank-up">▲ 진입!</span>`;
                         else if (prevNum !== 9999 && currNum === 9999) rankDisplay += `<br><span class="rank-down">▼ 밀려남</span>`;
@@ -465,13 +473,17 @@
                     <td class="align-middle text-primary fw-bold editable-cell" data-id="${k.id}" data-field="isbn" title="더블클릭하여 수정" style="text-decoration:underline dashed;">${k.isbn || '-'}</td>
                     <td class="align-middle text-muted editable-cell" data-id="${k.id}" data-field="price" title="더블클릭하여 수정">${k.price || '-'}</td>
                     <td class="align-middle fw-bold text-secondary editable-cell" data-id="${k.id}" data-field="shipping_fee" title="더블클릭하여 수정">${k.shipping_fee || '-'}</td>
+                    
+                    <td class="align-middle editable-cell" data-id="${k.id}" data-field="cafe_link" data-val="${k.cafe_link || '-'}" title="더블클릭하여 카페주소 등록">${cafeLinkBtn}</td>
+                    <td class="align-middle editable-cell" data-id="${k.id}" data-field="blog_link" data-val="${k.blog_link || '-'}" title="더블클릭하여 블로그주소 등록">${blogLinkBtn}</td>
+                    
                     <td class="align-middle text-start editable-cell" data-id="${k.id}" data-field="book_title" title="더블클릭하여 수정">${titleNameDisplay}</td>
                     <td class="align-middle"><button class="btn btn-sm btn-danger py-0 px-2" onclick="deleteKeyword(${k.id})" title="삭제"><i class="bi bi-trash"></i></button></td>
                 </tr>`;
             }).join('');
             renderPagination(totalItems);
         } else {
-            tbody.innerHTML = `<tr><td colspan="18" class="text-center py-5 text-muted">해당하는 데이터가 없습니다.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="20" class="text-center py-5 text-muted">해당하는 데이터가 없습니다.</td></tr>`;
             document.getElementById('paginationContainer').innerHTML = ''; 
         }
         renderTableColors();
@@ -507,7 +519,7 @@
     async function copyToTarget(targetCode) {
         if (checkedIds.size === 0) { alert('복사할 항목을 왼쪽 체크박스로 선택해주세요!'); return; }
         let tName = targetCode === 'studybox' ? '스터디박스' : '러닝메이트';
-        if(!confirm(`선택한 ${checkedIds.size}개 항목을 [${tName}] 모니터링으로 복사하시겠습니까?\n(키워드, 네이버카운트, 판매수만 복사됩니다)`)) return;
+        if(!confirm(`선택한 ${checkedIds.size}개 항목을 [${tName}] 모니터링으로 복사하시겠습니까?`)) return;
 
         const fd = new FormData();
         fd.append('ids', Array.from(checkedIds).join(','));
@@ -547,8 +559,13 @@
         let id = parseInt(td.getAttribute('data-id')), field = td.getAttribute('data-field'), currentVal = td.hasAttribute('data-val') ? td.getAttribute('data-val') : td.textContent.trim();
         if(field === 'keyword') currentVal = allKeywordsData.find(i => i.id === id).keyword; if (currentVal === '-') currentVal = '';
         
-        let alignment = field === 'book_title' || field === 'product_link' ? 'text-start' : 'text-center', style = field === 'isbn' ? 'background-color:#fff3cd; font-weight:bold; color:#0d6efd;' : '';
-        let input = document.createElement('input'); input.type = 'text'; input.className = `form-control form-control-sm ${alignment} shadow-sm border-warning`; input.value = currentVal; input.placeholder = "엔터키로 저장"; input.style.cssText = `min-width: 100px; ${style}`;
+        let alignment = (field === 'book_title' || field === 'product_link' || field === 'cafe_link' || field === 'blog_link') ? 'text-start' : 'text-center', style = field === 'isbn' ? 'background-color:#fff3cd; font-weight:bold; color:#0d6efd;' : '';
+        
+        let placeholderTxt = "엔터키로 저장";
+        if(field === 'cafe_link') placeholderTxt = "카페 URL 주소 입력 (Enter)";
+        if(field === 'blog_link') placeholderTxt = "블로그 URL 주소 입력 (Enter)";
+
+        let input = document.createElement('input'); input.type = 'text'; input.className = `form-control form-control-sm ${alignment} shadow-sm border-info`; input.value = currentVal; input.placeholder = placeholderTxt; input.style.cssText = `min-width: 150px; ${style}`;
         
         td.innerHTML = ''; td.appendChild(input); input.focus(); let isSaved = false;
         
@@ -563,7 +580,7 @@
     });
 
     async function deleteKeyword(id) {
-        if (!confirm('이 키워드를 완전히 삭제하시겠습니까?')) return;
+        if (!confirm('이 키워문을 완전히 삭제하시겠습니까?')) return;
         const fd = new FormData(); fd.append('id', id); fd.append('target_page', 'dl');
         await fetch("{{ url_for('monitoring.delete_keyword') }}", { method: 'POST', body: fd }); loadSavedKeywords();
     }
@@ -599,14 +616,18 @@
     }
 
     function checkTaskStatus() {
-        fetch("{{ url_for('monitoring.get_task_status', target_page='dl') }}")
+        fetch("{{ url_for('monitoring.get_task_status') }}?target_page=dl")
             .then(res => res.json())
             .then(data => {
                 const progressBar = document.getElementById('progressBar'), progressStatusText = document.getElementById('progressStatusText'), progressCount = document.getElementById('progressCount'), logList = document.getElementById('logList');
                 let percent = 0; if (data.total > 0) percent = Math.round((data.current / data.total) * 100);
                 progressBar.style.width = percent + '%'; progressBar.innerText = percent + '%'; progressCount.innerText = `${data.current} / ${data.total}`;
                 if (data.logs && data.logs.length > 0) { logList.innerHTML = data.logs.map(log => `<li><i class="bi bi-check2-circle text-success me-1"></i>${log}</li>`).join(''); logList.parentElement.scrollTop = logList.parentElement.scrollHeight; }
-                if (!data.is_running && data.total > 0 && data.current >= data.total) { clearInterval(pollingInterval); progressStatusText.innerText = "✨ 업데이트가 모두 완료되었습니다!"; setTimeout(() => { resetUpdateUI(); loadSavedKeywords(); }, 2000); } else { progressStatusText.innerText = `데이터 수집 및 매칭 중...`; }
+                if (!data.is_running && data.total > 0 && data.current >= data.total) { 
+                    clearInterval(pollingInterval); 
+                    progressStatusText.innerText = "✨ 업데이트가 모두 완료되었습니다!"; 
+                    setTimeout(() => { resetUpdateUI(); loadSavedKeywords(); }, 1500); 
+                } else { progressStatusText.innerText = `데이터 수집 및 매칭 중...`; }
             }).catch(err => console.error(err));
     }
 
@@ -614,9 +635,9 @@
 
     function downloadExcel() {
         if (allKeywordsData.length === 0) { alert('다운로드할 데이터가 없습니다.'); return; }
-        let csvContent = "\uFEFF순번,등록일자,키워드,등급,검색량,판매수,순위,재고수,판매상태,출판사,공급률,ISBN,가격,택배비,상품명,상품링크\n";
+        let csvContent = "\uFEFF순번,등록일자,키워드,등급,검색량,판매수,순위,재고수,판매상태,출판사,공급률,ISBN,가격,택배비,카페링크,블로그링크,상품명,상품링크\n";
         allKeywordsData.forEach((k, idx) => {
-            let row = [ idx + 1, k.registered_at, k.keyword, k.grade, k.search_volume, k.sales_quantity, k.store_rank, k.stock_quantity, k.sales_status, k.publisher, k.supply_rate, k.isbn, k.price, k.shipping_fee, k.book_title, k.product_link ].map(v => `"${(v || '').toString().replace(/"/g, '""')}"`).join(","); csvContent += row + "\n";
+            let row = [ idx + 1, k.registered_at, k.keyword, k.grade, k.search_volume, k.sales_quantity, k.store_rank, k.stock_quantity, k.sales_status, k.publisher, k.supply_rate, k.isbn, k.price, k.shipping_fee, k.cafe_link, k.blog_link, k.book_title, k.product_link ].map(v => `"${(v || '').toString().replace(/"/g, '""')}"`).join(","); csvContent += row + "\n";
         });
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' }), url = URL.createObjectURL(blob), link = document.createElement("a"); link.setAttribute("href", url); link.setAttribute("download", "데일리러닝_데이터.csv"); document.body.appendChild(link); link.click(); document.body.removeChild(link);
     }
