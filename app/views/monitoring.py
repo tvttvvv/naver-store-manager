@@ -18,15 +18,8 @@ import requests
 from sqlalchemy import text
 from app.naver_api import get_naver_token
 from bs4 import BeautifulSoup
-import urllib3
-import pymysql # 외부 DB 연결용
 
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 monitoring_bp = Blueprint('monitoring', __name__)
-
-# 🛑 ScraperAPI 키 세팅 완료
-SCRAPER_API_KEY = "e280460353de4dbf8bb7147cccdb79e8"
-
 
 def clean_text(text):
     if not text or text == '-': return '-'
@@ -40,173 +33,156 @@ def parse_number(val):
 
 def get_selected_ids(req):
     ids_str = req.form.get('ids', '')
-    if ids_str: return [i.strip() for i in ids_str.split(',') if i.strip()]
+    if ids_str:
+        return [i.strip() for i in ids_str.split(',') if i.strip()]
     return req.form.getlist('ids[]')
 
-# ✨ 외부 DB(192.168.0.101)에서 공급률 가져오는 함수
-def fetch_supply_rate_from_db(isbn):
-    if not isbn or isbn == '-': return None
-    pure_isbn = str(isbn).replace('-', '').strip()
-    
-    try:
-        # DB 접속 정보 (가상 DB명 'book_db'는 나중에 실제 이름으로 변경 필요할 수 있음)
-        conn = pymysql.connect(
-            host='192.168.0.101',
-            user='inonwer',
-            password='ju102812',
-            db='192.168.0.101', # ⚠️ 만약 접속 에러가 나면 이 부분을 실제 데이터베이스 이름으로 바꿔주세요!
-            charset='utf8mb4',
-            cursorclass=pymysql.cursors.DictCursor,
-            connect_timeout=5
-        )
-        with conn.cursor() as cursor:
-            # isbn으로 공급률 조회
-            sql = "SELECT book_rate_new_1 FROM book WHERE REPLACE(isbn, '-', '') = %s LIMIT 1"
-            cursor.execute(sql, (pure_isbn,))
-            result = cursor.fetchone()
-            if result and result.get('book_rate_new_1'):
-                return str(result['book_rate_new_1'])
-        conn.close()
-    except Exception as e:
-        print(f"[External DB Error] 공급률 DB 접속 실패: {e}")
-    return None
-
-# ✨ [최종 마스터키 엔진] 띄어쓰기 완벽 무시 + ScraperAPI
+# ✨ [궁극의 생존 엔진] 네이버 도서 카탈로그 스텔스 탐색 
 def get_naver_shopping_rank(keyword, store_name):
     default_res = {'rank': '-', 'title': '', 'link': '', 'price': ''}
-    if not keyword or not store_name or store_name == '-': return default_res
-    
-    # 띄어쓰기를 완전히 제거하고 소문자로 변환 (예: "내 스토어" -> "내스토어")
-    target_store = re.sub(r'\s+', '', store_name).lower()
+    if not keyword or not store_name or store_name == '-': 
+        return default_res
+
+    target_store = store_name.replace(" ", "").lower()
 
     def fetch_html_stealth(url):
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "ko-KR,ko;q=0.9"
+        }
+        def is_valid(html_text):
+            if not html_text or len(html_text) < 500: return False
+            if "captcha" in html_text or "자동입력 방지" in html_text or "비정상적인 접근" in html_text: return False
+            return True
+
         try:
-            if SCRAPER_API_KEY == "e280460353de4dbf8bb7147cccdb79e8" or not SCRAPER_API_KEY:
-                # ScraperAPI 우회 통신
-                payload = {
-                    'api_key': SCRAPER_API_KEY, 
-                    'url': url,
-                    'country_code': 'kr',
-                    'device_type': 'desktop', 
-                    'premium': 'true'
-                }
-                r = requests.get('http://api.scraperapi.com/', params=payload, timeout=45)
-                r.encoding = 'utf-8'
-                
-                if r.status_code == 200 and len(r.text) > 500:
-                    return r.text
-                elif r.status_code == 403:
-                    print("[ScraperAPI 오류] 상태코드: 403 - API 키가 틀렸거나 무료 크레딧이 만료되었습니다.")
-                else:
-                    print(f"[ScraperAPI 오류] 상태코드: {r.status_code}, 응답 거부됨.")
-            else:
-                headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/123.0.0.0 Safari/537.36"}
-                r = requests.get(url, headers=headers, timeout=10, verify=False)
-                r.encoding = 'utf-8'
-                return r.text
-        except Exception as e:
-            print(f"[Scraper Error] {e}")
+            r = requests.get(url, headers=headers, timeout=5)
+            if is_valid(r.text): return r.text
+        except: pass
+        
+        try:
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            req = urllib.request.Request(url, headers=headers)
+            res = urllib.request.urlopen(req, context=ctx, timeout=5)
+            html_text = res.read().decode('utf-8', 'ignore')
+            if is_valid(html_text): return html_text
+        except: pass
+
+        try:
+            proxy_url = f"https://api.allorigins.win/raw?url={urllib.parse.quote(url, safe='')}"
+            r = requests.get(proxy_url, timeout=8)
+            if is_valid(r.text): return r.text
+        except: pass
+        
+        try:
+            proxy_url = f"https://api.codetabs.com/v1/proxy/?quest={urllib.parse.quote(url, safe='')}"
+            r = requests.get(proxy_url, timeout=8)
+            if is_valid(r.text): return r.text
+        except: pass
         return None
 
     try:
         endpoints = [
-            f"https://search.shopping.naver.com/book/search?query={urllib.parse.quote(keyword)}",
-            f"https://m.search.naver.com/search.naver?where=m_book&query={urllib.parse.quote(keyword)}",
-            f"https://msearch.shopping.naver.com/book/search?query={urllib.parse.quote(keyword)}"
+            f"https://search.shopping.naver.com/book/search?query={urllib.parse.quote(keyword)}",        
+            f"https://m.search.naver.com/search.naver?where=m_book&query={urllib.parse.quote(keyword)}", 
+            f"https://msearch.shopping.naver.com/book/search?query={urllib.parse.quote(keyword)}"        
         ]
         unique_mids = []
         html_data = None
-        
         for ep in endpoints:
             html_data = fetch_html_stealth(ep)
             if html_data:
-                if "captcha" in html_data.lower() or "비정상적인 접근" in html_data: continue
-                raw_mids = re.findall(r'catalog/(\d{10,})', html_data)
-                raw_mids += re.findall(r'"nvMid"\s*:\s*"?(\d{10,})"?', html_data)
-                raw_mids += re.findall(r'"bookId"\s*:\s*"?(\d{10,})"?', html_data)
-                raw_mids += re.findall(r'"productNo"\s*:\s*"?(\d{10,})"?', html_data)
-                for m in raw_mids:
-                    if m not in unique_mids: unique_mids.append(m)
-                if unique_mids: break
+                mids = re.findall(r'catalog/(\d{10,})', html_data)
+                mids += re.findall(r'"nvMid"\s*:\s*"?(\d{10,})"?', html_data)
+                mids += re.findall(r'"bookId"\s*:\s*"?(\d{10,})"?', html_data)
+                if mids:
+                    for m in mids:
+                        if m not in unique_mids:
+                            unique_mids.append(m)
+                    break 
 
         if not unique_mids:
-            if html_data and "mallName" in html_data:
+            if html_data:
                 malls = re.findall(r'"mallName"\s*:\s*"([^"]+)"', html_data)
                 if not malls: malls = re.findall(r'class="[^"]*mall_name[^"]*"[^>]*>([^<]+)<', html_data)
                 for idx, m in enumerate(malls, 1):
-                    # 띄어쓰기 무시 비교
-                    m_clean = re.sub(r'\s+', '', m).lower()
-                    if target_store in m_clean or m_clean in target_store:
-                        return {'rank': f"단일 {idx}위", 'title': '', 'link': '', 'price': ''}
+                    if target_store in m.replace(" ", "").lower():
+                        return {'rank': f"일반단행본 {idx}", 'title': '', 'link': '', 'price': ''}
                 return {'rank': '검색결과 없음', 'title': '', 'link': '', 'price': ''}
-            return {'rank': 'ScraperAPI 연동 필요 (IP 차단됨)', 'title': '', 'link': '', 'price': ''}
+            else:
+                return {'rank': '모든 통신망 차단됨', 'title': '', 'link': '', 'price': ''}
 
-        for cat_idx, mid in enumerate(unique_mids[:5]):
+        for cat_idx, mid in enumerate(unique_mids[:4]):
             cat_url = f"https://search.shopping.naver.com/book/catalog/{mid}"
             cat_html = fetch_html_stealth(cat_url)
+
             if not cat_html: continue
 
             title = ""
             m_title = re.search(r'<title>([^<]+)</title>', cat_html)
             if m_title: title = m_title.group(1).split(':')[0].replace("네이버 도서", "").strip()
 
-            found_rank = None; price_val = ""; link_val = cat_url
+            found_rank = None
+            price_val = ""
+            link_val = cat_url
+
             soup = BeautifulSoup(cat_html, 'html.parser')
             script = soup.find('script', id='__NEXT_DATA__')
-            
             if script:
                 try:
                     c_data = json.loads(script.string)
-                    def find_offers(obj):
-                        if isinstance(obj, dict):
-                            if 'offers' in obj and isinstance(obj['offers'], list): return obj['offers']
-                            for v in obj.values():
-                                res = find_offers(v)
-                                if res: return res
-                        elif isinstance(obj, list):
-                            for item in obj:
-                                res = find_offers(item)
-                                if res: return res
-                        return None
-                    
-                    offers = find_offers(c_data) or []
+                    offers = c_data.get('props', {}).get('pageProps', {}).get('initialState', {}).get('catalog', {}).get('offers', [])
                     for idx, offer in enumerate(offers, 1):
-                        # 띄어쓰기 완전히 무시하고 비교
-                        m_name = re.sub(r'\s+', '', str(offer.get('mallName', ''))).lower()
-                        if target_store in m_name or m_name in target_store:
+                        m_name = offer.get('mallName', '').replace(" ", "").lower()
+                        if target_store in m_name:
                             found_rank = idx
-                            p = str(offer.get('price', offer.get('mobilePrice', '')))
+                            p = str(offer.get('price', ''))
                             if p.isdigit(): price_val = f"{int(p):,}원"
                             link_val = offer.get('mallProductUrl', cat_url)
                             break
                 except: pass
 
             if not found_rank:
-                blocks = re.split(r'("mallName"|"sellerName")', cat_html)
-                current_idx = 1
-                for i in range(1, len(blocks) - 1, 2):
-                    block_content = blocks[i+1][:200]
-                    m_mall = re.search(r'^\s*:\s*"([^"]+)"', block_content)
-                    if m_mall:
-                        # 띄어쓰기 무시 비교
-                        m_mall_clean = re.sub(r'\s+', '', m_mall.group(1)).lower()
-                        if target_store in m_mall_clean or m_mall_clean in target_store:
-                            found_rank = current_idx
-                            m_price = re.search(r'"price"\s*:\s*(\d+)', block_content)
+                offers_match = re.search(r'"offers":\[(.*?)\]', cat_html)
+                if offers_match:
+                    blocks = re.split(r'},{', offers_match.group(1))
+                    for idx, block in enumerate(blocks, 1):
+                        m_mall = re.search(r'"mallName"\s*:\s*"([^"]+)"', block)
+                        if m_mall and target_store in m_mall.group(1).replace(" ", "").lower():
+                            found_rank = idx
+                            m_price = re.search(r'"price"\s*:\s*(\d+)', block)
                             if m_price: price_val = f"{int(m_price.group(1)):,}원"
                             break
-                        current_idx += 1
+
+            if not found_rank:
+                malls_html = re.findall(r'"mallName"\s*:\s*"([^"]+)"', cat_html)
+                if not malls_html:
+                    malls_html = re.findall(r'class="[^"]*mall_name[^"]*"[^>]*>([^<]+)<', cat_html)
+                if malls_html:
+                    seen_mall = set()
+                    real_idx = 1
+                    for m in malls_html:
+                        mc = m.replace(" ", "").lower()
+                        if mc not in seen_mall:
+                            seen_mall.add(mc)
+                            if target_store in mc:
+                                found_rank = real_idx
+                                break
+                            real_idx += 1
 
             if found_rank:
-                r_str = f"{found_rank}위"
-                if cat_idx > 0: r_str = f"{cat_idx+1}번째 책 {found_rank}위"
+                r_str = str(found_rank)
+                if cat_idx > 0: r_str = f"{cat_idx+1}번째 책 {found_rank}"
                 return {'rank': r_str, 'title': title, 'price': price_val, 'link': link_val}
 
+            time.sleep(random.uniform(0.3, 0.7)) 
         return {'rank': '가격비교 밖', 'title': '', 'link': '', 'price': ''}
     except Exception as e:
-        print(f"Main Scrape Error: {e}")
+        print(f"Scrape Error: {e}")
         return {'rank': '시스템 오류', 'title': '', 'link': '', 'price': ''}
-
 
 @monitoring_bp.route('/')
 @login_required
@@ -258,6 +234,11 @@ def receive_webhook():
             except: db.session.rollback()
             try: db.session.execute(text(f"ALTER TABLE {table_name} ADD COLUMN sales_status VARCHAR(50) DEFAULT '-'")); db.session.commit()
             except: db.session.rollback()
+            # ✨ 카페, 블로그 링크 컬럼 동적 추가 안전망
+            try: db.session.execute(text(f"ALTER TABLE {table_name} ADD COLUMN cafe_link TEXT DEFAULT '-'")); db.session.commit()
+            except: db.session.rollback()
+            try: db.session.execute(text(f"ALTER TABLE {table_name} ADD COLUMN blog_link TEXT DEFAULT '-'")); db.session.commit()
+            except: db.session.rollback()
 
         try:
             existing_sb = MonitoredKeyword.query.filter_by(user_id=user.id, keyword=keyword).first()
@@ -266,7 +247,7 @@ def receive_webhook():
                 existing_sb.store_rank = store_rank
                 existing_sb.rank_info = grade_char
             else:
-                new_sb = MonitoredKeyword(user_id=user.id, keyword=keyword, search_volume=search_volume, rank_info=grade_char, link=link, isbn='-', shipping_fee='-', store_rank=store_rank, prev_store_rank='-')
+                new_sb = MonitoredKeyword(user_id=user.id, keyword=keyword, search_volume=search_volume, rank_info=grade_char, link=link, isbn='-', shipping_fee='-', store_rank=store_rank, prev_store_rank='-', cafe_link='-', blog_link='-')
                 db.session.add(new_sb)
 
             existing_rm = RunningmateKeyword.query.filter_by(user_id=user.id, keyword=keyword).first()
@@ -275,7 +256,7 @@ def receive_webhook():
                 existing_rm.store_rank = store_rank
                 existing_rm.rank_info = grade_char
             else:
-                new_rm = RunningmateKeyword(user_id=user.id, keyword=keyword, search_volume=search_volume, rank_info=grade_char, link=link, isbn='-', shipping_fee='-', store_rank=store_rank, prev_store_rank='-')
+                new_rm = RunningmateKeyword(user_id=user.id, keyword=keyword, search_volume=search_volume, rank_info=grade_char, link=link, isbn='-', shipping_fee='-', store_rank=store_rank, prev_store_rank='-', cafe_link='-', blog_link='-')
                 db.session.add(new_rm)
                 
             existing_dl = DailylearningKeyword.query.filter_by(user_id=user.id, keyword=keyword).first()
@@ -284,7 +265,7 @@ def receive_webhook():
                 existing_dl.store_rank = store_rank
                 existing_dl.rank_info = grade_char
             else:
-                new_dl = DailylearningKeyword(user_id=user.id, keyword=keyword, search_volume=search_volume, rank_info=grade_char, link=link, isbn='-', shipping_fee='-', store_rank=store_rank, prev_store_rank='-')
+                new_dl = DailylearningKeyword(user_id=user.id, keyword=keyword, search_volume=search_volume, rank_info=grade_char, link=link, isbn='-', shipping_fee='-', store_rank=store_rank, prev_store_rank='-', cafe_link='-', blog_link='-')
                 db.session.add(new_dl)
 
             db.session.commit()
@@ -340,7 +321,9 @@ def copy_to_target():
             book_title='-',
             product_link='-',
             stock_quantity='-',
-            sales_status='-'
+            sales_status='-',
+            cafe_link=getattr(kw, 'cafe_link', '-'),
+            blog_link=getattr(kw, 'blog_link', '-')
         )
         db.session.add(new_kw)
         count += 1
@@ -370,6 +353,11 @@ def get_saved_keywords():
         try: db.session.execute(text(f"ALTER TABLE {table_name} ADD COLUMN registered_at VARCHAR(50) DEFAULT '-'")); db.session.commit()
         except: db.session.rollback()
         try: db.session.execute(text(f"ALTER TABLE {table_name} ADD COLUMN sales_status VARCHAR(50) DEFAULT '-'")); db.session.commit()
+        except: db.session.rollback()
+        # ✨ 카페, 블로그 링크 컬럼 동적 추가 안전망
+        try: db.session.execute(text(f"ALTER TABLE {table_name} ADD COLUMN cafe_link TEXT DEFAULT '-'")); db.session.commit()
+        except: db.session.rollback()
+        try: db.session.execute(text(f"ALTER TABLE {table_name} ADD COLUMN blog_link TEXT DEFAULT '-'")); db.session.commit()
         except: db.session.rollback()
 
     keywords = ModelClass.query.filter_by(user_id=current_user.id).order_by(ModelClass.id.desc()).all()
@@ -402,6 +390,8 @@ def get_saved_keywords():
             'stock_quantity': getattr(k, 'stock_quantity', '-'),
             'sales_quantity': getattr(k, 'sales_quantity', '-'), 
             'sales_status': getattr(k, 'sales_status', '-'),
+            'cafe_link': getattr(k, 'cafe_link', '-'), # 반환 객체에 추가
+            'blog_link': getattr(k, 'blog_link', '-'), # 반환 객체에 추가
             'registered_at': getattr(k, 'registered_at', '-'),
             'history': history
         })
@@ -484,6 +474,9 @@ def update_keyword():
         if 'stock_quantity' in request.form: kw.stock_quantity = request.form.get('stock_quantity')
         if 'sales_quantity' in request.form: kw.sales_quantity = request.form.get('sales_quantity')
         if 'sales_status' in request.form: kw.sales_status = request.form.get('sales_status')
+        # ✨ 새로운 링크들 업데이트 허용
+        if 'cafe_link' in request.form: kw.cafe_link = request.form.get('cafe_link', '-').strip()
+        if 'blog_link' in request.form: kw.blog_link = request.form.get('blog_link', '-').strip()
             
         db.session.commit()
         return jsonify({'success': True})
@@ -696,12 +689,6 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                                 if exact_info.get('my_status'): updates['sales_status'] = exact_info['my_status'] 
                             if update_mode in ['all', 'stock']:
                                 if exact_info.get('my_stock'): updates['stock_quantity'] = exact_info['my_stock']
-                                
-                    # ✨ 외부 DB 연동: 공급률 가져오기 로직 실행
-                    if update_mode in ['all', 'info'] and target_isbn:
-                        supply_rate_val = fetch_supply_rate_from_db(target_isbn)
-                        if supply_rate_val:
-                            updates['supply_rate'] = supply_rate_val
 
                     if update_mode in ['all', 'rank', 'info']:
                         need_crawler = ('rank' in update_mode or 'all' in update_mode) or (('info' in update_mode or 'all' in update_mode) and not updates.get('book_title'))
@@ -716,11 +703,11 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                                 if not updates.get('price') and crawl_data['price']: updates['price'] = crawl_data['price']
 
                             if update_mode in ['all', 'rank']:
-                                updates['store_rank'] = rank_result 
+                                updates['store_rank'] = rank_result
                                 
                                 if "밖" in rank_result:
                                     monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] 📉 {rank_result}")
-                                elif "차단" in rank_result or "실패" in rank_result or "오류" in rank_result or "없음" in rank_result or "연동 필요" in rank_result:
+                                elif "차단" in rank_result or "실패" in rank_result or "오류" in rank_result or "없음" in rank_result:
                                     monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ⚠️ {rank_result}")
                                 else:
                                     monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] 🏆 {rank_result}위 확인!")
@@ -737,17 +724,13 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                             if updates.get('price') and should_update(kw_update.price): kw_update.price = updates['price']
                             if updates.get('publisher') and should_update(kw_update.publisher): kw_update.publisher = updates['publisher']
                             if updates.get('sales_status') and should_update(kw_update.sales_status): kw_update.sales_status = updates['sales_status']
-                            
-                            # ✨ DB에서 가져온 공급률 저장 반영
-                            if updates.get('supply_rate') and should_update(kw_update.supply_rate): 
-                                kw_update.supply_rate = updates['supply_rate']
                         
                         if update_mode in ['all', 'stock']:
                             if updates.get('stock_quantity') and should_update(getattr(kw_update, 'stock_quantity', '-')):
                                 kw_update.stock_quantity = updates['stock_quantity']
                                 
                         if update_mode in ['all', 'rank'] and 'store_rank' in updates:
-                            if kw_update.store_rank != updates['store_rank'] and kw_update.store_rank not in ['-', '에러', '실패', '검색 차단됨', '모든 통신망 차단됨', '포털 검색 차단됨', '포털 보안망 차단됨', '초강력 보안망 완전 차단됨', '시스템 점검/네트워크 오류', '카탈로그 차단됨', '검색 오류', '검색결과 없음', '검색결과 없음(구조변경됨)', '매칭중', 'ScraperAPI 연동 필요 (IP 차단됨)'] and "밖" not in kw_update.store_rank:
+                            if kw_update.store_rank != updates['store_rank'] and kw_update.store_rank not in ['-', '에러', '실패', '접속 차단됨', '모든 통신망 차단됨', '검색결과 없음', '매칭중'] and "밖" not in kw_update.store_rank:
                                 kw_update.prev_store_rank = kw_update.store_rank
                             kw_update.store_rank = updates['store_rank']
 
@@ -767,7 +750,7 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                     monitoring_tasks[task_key]["current"] += 1
                     monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ❌ 내부 오류")
                 
-                time.sleep(random.uniform(0.5, 1.0))
+                time.sleep(random.uniform(0.3, 0.7)) 
                 
     except Exception as outer_e:
         monitoring_tasks[task_key]["logs"].append(f"⚠️ 시스템 오류가 발생했습니다.")
