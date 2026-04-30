@@ -16,7 +16,6 @@
         </div>
     </div>
 
-    <!-- 데이터 표 화면 -->
     <div id="tableViewWrapper">
         <ul class="nav nav-tabs mb-3 d-flex flex-nowrap overflow-auto hide-scrollbar" id="gradeTabs" style="white-space: nowrap;">
             <li class="nav-item"><a class="nav-link active fw-bold text-dark px-2 px-md-3" href="#" onclick="changeGradeTab('ALL', event)" id="tab-ALL" style="font-size: 1.05rem;">전체 <span class="badge bg-info rounded-pill ms-1">0</span></a></li>
@@ -97,8 +96,7 @@
                                 <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-success" role="progressbar" style="width: 0%;">0%</div>
                             </div>
                             <div class="bg-white border rounded p-2 overflow-auto" style="height: 100px;">
-                                <ul id="logList" class="list-unstyled mb-0 small text-muted font-monospace">
-                                </ul>
+                                <ul id="logList" class="list-unstyled mb-0 small text-muted font-monospace"></ul>
                             </div>
                         </div>
 
@@ -213,8 +211,7 @@
                         <label class="form-label fw-bold text-muted mb-1" style="font-size: 13px;"><i class="bi bi-search"></i> 대상 키워드 검색 및 선택</label>
                         <div class="d-flex gap-2">
                             <input type="text" id="graphKeywordSearch" class="form-control form-control-sm border-info" placeholder="키워드 검색..." oninput="filterGraphBooks()" style="max-width: 140px;">
-                            <select id="graphBookSelect" class="form-select form-select-sm border-info fw-bold" onchange="renderChart()">
-                            </select>
+                            <select id="graphBookSelect" class="form-select form-select-sm border-info fw-bold" onchange="renderChart()"></select>
                         </div>
                     </div>
                     <div class="col-md-4 mb-3 mb-md-0">
@@ -342,7 +339,6 @@
     async function loadSavedKeywords() {
         if (isEditing) return; 
         try {
-            // ✨ 타겟을 "rm" (러닝메이트)로 불러옵니다
             const res = await fetch("{{ url_for('monitoring.get_saved_keywords') }}?target_page=rm");
             if(!res.ok) throw new Error("서버 통신 오류");
             const result = await res.json();
@@ -372,7 +368,7 @@
         if(renderTimeout) clearTimeout(renderTimeout); renderTimeout = setTimeout(() => { renderChart(); window.scrollTo({ top: 0, behavior: 'smooth' }); }, 150);
     }
 
-    function getRankNum(rankStr) { return (!rankStr || rankStr === '-' || rankStr.includes('밖') || rankStr.includes('에러') || rankStr.includes('실패') || rankStr.includes('갱신중') || rankStr.includes('매칭중') || rankStr.includes('차단')) ? 9999 : parseInt(rankStr.replace(/[^0-9]/g, '')) || 9999; }
+    function getRankNum(rankStr) { return (!rankStr || rankStr === '-' || rankStr.includes('밖') || rankStr.includes('에러') || rankStr.includes('실패') || rankStr.includes('갱신중') || rankStr.includes('매칭중') || rankStr.includes('차단') || rankStr.includes('없음')) ? 9999 : parseInt(rankStr.replace(/[^0-9]/g, '')) || 9999; }
 
     function handleRowCheck(event, checkbox) {
         if (checkbox.checked) checkedIds.add(checkbox.value); else checkedIds.delete(checkbox.value);
@@ -439,13 +435,12 @@
                 let plink_val = k.product_link && k.product_link !== '-' ? k.product_link : '-';
                 let linkBtn = plink_val !== '-' ? `<a href="${plink_val.startsWith('http') ? plink_val : 'http://' + plink_val}" target="_blank" class="btn btn-sm btn-outline-primary py-0 px-2 text-decoration-none"><i class="bi bi-link-45deg"></i> 상품</a>` : '<span class="text-muted">-</span>';
                 
-                // ✨ 새로운 카페, 블로그 링크 버튼 UI 생성
                 let cafeLinkBtn = (k.cafe_link && k.cafe_link !== '-') ? `<a href="${k.cafe_link.startsWith('http') ? k.cafe_link : 'http://' + k.cafe_link}" target="_blank" class="btn btn-sm btn-outline-success py-0 px-2 text-decoration-none"><i class="bi bi-link-45deg"></i> 이동</a>` : '<span class="text-muted">-</span>';
                 let blogLinkBtn = (k.blog_link && k.blog_link !== '-') ? `<a href="${k.blog_link.startsWith('http') ? k.blog_link : 'http://' + k.blog_link}" target="_blank" class="btn btn-sm btn-outline-warning py-0 px-2 text-decoration-none text-dark"><i class="bi bi-link-45deg"></i> 이동</a>` : '<span class="text-muted">-</span>';
 
                 let safeRank = String(k.store_rank || '-'), safePrevRank = String(k.prev_store_rank || '-'), rankDisplay = `<span class="fs-6 fw-bold">${safeRank}</span>`;
                 if (safePrevRank !== '-') {
-                    if (safeRank !== safePrevRank && !safeRank.includes('중') && !safeRank.includes('차단')) {
+                    if (safeRank !== safePrevRank && !safeRank.includes('중') && !safeRank.includes('차단') && !safeRank.includes('없음')) {
                         let prevNum = getRankNum(safePrevRank), currNum = getRankNum(safeRank);
                         if (prevNum === 9999 && currNum !== 9999) rankDisplay += `<br><span class="rank-up">▲ 진입!</span>`;
                         else if (prevNum !== 9999 && currNum === 9999) rankDisplay += `<br><span class="rank-down">▼ 밀려남</span>`;
@@ -479,7 +474,6 @@
                     <td class="align-middle text-muted editable-cell" data-id="${k.id}" data-field="price" title="더블클릭하여 수정">${k.price || '-'}</td>
                     <td class="align-middle fw-bold text-secondary editable-cell" data-id="${k.id}" data-field="shipping_fee" title="더블클릭하여 수정">${k.shipping_fee || '-'}</td>
                     
-                    <!-- ✨ 화면에 뿌려지는 카페/블로그 링크 칸 -->
                     <td class="align-middle editable-cell" data-id="${k.id}" data-field="cafe_link" data-val="${k.cafe_link || '-'}" title="더블클릭하여 카페주소 등록">${cafeLinkBtn}</td>
                     <td class="align-middle editable-cell" data-id="${k.id}" data-field="blog_link" data-val="${k.blog_link || '-'}" title="더블클릭하여 블로그주소 등록">${blogLinkBtn}</td>
                     
@@ -558,7 +552,6 @@
         try { const res = await fetch("{{ url_for('monitoring.delete_keywords_bulk') }}", { method: 'POST', body: fd }); const result = await res.json(); if(result.success) { alert(result.message); document.getElementById('selectAll').checked = false; checkedIds.clear(); loadSavedKeywords(); } else { alert(result.message); } } catch(e) { alert('삭제 중 오류가 발생했습니다.'); }
     }
 
-    // ✨ 더블클릭 수정 이벤트 등록 부분
     document.getElementById('savedKeywordsBody').addEventListener('dblclick', function(e) {
         let graphCell = e.target.closest('.graph-link-cell'); if (graphCell) { goToGraph(graphCell.getAttribute('data-id'), graphCell.getAttribute('data-type')); return; }
         let td = e.target.closest('.editable-cell'); if (!td) return; if (isEditing) return; isEditing = true; 
@@ -568,7 +561,6 @@
         
         let alignment = (field === 'book_title' || field === 'product_link' || field === 'cafe_link' || field === 'blog_link') ? 'text-start' : 'text-center', style = field === 'isbn' ? 'background-color:#fff3cd; font-weight:bold; color:#0d6efd;' : '';
         
-        // 입력창 플레이스홀더를 카페/블로그 링크에 맞게 변경
         let placeholderTxt = "엔터키로 저장";
         if(field === 'cafe_link') placeholderTxt = "카페 URL 주소 입력 (Enter)";
         if(field === 'blog_link') placeholderTxt = "블로그 URL 주소 입력 (Enter)";
@@ -641,7 +633,6 @@
 
     function resetUpdateUI() { document.getElementById('mainUpdateBtn').disabled = false; document.getElementById('subUpdateBtn').disabled = false; document.getElementById('progressContainer').classList.add('d-none'); if(pollingInterval) clearInterval(pollingInterval); }
 
-    // ✨ 엑셀 다운로드에도 카페, 블로그 링크 칸 추가
     function downloadExcel() {
         if (allKeywordsData.length === 0) { alert('다운로드할 데이터가 없습니다.'); return; }
         let csvContent = "\uFEFF순번,등록일자,키워드,등급,검색량,판매수,순위,재고수,판매상태,출판사,공급률,ISBN,가격,택배비,카페링크,블로그링크,상품명,상품링크\n";
