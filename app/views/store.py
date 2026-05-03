@@ -46,8 +46,8 @@ def update_task(user_id, store_id, status=None, message=None, current=None, tota
 def background_delete_job(app, store_id, delete_mode, isbn_list, user_id):
     with app.app_context():
         try:
-            user = User.query.get(user_id)
-            selected_key = ApiKey.query.filter_by(id=store_id, owner=user).first()
+            # ✨ 버그 수정: owner 대신 정확한 컬럼명인 user_id를 사용하여 API 키를 검색합니다.
+            selected_key = ApiKey.query.filter_by(id=store_id, user_id=user_id).first()
             if not selected_key:
                 update_task(user_id, store_id, status='error', message='상점 정보가 유효하지 않습니다.')
                 return
@@ -159,8 +159,6 @@ def background_delete_job(app, store_id, delete_mode, isbn_list, user_id):
                         future_to_item = {}
                         for p in new_items:
                             origin_no = p.get('originProductNo')
-                            
-                            # ✨ [수정] 일괄 삭제에서도 정확한 채널 ID와 상품명을 가져오도록 변경
                             c_prods = p.get('channelProducts', [{}])
                             c_prod = c_prods[0] if c_prods else {}
                             
@@ -203,7 +201,7 @@ def background_delete_job(app, store_id, delete_mode, isbn_list, user_id):
                                 if '완료' in suspend_res or '우회' in suspend_res: success_count += 1
                                 else: fail_count += 1
                                 update_task(user_id, store_id, status='progress', current=current_count, target_name=f'[{origin_no}] {name[:15]}...', result_status=suspend_res, s_count=success_count, f_count=fail_count)
-                            
+                    
                     page += 1 
                     time.sleep(0.5)
                     
@@ -242,8 +240,8 @@ def update_dup_task(user_id, store_id, status=None, message=None, current=None, 
 def background_duplicate_check_job(app, store_id, user_id):
     with app.app_context():
         try:
-            user = User.query.get(user_id)
-            selected_key = ApiKey.query.filter_by(id=store_id, owner=user).first()
+            # ✨ 버그 수정: owner 대신 정확한 컬럼명인 user_id를 사용합니다.
+            selected_key = ApiKey.query.filter_by(id=store_id, user_id=user_id).first()
             if not selected_key:
                 update_dup_task(user_id, store_id, status='error', message='상점 정보가 유효하지 않습니다.')
                 return
@@ -385,7 +383,8 @@ def start_task():
     app = current_app._get_current_object()
     for sid_str in store_ids:
         store_id = int(sid_str)
-        key = ApiKey.query.filter_by(id=store_id, owner=current_user).first()
+        # ✨ 버그 수정: owner=current_user 대신 user_id=user_id 사용
+        key = ApiKey.query.filter_by(id=store_id, user_id=user_id).first()
         if not key: continue
         if user_id in global_tasks and store_id in global_tasks[user_id] and global_tasks[user_id][store_id]['is_running']: continue
         init_task(user_id, store_id, key.store_name, delete_mode)
@@ -419,7 +418,8 @@ def start_dup_task():
     app = current_app._get_current_object()
     for sid_str in store_ids:
         store_id = int(sid_str)
-        key = ApiKey.query.filter_by(id=store_id, owner=current_user).first()
+        # ✨ 버그 수정: owner=current_user 대신 user_id=user_id 사용
+        key = ApiKey.query.filter_by(id=store_id, user_id=user_id).first()
         if not key: continue
         if user_id in global_dup_tasks and store_id in global_dup_tasks[user_id] and global_dup_tasks[user_id][store_id]['is_running']: continue
         init_dup_task(user_id, store_id, key.store_name)
@@ -460,8 +460,8 @@ def suspend_duplicates():
     if not dup_ids:
         return jsonify({'success': False, 'message': '중지할 유효한 상품 ID가 없습니다.'})
         
-    user = User.query.get(current_user.id)
-    key = ApiKey.query.filter_by(id=int(store_id), owner=user).first()
+    # ✨ 버그 수정: owner=user 대신 user_id=current_user.id 사용
+    key = ApiKey.query.filter_by(id=int(store_id), user_id=current_user.id).first()
     if not key:
         return jsonify({'success': False, 'message': '상점 인증 키를 찾을 수 없습니다.'})
         
