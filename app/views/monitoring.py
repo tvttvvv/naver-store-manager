@@ -37,7 +37,7 @@ def get_selected_ids(req):
         return [i.strip() for i in ids_str.split(',') if i.strip()]
     return req.form.getlist('ids[]')
 
-# ✨ [궁극의 생존 엔진] 네이버 도서 카탈로그 스텔스 탐색 
+# ✨ [궁극의 생존 엔진] 3개의 엔드포인트 × 4개의 우회망 = 12중 방어막 파괴!
 def get_naver_shopping_rank(keyword, store_name):
     default_res = {'rank': '-', 'title': '', 'link': '', 'price': ''}
     if not keyword or not store_name or store_name == '-': 
@@ -45,22 +45,26 @@ def get_naver_shopping_rank(keyword, store_name):
 
     target_store = store_name.replace(" ", "").lower()
 
+    # 차단을 피하고 데이터를 뜯어오는 마법의 통신 함수
     def fetch_html_stealth(url):
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "ko-KR,ko;q=0.9"
         }
+        
         def is_valid(html_text):
             if not html_text or len(html_text) < 500: return False
             if "captcha" in html_text or "자동입력 방지" in html_text or "비정상적인 접근" in html_text: return False
             return True
 
+        # 1. Requests 일반 통신
         try:
             r = requests.get(url, headers=headers, timeout=5)
             if is_valid(r.text): return r.text
         except: pass
         
+        # 2. Urllib 보안 무시 통신
         try:
             ctx = ssl.create_default_context()
             ctx.check_hostname = False
@@ -71,33 +75,40 @@ def get_naver_shopping_rank(keyword, store_name):
             if is_valid(html_text): return html_text
         except: pass
 
+        # 3. 프록시 1 (AllOrigins RAW 모드)
         try:
             proxy_url = f"https://api.allorigins.win/raw?url={urllib.parse.quote(url, safe='')}"
             r = requests.get(proxy_url, timeout=8)
             if is_valid(r.text): return r.text
         except: pass
         
+        # 4. 프록시 2 (CodeTabs)
         try:
             proxy_url = f"https://api.codetabs.com/v1/proxy/?quest={urllib.parse.quote(url, safe='')}"
             r = requests.get(proxy_url, timeout=8)
             if is_valid(r.text): return r.text
         except: pass
+        
         return None
 
     try:
+        # [STEP 1] 도서 번호(nvMid)를 찾기 위해 3개의 문을 두드립니다!
         endpoints = [
             f"https://search.shopping.naver.com/book/search?query={urllib.parse.quote(keyword)}",        
             f"https://m.search.naver.com/search.naver?where=m_book&query={urllib.parse.quote(keyword)}", 
             f"https://msearch.shopping.naver.com/book/search?query={urllib.parse.quote(keyword)}"        
         ]
+        
         unique_mids = []
         html_data = None
+        
         for ep in endpoints:
             html_data = fetch_html_stealth(ep)
             if html_data:
                 mids = re.findall(r'catalog/(\d{10,})', html_data)
                 mids += re.findall(r'"nvMid"\s*:\s*"?(\d{10,})"?', html_data)
                 mids += re.findall(r'"bookId"\s*:\s*"?(\d{10,})"?', html_data)
+                
                 if mids:
                     for m in mids:
                         if m not in unique_mids:
@@ -108,6 +119,7 @@ def get_naver_shopping_rank(keyword, store_name):
             if html_data:
                 malls = re.findall(r'"mallName"\s*:\s*"([^"]+)"', html_data)
                 if not malls: malls = re.findall(r'class="[^"]*mall_name[^"]*"[^>]*>([^<]+)<', html_data)
+                
                 for idx, m in enumerate(malls, 1):
                     if target_store in m.replace(" ", "").lower():
                         return {'rank': f"일반단행본 {idx}", 'title': '', 'link': '', 'price': ''}
@@ -115,15 +127,18 @@ def get_naver_shopping_rank(keyword, store_name):
             else:
                 return {'rank': '모든 통신망 차단됨', 'title': '', 'link': '', 'price': ''}
 
+        # [STEP 2] 찾은 도서들의 가격비교(카탈로그) 내부 침투
         for cat_idx, mid in enumerate(unique_mids[:4]):
             cat_url = f"https://search.shopping.naver.com/book/catalog/{mid}"
             cat_html = fetch_html_stealth(cat_url)
 
-            if not cat_html: continue
+            if not cat_html:
+                continue
 
             title = ""
             m_title = re.search(r'<title>([^<]+)</title>', cat_html)
-            if m_title: title = m_title.group(1).split(':')[0].replace("네이버 도서", "").strip()
+            if m_title: 
+                title = m_title.group(1).split(':')[0].replace("네이버 도서", "").strip()
 
             found_rank = None
             price_val = ""
@@ -161,6 +176,7 @@ def get_naver_shopping_rank(keyword, store_name):
                 malls_html = re.findall(r'"mallName"\s*:\s*"([^"]+)"', cat_html)
                 if not malls_html:
                     malls_html = re.findall(r'class="[^"]*mall_name[^"]*"[^>]*>([^<]+)<', cat_html)
+                
                 if malls_html:
                     seen_mall = set()
                     real_idx = 1
@@ -179,10 +195,13 @@ def get_naver_shopping_rank(keyword, store_name):
                 return {'rank': r_str, 'title': title, 'price': price_val, 'link': link_val}
 
             time.sleep(random.uniform(0.3, 0.7)) 
+
         return {'rank': '가격비교 밖', 'title': '', 'link': '', 'price': ''}
+
     except Exception as e:
         print(f"Scrape Error: {e}")
         return {'rank': '시스템 오류', 'title': '', 'link': '', 'price': ''}
+
 
 @monitoring_bp.route('/')
 @login_required
@@ -234,7 +253,6 @@ def receive_webhook():
             except: db.session.rollback()
             try: db.session.execute(text(f"ALTER TABLE {table_name} ADD COLUMN sales_status VARCHAR(50) DEFAULT '-'")); db.session.commit()
             except: db.session.rollback()
-            # ✨ 카페, 블로그 링크 컬럼 동적 추가 안전망
             try: db.session.execute(text(f"ALTER TABLE {table_name} ADD COLUMN cafe_link TEXT DEFAULT '-'")); db.session.commit()
             except: db.session.rollback()
             try: db.session.execute(text(f"ALTER TABLE {table_name} ADD COLUMN blog_link TEXT DEFAULT '-'")); db.session.commit()
@@ -354,7 +372,6 @@ def get_saved_keywords():
         except: db.session.rollback()
         try: db.session.execute(text(f"ALTER TABLE {table_name} ADD COLUMN sales_status VARCHAR(50) DEFAULT '-'")); db.session.commit()
         except: db.session.rollback()
-        # ✨ 카페, 블로그 링크 컬럼 동적 추가 안전망
         try: db.session.execute(text(f"ALTER TABLE {table_name} ADD COLUMN cafe_link TEXT DEFAULT '-'")); db.session.commit()
         except: db.session.rollback()
         try: db.session.execute(text(f"ALTER TABLE {table_name} ADD COLUMN blog_link TEXT DEFAULT '-'")); db.session.commit()
@@ -390,8 +407,8 @@ def get_saved_keywords():
             'stock_quantity': getattr(k, 'stock_quantity', '-'),
             'sales_quantity': getattr(k, 'sales_quantity', '-'), 
             'sales_status': getattr(k, 'sales_status', '-'),
-            'cafe_link': getattr(k, 'cafe_link', '-'), # 반환 객체에 추가
-            'blog_link': getattr(k, 'blog_link', '-'), # 반환 객체에 추가
+            'cafe_link': getattr(k, 'cafe_link', '-'), 
+            'blog_link': getattr(k, 'blog_link', '-'), 
             'registered_at': getattr(k, 'registered_at', '-'),
             'history': history
         })
@@ -474,7 +491,6 @@ def update_keyword():
         if 'stock_quantity' in request.form: kw.stock_quantity = request.form.get('stock_quantity')
         if 'sales_quantity' in request.form: kw.sales_quantity = request.form.get('sales_quantity')
         if 'sales_status' in request.form: kw.sales_status = request.form.get('sales_status')
-        # ✨ 새로운 링크들 업데이트 허용
         if 'cafe_link' in request.form: kw.cafe_link = request.form.get('cafe_link', '-').strip()
         if 'blog_link' in request.form: kw.blog_link = request.form.get('blog_link', '-').strip()
             
@@ -648,17 +664,34 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
 
     try:
         with app.app_context():
-            store_mapping = {
+            # ✨ [핵심 해결 포인트] 용도별 상점명 완벽 분리 시스템 적용!
+            
+            # 1. API 키 검색용 상점명 매핑 (커머스 API 접근용: "러닝메이트3" 등 정확한 등록 이름)
+            api_store_mapping = {
+                'studybox': '스터디박스',
+                'rm': '러닝메이트3', 
+                'dl': '데일리러닝'
+            }
+            api_store_name = api_store_mapping.get(target, '스터디박스')
+
+            # 2. 순위 크롤링 검색용 상점명 매핑 (네이버 쇼핑 실제 노출 이름: "러닝메이트")
+            crawl_store_mapping = {
                 'studybox': '스터디박스',
                 'rm': '러닝메이트',
                 'dl': '데일리러닝'
             }
-            target_store_name = store_mapping.get(target, '스터디박스')
+            target_store_name = crawl_store_mapping.get(target, '스터디박스')
 
-            api_key = ApiKey.query.filter_by(user_id=user_id, store_name=target_store_name).first()
+            # API 키 가져오기 시도
+            api_key = ApiKey.query.filter_by(user_id=user_id, store_name=api_store_name).first()
             commerce_token = None
             if api_key: 
                 commerce_token = get_naver_token(api_key.client_id, api_key.client_secret)
+            else:
+                # 안전망: 키를 못 찾으면 일단 등록된 아무 키나 빌려와서 작동 시도
+                fallback_key = ApiKey.query.filter_by(user_id=user_id).first()
+                if fallback_key:
+                    commerce_token = get_naver_token(fallback_key.client_id, fallback_key.client_secret)
 
             for k_id in target_ids:
                 try:
@@ -703,11 +736,11 @@ def async_refresh_by_isbn(app, user_id, target_ids, update_mode, fill_empty_only
                                 if not updates.get('price') and crawl_data['price']: updates['price'] = crawl_data['price']
 
                             if update_mode in ['all', 'rank']:
-                                updates['store_rank'] = rank_result
+                                updates['store_rank'] = rank_result 
                                 
                                 if "밖" in rank_result:
                                     monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] 📉 {rank_result}")
-                                elif "차단" in rank_result or "실패" in rank_result or "오류" in rank_result or "없음" in rank_result:
+                                elif "차단" in rank_result or "실패" in rank_result or "에러" in rank_result or "없음" in rank_result or "오류" in rank_result:
                                     monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] ⚠️ {rank_result}")
                                 else:
                                     monitoring_tasks[task_key]["logs"].append(f"[{keyword_name}] 🏆 {rank_result}위 확인!")
